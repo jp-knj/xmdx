@@ -1,0 +1,5 @@
+---
+source: directive_html_attr
+expression: result
+---
+<p><div title=":note">content</div></p>

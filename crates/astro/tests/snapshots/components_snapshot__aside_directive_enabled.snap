@@ -1,0 +1,8 @@
+---
+source: crates/core/tests/components_snapshot.rs
+assertion_line: 20
+expression: output
+---
+<aside class="aside aside--note"><div class="aside__title">Heads</div>
+Body of directive aside.
+</aside>

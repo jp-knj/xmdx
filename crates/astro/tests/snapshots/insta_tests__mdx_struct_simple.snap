@@ -1,0 +1,9 @@
+---
+source: crates/core/tests/insta_tests.rs
+expression: result
+---
+<p><Button>Click me</Button></p>
+<p>Text between.</p>
+<div className="wrapper">
+  <Button>Nested</Button>
+</div>

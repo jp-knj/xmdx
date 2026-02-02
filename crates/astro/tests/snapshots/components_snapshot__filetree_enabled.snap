@@ -1,0 +1,8 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<ul class="filetree">
+  <li class="filetree__item">src</li>
+  <li class="filetree__item">README.md</li>
+</ul>

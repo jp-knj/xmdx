@@ -1,0 +1,7 @@
+---
+source: crates/core/tests/insta_tests.rs
+expression: result
+---
+<Chart data={items.filter((x) => x.ok)} title={`Val-${foo}`} />{items.map((x) => (
+<Row key={x.id}>{x.label}</Row>
+))}

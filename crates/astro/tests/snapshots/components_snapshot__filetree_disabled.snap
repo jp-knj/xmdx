@@ -1,0 +1,8 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<FileTree>
+  <File>src</File>
+  <File>README.md</File>
+</FileTree>
