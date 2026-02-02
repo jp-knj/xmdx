@@ -1,0 +1,23 @@
+[package]
+name = "xmdx-astro"
+description = "Astro/Starlight rendering and codegen for xmdx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+xmdx-core = { path = "../core" }
+markdown = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+lol_html = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+once_cell = { workspace = true }
+criterion = "0.5"
+
+[package.metadata.insta]
+review = false
+snapshot-path = "tests/snapshots"

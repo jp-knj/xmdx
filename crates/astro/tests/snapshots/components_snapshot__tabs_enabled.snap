@@ -1,0 +1,12 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<div class="tabs" role="tablist">
+  <div class="tab" role="tabpanel"><div class="tab__title">First</div>
+    <p>Alpha</p>
+  </div>
+<div class="tab" role="tabpanel"><div class="tab__title">Second</div>
+    <p>Beta</p>
+  </div>
+</div>

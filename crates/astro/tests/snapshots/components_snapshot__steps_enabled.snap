@@ -1,0 +1,10 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<ol class="steps">
+  <li class="steps__item">First</li>
+  <li class="steps__item">
+    <p>Second</p>
+  </li>
+</ol>

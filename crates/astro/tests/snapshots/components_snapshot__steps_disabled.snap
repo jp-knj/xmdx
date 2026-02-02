@@ -1,0 +1,10 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<Steps>
+  <Step>First</Step>
+  <Step>
+    <p>Second</p>
+  </Step>
+</Steps>

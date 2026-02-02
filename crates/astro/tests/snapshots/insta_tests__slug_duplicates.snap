@@ -1,0 +1,9 @@
+---
+source: crates/core/tests/insta_tests.rs
+assertion_line: 10
+expression: result
+---
+<h1 id="heading">Heading</h1>
+<h2 id="heading-1">Heading</h2>
+<h2 id="heading-2">Heading</h2>
+<h1 id="heading-3">Heading</h1>

@@ -1,0 +1,12 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<Tabs>
+  <Tab title="First">
+    <p>Alpha</p>
+  </Tab>
+<Tab title="Second">
+    <p>Beta</p>
+  </Tab>
+</Tabs>
