@@ -34,4 +34,33 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude xmdx-napi
+
+  test-napi:
+    name: Test NAPI Bindings
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: crates/napi
+        run: bun install
+
+      - name: Build NAPI binding
+        working-directory: crates/napi
+        run: bun run build
+
+      - name: Run tests
+        working-directory: crates/napi
+        run: bun test
