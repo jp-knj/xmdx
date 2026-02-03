@@ -33,7 +33,9 @@ fn auto_close_directives(
     trimmed: &str,
 ) {
     let mut should_auto_close = {
-        let (_, opener_ws, _) = stack.last().expect("checked non-empty above");
+        let Some((_, opener_ws, _)) = stack.last() else {
+            return;
+        };
         let opener_indent = opener_ws.len();
 
         // Only auto-close INDENTED directives (opener_indent > 0) when:
@@ -49,7 +51,9 @@ fn auto_close_directives(
 
     // Close ALL directives whose indentation exceeds the current line's indent
     while should_auto_close {
-        let (_, leading_ws, _) = stack.pop().expect("checked non-empty above");
+        let Some((_, leading_ws, _)) = stack.pop() else {
+            break;
+        };
         writeln!(output, "{}</mf-directive>", leading_ws).ok();
 
         // Re-evaluate for remaining directives
@@ -127,7 +131,9 @@ pub fn preprocess_directives(input: &str) -> String {
 
         // Check for directive closer
         if is_directive_closer(line) && !directive_stack.is_empty() {
-            let (_, leading_ws, _) = directive_stack.pop().expect("checked non-empty above");
+            let Some((_, leading_ws, _)) = directive_stack.pop() else {
+                continue;
+            };
             writeln!(output, "{}</mf-directive>", leading_ws).ok();
             continue;
         }

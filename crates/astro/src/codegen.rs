@@ -577,169 +577,197 @@ where
     for block in blocks {
         match block {
             RenderBlock::Html { content } => {
-                // Use set:html to avoid HTML entity parsing issues with esbuild
-                // JSON.stringify handles all escaping; Astro parses the HTML at runtime
-                result.push_str("<_Fragment set:html={");
-                result.push_str(&js_string_literal(content));
-                result.push_str("} />");
+                emit_html_block(content, &mut result);
             }
             RenderBlock::Code { code, lang, .. } => {
-                // Render code block as HTML using set:html
-                let mut html = String::new();
-                html.push_str(r#"<pre class="astro-code" tabindex="0">"#);
-                if let Some(l) = lang {
-                    let escaped_lang = escape_attr_value_for_html(l);
-                    html.push_str(&format!(r#"<code class="language-{}">"#, escaped_lang));
-                } else {
-                    html.push_str("<code>");
-                }
-                html.push_str(&escape_code_text_for_html(code));
-                html.push_str("</code></pre>");
-                result.push_str("<_Fragment set:html={");
-                result.push_str(&js_string_literal(&html));
-                result.push_str("} />");
+                emit_code_block(code, lang.as_deref(), &mut result);
             }
             RenderBlock::Component {
                 name,
                 props,
                 slot_children,
             } => {
-                // Separate Fragment-with-slot children from regular children.
-                // Fragment VNodes with `slot` props are unwrapped by Astro's renderJSX
-                // before slot distribution, losing the slot assignment. We render them
-                // as <div style="display:contents" slot="name"> instead.
-                let mut regular_children: Vec<&RenderBlock> = Vec::new();
-                let mut fragment_slot_children: Vec<(&str, &[RenderBlock])> = Vec::new();
-
-                for child in slot_children {
-                    if let RenderBlock::Component {
-                        name: child_name,
-                        props: child_props,
-                        slot_children: inner,
-                    } = child
-                        && child_name == "Fragment"
-                        && let Some(PropValue::Literal { value: slot_name }) =
-                            child_props.get("slot")
-                    {
-                        fragment_slot_children.push((slot_name.as_str(), inner.as_slice()));
-                        continue;
-                    }
-                    regular_children.push(child);
-                }
-
-                // Convert regular (non-fragment-slot) children to HTML string
-                let regular_blocks: Vec<RenderBlock> =
-                    regular_children.into_iter().cloned().collect();
-                let slot_html = slot_children_to_html(&regular_blocks);
-                // Apply slot normalization based on registry configuration
-                let slot_html = normalize_slot_by_registry(name, &slot_html, registry);
-
-                // Apply directive mapping if provided
-                let (tag_name, type_prop) = if let Some(ref mapper) = directive_mapper {
-                    if let Some(mapping) = mapper(name) {
-                        (mapping.tag_name, mapping.type_prop)
-                    } else {
-                        (name.clone(), None)
-                    }
-                } else {
-                    (name.clone(), None)
-                };
-
-                result.push('<');
-                result.push_str(&tag_name);
-
-                // Add type prop if mapping provided one
-                if let Some(type_value) = type_prop {
-                    result.push_str(" type=\"");
-                    result.push_str(&type_value);
-                    result.push('"');
-                }
-
-                // Render props as {...{key: "value" | expression, ...}}
-                if !props.is_empty() {
-                    result.push_str(" {...{");
-                    let mut first = true;
-                    for (key, prop_value) in props {
-                        if !first {
-                            result.push_str(", ");
-                        }
-                        first = false;
-                        // Escape the key for JavaScript
-                        result.push('"');
-                        result.push_str(&key.replace('"', "\\\""));
-                        result.push_str("\": ");
-
-                        // Render value based on type
-                        match prop_value {
-                            PropValue::Literal { value } => {
-                                // String literal: wrap in quotes
-                                result.push('"');
-                                result.push_str(&escape_js_string_value(value));
-                                result.push('"');
-                            }
-                            PropValue::Expression { value } => {
-                                // JS expression: output raw (no quotes)
-                                result.push_str(value);
-                            }
-                        }
-                    }
-                    result.push_str("}}");
-                }
-
-                // Handle slot content
-                // We can't use set:html directly on components because Astro components
-                // receive children via <slot />, not innerHTML
-                let has_any_content = !slot_html.is_empty() || !fragment_slot_children.is_empty();
-
-                if !has_any_content {
-                    result.push_str(" />");
-                } else {
-                    result.push('>');
-
-                    // Default slot content (regular children)
-                    if !slot_html.is_empty() {
-                        // Check if slot contains JSX components (PascalCase tags like <Card, <Aside)
-                        // These need to be embedded directly so Astro processes them as components
-                        if has_pascal_case_tag(&slot_html) {
-                            // Slot contains components - embed JSX directly
-                            // Convert HTML entities to JSX expressions so they render as text, not markup
-                            result.push_str(&html_entities_to_jsx(&slot_html));
-                        } else {
-                            // Pure HTML content - use set:html to avoid entity parsing issues
-                            result.push_str("<_Fragment set:html={");
-                            result.push_str(&js_string_literal(&slot_html));
-                            result.push_str("} />");
-                        }
-                    }
-
-                    // Named slot children: render as <span style="display:contents" slot="name">
-                    // Using a real HTML element (not Fragment) so Astro's slot distribution
-                    // correctly assigns the content to the named slot.
-                    for (slot_name, inner_children) in &fragment_slot_children {
-                        let inner_html = slot_children_to_html(inner_children);
-                        result.push_str("<span style=\"display:contents\" slot=\"");
-                        result.push_str(slot_name);
-                        result.push_str("\">");
-                        if !inner_html.is_empty() {
-                            if has_pascal_case_tag(&inner_html) {
-                                result.push_str(&html_entities_to_jsx(&inner_html));
-                            } else {
-                                result.push_str("<_Fragment set:html={");
-                                result.push_str(&js_string_literal(&inner_html));
-                                result.push_str("} />");
-                            }
-                        }
-                        result.push_str("</span>");
-                    }
-
-                    result.push_str("</");
-                    result.push_str(&tag_name);
-                    result.push('>');
-                }
+                emit_component_block(
+                    name,
+                    props,
+                    slot_children,
+                    &directive_mapper,
+                    registry,
+                    &mut result,
+                );
             }
         }
     }
     result
+}
+
+/// Emits an HTML render block as a Fragment with `set:html`.
+fn emit_html_block(content: &str, result: &mut String) {
+    result.push_str("<_Fragment set:html={");
+    result.push_str(&js_string_literal(content));
+    result.push_str("} />");
+}
+
+/// Emits a code render block as a `<pre><code>` Fragment with `set:html`.
+fn emit_code_block(code: &str, lang: Option<&str>, result: &mut String) {
+    let mut html = String::new();
+    html.push_str(r#"<pre class="astro-code" tabindex="0">"#);
+    if let Some(l) = lang {
+        let escaped_lang = escape_attr_value_for_html(l);
+        html.push_str(&format!(r#"<code class="language-{}">"#, escaped_lang));
+    } else {
+        html.push_str("<code>");
+    }
+    html.push_str(&escape_code_text_for_html(code));
+    html.push_str("</code></pre>");
+    result.push_str("<_Fragment set:html={");
+    result.push_str(&js_string_literal(&html));
+    result.push_str("} />");
+}
+
+/// Emits a component render block with props, slot content, and directive mapping.
+fn emit_component_block<F>(
+    name: &str,
+    props: &std::collections::HashMap<String, PropValue>,
+    slot_children: &[RenderBlock],
+    directive_mapper: &Option<F>,
+    registry: &RegistryConfig,
+    result: &mut String,
+) where
+    F: Fn(&str) -> Option<DirectiveMappingResult>,
+{
+    // Separate Fragment-with-slot children from regular children.
+    let (regular_children, fragment_slot_children) = partition_slot_children(slot_children);
+
+    // Convert regular (non-fragment-slot) children to HTML string
+    let regular_blocks: Vec<RenderBlock> = regular_children.into_iter().cloned().collect();
+    let slot_html = slot_children_to_html(&regular_blocks);
+    let slot_html = normalize_slot_by_registry(name, &slot_html, registry);
+
+    // Apply directive mapping if provided
+    let (tag_name, type_prop) = resolve_tag_name(name, directive_mapper);
+
+    result.push('<');
+    result.push_str(&tag_name);
+
+    if let Some(type_value) = type_prop {
+        result.push_str(" type=\"");
+        result.push_str(&type_value);
+        result.push('"');
+    }
+
+    emit_props(props, result);
+
+    let has_any_content = !slot_html.is_empty() || !fragment_slot_children.is_empty();
+
+    if !has_any_content {
+        result.push_str(" />");
+    } else {
+        result.push('>');
+        emit_slot_html(&slot_html, result);
+
+        for (slot_name, inner_children) in &fragment_slot_children {
+            emit_named_slot(slot_name, inner_children, result);
+        }
+
+        result.push_str("</");
+        result.push_str(&tag_name);
+        result.push('>');
+    }
+}
+
+/// Partitions slot children into regular children and Fragment-with-slot children.
+fn partition_slot_children(
+    slot_children: &[RenderBlock],
+) -> (Vec<&RenderBlock>, Vec<(&str, &[RenderBlock])>) {
+    let mut regular: Vec<&RenderBlock> = Vec::new();
+    let mut fragment_slots: Vec<(&str, &[RenderBlock])> = Vec::new();
+
+    for child in slot_children {
+        if let RenderBlock::Component {
+            name: child_name,
+            props: child_props,
+            slot_children: inner,
+        } = child
+            && child_name == "Fragment"
+            && let Some(PropValue::Literal { value: slot_name }) = child_props.get("slot")
+        {
+            fragment_slots.push((slot_name.as_str(), inner.as_slice()));
+            continue;
+        }
+        regular.push(child);
+    }
+
+    (regular, fragment_slots)
+}
+
+/// Resolves the JSX tag name and optional type prop via directive mapping.
+fn resolve_tag_name<F>(name: &str, directive_mapper: &Option<F>) -> (String, Option<String>)
+where
+    F: Fn(&str) -> Option<DirectiveMappingResult>,
+{
+    if let Some(mapper) = directive_mapper
+        && let Some(mapping) = mapper(name)
+    {
+        return (mapping.tag_name, mapping.type_prop);
+    }
+    (name.to_string(), None)
+}
+
+/// Emits component props as a JSX spread object `{...{key: value, ...}}`.
+fn emit_props(props: &std::collections::HashMap<String, PropValue>, result: &mut String) {
+    if props.is_empty() {
+        return;
+    }
+    result.push_str(" {...{");
+    let mut first = true;
+    for (key, prop_value) in props {
+        if !first {
+            result.push_str(", ");
+        }
+        first = false;
+        result.push('"');
+        result.push_str(&key.replace('"', "\\\""));
+        result.push_str("\": ");
+
+        match prop_value {
+            PropValue::Literal { value } => {
+                result.push('"');
+                result.push_str(&escape_js_string_value(value));
+                result.push('"');
+            }
+            PropValue::Expression { value } => {
+                result.push_str(value);
+            }
+        }
+    }
+    result.push_str("}}");
+}
+
+/// Emits default slot HTML content, choosing between direct JSX or Fragment with `set:html`.
+fn emit_slot_html(slot_html: &str, result: &mut String) {
+    if slot_html.is_empty() {
+        return;
+    }
+    if has_pascal_case_tag(slot_html) {
+        result.push_str(&html_entities_to_jsx(slot_html));
+    } else {
+        result.push_str("<_Fragment set:html={");
+        result.push_str(&js_string_literal(slot_html));
+        result.push_str("} />");
+    }
+}
+
+/// Emits a named slot as a `<span style="display:contents" slot="name">`.
+fn emit_named_slot(slot_name: &str, inner_children: &[RenderBlock], result: &mut String) {
+    let inner_html = slot_children_to_html(inner_children);
+    result.push_str("<span style=\"display:contents\" slot=\"");
+    result.push_str(slot_name);
+    result.push_str("\">");
+    if !inner_html.is_empty() {
+        emit_slot_html(&inner_html, result);
+    }
+    result.push_str("</span>");
 }
 
 /// Applies slot normalization based on registry configuration.
