@@ -1,0 +1,40 @@
+# Rust source files
+*.rs
+Cargo.toml
+Cargo.lock
+crates/
+
+# Build artifacts
+target/
+.cargo/
+
+# Development files
+__tests__/
+examples/
+scripts/
+benchmarks/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+TODO.md
+AGENTS.md
+pnpm-lock.yaml
