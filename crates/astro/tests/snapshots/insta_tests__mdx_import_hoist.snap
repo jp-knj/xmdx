@@ -1,0 +1,5 @@
+---
+source: mdx_import_hoist
+expression: result
+---
+<h1 id="title">Title</h1>

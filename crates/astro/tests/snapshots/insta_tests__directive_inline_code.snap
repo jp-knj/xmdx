@@ -1,0 +1,5 @@
+---
+source: directive_inline_code
+expression: result
+---
+<p>Here is <code>:::note</code> inside code</p>

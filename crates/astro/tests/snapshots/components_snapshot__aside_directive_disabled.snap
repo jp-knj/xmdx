@@ -1,0 +1,8 @@
+---
+source: crates/core/tests/components_snapshot.rs
+assertion_line: 20
+expression: output
+---
+<Aside data-mf-source="directive" type="note" title="Heads">
+Body of directive aside.
+</Aside>

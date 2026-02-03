@@ -1,0 +1,7 @@
+---
+source: crates/core/tests/components_snapshot.rs
+expression: output
+---
+<Aside type="tip" title="Raw Title">
+  <p>Raw MDX aside content.</p>
+</Aside>
