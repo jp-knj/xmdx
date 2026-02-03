@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/astro",
     "crates/napi",
+    "crates/wasm",
 ]
 resolver = "2"
 
