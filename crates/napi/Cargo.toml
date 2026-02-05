@@ -1,6 +1,6 @@
 [package]
 name = "xmdx-napi"
-description = "Node.js bindings for xmdx"
+description = "Node bindings for xmdx"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,6 +13,7 @@ xmdx-core = { path = "../core" }
 xmdx-astro = { path = "../astro" }
 napi = { workspace = true }
 napi-derive = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

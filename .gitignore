@@ -144,5 +144,4 @@ target
 # napi-rs build artifacts
 *.node
 
-# ai
-.claude
+.claude/
