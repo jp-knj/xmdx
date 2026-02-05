@@ -1,0 +1,19 @@
+{
+  "name": "xmdx-wasm",
+  "type": "module",
+  "collaborators": [
+    "jp-knj"
+  ],
+  "version": "0.0.1",
+  "license": "MIT",
+  "files": [
+    "xmdx_wasm_bg.wasm",
+    "xmdx_wasm.js",
+    "xmdx_wasm.d.ts"
+  ],
+  "main": "xmdx_wasm.js",
+  "types": "xmdx_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

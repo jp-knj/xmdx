@@ -1,0 +1,84 @@
+{
+  "name": "xmdx",
+  "version": "0.0.1",
+  "description": "High-performance streaming Markdown to HTML parser built with Rust",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./src/node.ts",
+        "import": "./src/node.ts",
+        "default": "./src/node.ts"
+      },
+      "browser": {
+        "types": "./src/browser.ts",
+        "import": "./src/browser.ts",
+        "default": "./src/browser.ts"
+      },
+      "edge-light": {
+        "types": "./src/browser.ts",
+        "import": "./src/browser.ts",
+        "default": "./src/browser.ts"
+      },
+      "workerd": {
+        "types": "./src/browser.ts",
+        "import": "./src/browser.ts",
+        "default": "./src/browser.ts"
+      },
+      "default": {
+        "types": "./src/browser.ts",
+        "import": "./src/browser.ts",
+        "default": "./src/browser.ts"
+      }
+    },
+    "./browser": {
+      "types": "./src/browser.ts",
+      "import": "./src/browser.ts",
+      "default": "./src/browser.ts"
+    },
+    "./registry": {
+      "types": "./src/registry/index.ts",
+      "import": "./src/registry/index.ts",
+      "default": "./src/registry/index.ts"
+    },
+    "./wasm": {
+      "types": "./wasm/xmdx_wasm.d.ts",
+      "import": "./wasm/xmdx_wasm.js",
+      "default": "./wasm/xmdx_wasm.js"
+    }
+  },
+  "main": "./src/node.ts",
+  "types": "./src/types.ts",
+  "files": [
+    "src",
+    "wasm"
+  ],
+  "keywords": [
+    "markdown",
+    "parser",
+    "rust",
+    "streaming",
+    "performance",
+    "html",
+    "wasm",
+    "mdx"
+  ],
+  "author": "jp-knj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jp-knj/xmdx"
+  },
+  "dependencies": {
+    "xmdx-napi": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

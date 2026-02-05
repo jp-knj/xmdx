@@ -1,0 +1,77 @@
+{
+  "name": "astro-xmdx",
+  "version": "0.0.1",
+  "description": "Astro integration for xmdx - high-performance MDX compiler",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts",
+      "default": "./index.ts"
+    },
+    "./presets": {
+      "types": "./src/presets/index.ts",
+      "import": "./src/presets/index.ts",
+      "default": "./src/presets/index.ts"
+    },
+    "./vite-plugin": {
+      "types": "./src/vite-plugin.ts",
+      "import": "./src/vite-plugin.ts",
+      "default": "./src/vite-plugin.ts"
+    },
+    "./pipeline": {
+      "types": "./src/pipeline/index.ts",
+      "import": "./src/pipeline/index.ts",
+      "default": "./src/pipeline/index.ts"
+    },
+    "./transforms": {
+      "types": "./src/transforms/index.ts",
+      "import": "./src/transforms/index.ts",
+      "default": "./src/transforms/index.ts"
+    }
+  },
+  "files": [
+    "index.ts",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "mdx",
+    "markdown",
+    "xmdx",
+    "vite"
+  ],
+  "author": "jp-knj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jp-knj/xmdx"
+  },
+  "peerDependencies": {
+    "astro": ">=4.0.0",
+    "vite": ">=5.0.0"
+  },
+  "dependencies": {
+    "@mdx-js/mdx": "^3.1.1",
+    "glob": "^11.0.0",
+    "xmdx": "workspace:*",
+    "xmdx-napi": "workspace:*",
+    "parse5": "^7.1.2",
+    "remark-directive": "^3.0.0",
+    "remark-gfm": "^4.0.0",
+    "shiki": "^3.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

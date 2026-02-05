@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "outDir": "dist",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "xmdx-napi": ["../../crates/napi/index"]
+    }
+  },
+  "include": ["src"]
+}
