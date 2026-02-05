@@ -124,6 +124,54 @@ function escapeJsString(value: string): string {
   return JSON.stringify(String(value)).slice(1, -1);
 }
 
+const VOID_HTML_TAGS = [
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+];
+const VOID_TAG_PATTERN = new RegExp(`<(${VOID_HTML_TAGS.join('|')})\\b([^<>]*?)?>`, 'gi');
+const PRE_BLOCK_PATTERN = /<pre\b[^>]*>[\s\S]*?<\/pre>/gi;
+
+function selfCloseVoidTags(html: string): string {
+  return html.replace(VOID_TAG_PATTERN, (match, tag, attrs = '') => {
+    if (match.endsWith('/>')) {
+      return match;
+    }
+    return `<${tag}${attrs} />`;
+  });
+}
+
+function escapeBracesInPre(html: string): string {
+  return html.replace(PRE_BLOCK_PATTERN, (match) => {
+    const openTagMatch = match.match(/^<pre\b[^>]*>/i);
+    const closeTagMatch = match.match(/<\/pre>$/i);
+    if (!openTagMatch || !closeTagMatch) {
+      return match;
+    }
+    const openTag = openTagMatch[0];
+    const closeTag = closeTagMatch[0];
+    const inner = match.slice(openTag.length, match.length - closeTag.length);
+    const escaped = inner.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+    return `${openTag}${escaped}${closeTag}`;
+  });
+}
+
+function normalizeHtmlForJsx(html: string): string {
+  // Ensure JSX-safe output when embedding raw HTML alongside components.
+  return escapeBracesInPre(selfCloseVoidTags(html));
+}
+
 /**
  * Strips `<p>` wrappers from Fragment elements with slot attributes.
  *
@@ -203,6 +251,109 @@ function normalizeSlotByStrategy(slot: string, strategy: 'wrap_in_ol' | 'wrap_in
   return /<li[\s>]/i.test(trimmed)
     ? `<${tag}>${slot}</${tag}>`
     : `<${tag}><li>${slot}</li></${tag}>`;
+}
+
+/**
+ * Builder for constructing Astro module code.
+ * Encapsulates the assembly of imports, exports, and content.
+ */
+export class AstroModuleBuilder {
+  private imports: string[] = [];
+  private frontmatterData: Record<string, unknown> = {};
+  private headingsData: HeadingEntry[] = [];
+  private jsxContentStr = '';
+  private moduleIdValue?: string;
+
+  /**
+   * Adds standard Astro runtime imports.
+   */
+  withRuntimeImports(): this {
+    this.imports.push(
+      `import { createComponent, renderJSX } from 'astro/runtime/server/index.js';`,
+      `import { Fragment, Fragment as _Fragment, jsx as _jsx } from 'astro/jsx-runtime';`,
+    );
+    return this;
+  }
+
+  /**
+   * Adds a single import statement.
+   */
+  addImport(line: string): this {
+    if (line) {
+      this.imports.push(line);
+    }
+    return this;
+  }
+
+  /**
+   * Adds multiple import statements.
+   */
+  addImports(lines: string[]): this {
+    for (const line of lines) {
+      this.addImport(line);
+    }
+    return this;
+  }
+
+  /**
+   * Sets the frontmatter data to export.
+   */
+  withFrontmatter(data: Record<string, unknown>): this {
+    this.frontmatterData = data;
+    return this;
+  }
+
+  /**
+   * Sets the headings data to export.
+   */
+  withHeadings(headings: HeadingEntry[]): this {
+    this.headingsData = headings;
+    return this;
+  }
+
+  /**
+   * Sets the JSX content for the component.
+   */
+  withJsxContent(jsx: string): this {
+    this.jsxContentStr = jsx;
+    return this;
+  }
+
+  /**
+   * Sets the module ID (filename) for the component.
+   */
+  withModuleId(filename?: string): this {
+    this.moduleIdValue = filename;
+    return this;
+  }
+
+  /**
+   * Builds the complete Astro module code.
+   */
+  build(): string {
+    const allImports = this.imports.filter(Boolean).join('\n');
+    const frontmatterJson = JSON.stringify(this.frontmatterData);
+    const headingsJson = JSON.stringify(this.headingsData);
+    const moduleId = this.moduleIdValue ? JSON.stringify(this.moduleIdValue) : 'undefined';
+
+    return `${allImports}
+export const frontmatter = ${frontmatterJson};
+export function getHeadings() { return ${headingsJson}; }
+function _Content() {
+  return (
+    <_Fragment>
+${this.jsxContentStr}
+    </_Fragment>
+  );
+}
+const XmdxContent = createComponent(
+  (result, props, _slots) => renderJSX(result, _jsx(_Content, { ...props })),
+  ${moduleId}
+);
+export const Content = XmdxContent;
+export default XmdxContent;
+`;
+  }
 }
 
 /**
@@ -392,7 +543,8 @@ export function blocksToJsx(
           if (componentName === 'Fragment' || hasNestedComponents) {
             // Embed JSX directly so Astro processes slot content correctly
             // Convert HTML entities to JSX expressions so they render as text, not markup
-            children += htmlEntitiesToJsx(effectiveSlot);
+            const normalizedSlot = normalizeHtmlForJsx(effectiveSlot);
+            children += htmlEntitiesToJsx(normalizedSlot);
           } else {
             // Pure HTML content - use set:html for non-Fragment components
             children += `<_Fragment set:html={${JSON.stringify(effectiveSlot)}} />`;
@@ -407,7 +559,8 @@ export function blocksToJsx(
           children += `<span style="display:contents" slot="${escapeJsString(slotName)}">`;
           if (innerHtml) {
             if (hasPascalCaseTag(innerHtml)) {
-              children += htmlEntitiesToJsx(innerHtml);
+              const normalizedInnerHtml = normalizeHtmlForJsx(innerHtml);
+              children += htmlEntitiesToJsx(normalizedInnerHtml);
             } else {
               children += `<_Fragment set:html={${JSON.stringify(innerHtml)}} />`;
             }
@@ -450,38 +603,15 @@ export function blocksToJsx(
     .filter(Boolean)
     .join('\n');
 
-  const frontmatterJson = JSON.stringify(frontmatter);
-  const headingsJson = JSON.stringify(headings);
   const jsxContent = fragments.join('\n');
 
-  const runtimeImports = `import { createComponent, renderJSX } from 'astro/runtime/server/index.js';
-import { Fragment, Fragment as _Fragment, jsx as _jsx } from 'astro/jsx-runtime';`;
-
-  // User imports (from the original MDX file)
-  const userImportLines = userImports.length > 0 ? userImports.join('\n') : '';
-
-  const moduleId = filename ? JSON.stringify(filename) : 'undefined';
-
-  // Include user imports after runtime imports, before registry imports
-  const allImports = [runtimeImports, userImportLines, componentImportLines]
-    .filter(Boolean)
-    .join('\n');
-
-  return `${allImports}
-export const frontmatter = ${frontmatterJson};
-export function getHeadings() { return ${headingsJson}; }
-function _Content() {
-  return (
-    <_Fragment>
-${jsxContent}
-    </_Fragment>
-  );
-}
-const XmdxContent = createComponent(
-  (result, props, _slots) => renderJSX(result, _jsx(_Content, { ...props })),
-  ${moduleId}
-);
-export const Content = XmdxContent;
-export default XmdxContent;
-`;
+  return new AstroModuleBuilder()
+    .withRuntimeImports()
+    .addImports(userImports)
+    .addImports(componentImportLines.split('\n'))
+    .withFrontmatter(frontmatter)
+    .withHeadings(headings)
+    .withJsxContent(jsxContent)
+    .withModuleId(filename)
+    .build();
 }

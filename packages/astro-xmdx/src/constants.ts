@@ -23,6 +23,8 @@ export const ESBUILD_JSX_CONFIG = {
   jsx: 'transform' as const,
   jsxFactory: '_jsx',
   jsxFragment: '_Fragment',
+  target: 'es2020' as const,
+  minify: false,
 } as const;
 
 /**

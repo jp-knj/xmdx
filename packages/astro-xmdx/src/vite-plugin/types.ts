@@ -20,9 +20,17 @@ export interface XmdxBinding {
   createCompiler?: (config: Record<string, unknown>) => XmdxCompiler;
   XmdxCompiler?: new (config: Record<string, unknown>) => XmdxCompiler;
   compileBatch: (
-    inputs: Array<{ id: string; source: string; filepath: string }>,
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
     options: { continueOnError: boolean; config: Record<string, unknown> }
   ) => BatchCompileResult;
+  compileBatchToModule: (
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
+    options: { continueOnError: boolean; config: Record<string, unknown> }
+  ) => ModuleBatchCompileResult;
+  compileMdxBatch: (
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
+    options: { continueOnError: boolean; config: Record<string, unknown> }
+  ) => MdxBatchCompileResult;
   parseBlocks: (
     source: string,
     options: { enable_directives: boolean }
@@ -81,6 +89,63 @@ export interface BatchCompileResult {
   stats: {
     succeeded: number;
     total: number;
+    processingTimeMs: number;
+  };
+}
+
+/**
+ * Result from batch compilation to complete Astro modules.
+ * Unlike BatchCompileResult which returns IR, this returns complete module code.
+ */
+export interface ModuleBatchCompileResult {
+  results: Array<{
+    id: string;
+    result?: {
+      /** Complete Astro module code ready for esbuild */
+      code: string;
+      /** Source map (if available) */
+      map?: unknown;
+      /** Frontmatter as JSON string */
+      frontmatterJson: string;
+      /** Extracted headings */
+      headings: Array<{ depth: number; slug: string; text: string }>;
+      /** Imported modules */
+      imports: Array<{ path: string; kind: string }>;
+      /** Parse diagnostics */
+      diagnostics?: {
+        warnings?: Array<{ line: number; message: string }>;
+      };
+    };
+    error?: string;
+  }>;
+  stats: {
+    succeeded: number;
+    total: number;
+    failed: number;
+    processingTimeMs: number;
+  };
+}
+
+/**
+ * Result from MDX batch compilation using mdxjs-rs.
+ */
+export interface MdxBatchCompileResult {
+  results: Array<{
+    id: string;
+    result?: {
+      /** Compiled JavaScript code (full module with MDXContent) */
+      code: string;
+      /** Frontmatter as JSON string */
+      frontmatterJson: string;
+      /** Extracted headings */
+      headings: Array<{ depth: number; slug: string; text: string }>;
+    };
+    error?: string;
+  }>;
+  stats: {
+    succeeded: number;
+    total: number;
+    failed: number;
     processingTimeMs: number;
   };
 }

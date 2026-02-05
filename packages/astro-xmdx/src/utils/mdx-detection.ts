@@ -22,42 +22,64 @@ export interface MdxPatternDetectionResult {
 
 /**
  * Strip code fences from content to avoid false positives.
+ * Uses efficient single-pass character scanning instead of split() and per-line regex.
  */
 export function stripCodeFences(content: string): string {
-  const lines = content.split('\n');
-  const result: string[] = [];
+  let result = '';
+  let pos = 0;
   let inFence = false;
   let fenceMarker = '';
   let fenceLen = 0;
 
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    const indent = line.length - trimmed.length;
-    const backtickMatch = trimmed.match(/^(`{3,})/);
-    const tildeMatch = trimmed.match(/^(~{3,})/);
-    const match = backtickMatch || tildeMatch;
+  while (pos < content.length) {
+    // Find end of current line
+    let lineEnd = content.indexOf('\n', pos);
+    if (lineEnd === -1) lineEnd = content.length;
 
-    if (match && match[1]) {
-      const marker = match[1][0]!;
-      const len = match[1].length;
+    const line = content.slice(pos, lineEnd);
 
-      if (!inFence) {
-        inFence = true;
-        fenceMarker = marker;
-        fenceLen = len;
-        continue;
-      } else if (marker === fenceMarker && len >= fenceLen && trimmed.replace(/^[`~]+/, '').trim() === '') {
-        // Closing fence: same marker, >= length, no info string
-        inFence = false;
-        continue;
+    // Check for fence at start of line (after trimming leading whitespace)
+    let i = 0;
+    while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+
+    const char = line[i];
+    if (char === '`' || char === '~') {
+      let len = 0;
+      const marker = char;
+      while (line[i] === marker) {
+        len++;
+        i++;
+      }
+
+      if (len >= 3) {
+        if (!inFence) {
+          // Opening fence
+          inFence = true;
+          fenceMarker = marker;
+          fenceLen = len;
+          pos = lineEnd + 1;
+          continue;
+        } else if (marker === fenceMarker && len >= fenceLen) {
+          // Check if rest of line is only whitespace (valid closer)
+          const rest = line.slice(i).trim();
+          if (rest === '') {
+            inFence = false;
+            pos = lineEnd + 1;
+            continue;
+          }
+        }
       }
     }
 
     if (!inFence) {
-      result.push(line);
+      result += line;
+      if (lineEnd < content.length) result += '\n';
     }
+
+    pos = lineEnd + 1;
   }
-  return result.join('\n');
+
+  return result;
 }
 
 /**

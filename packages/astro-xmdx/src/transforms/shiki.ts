@@ -178,7 +178,12 @@ export async function highlightJsxCodeBlocks(
   // Content may contain JSX expressions like {"text"} or HTML entities
   const preCodeRegex = /<pre[^>]*><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g;
 
-  const replacements: { match: string; replacement: string }[] = [];
+  // Phase 1: Collect all code blocks to highlight (no await in loop)
+  const toHighlight: Array<{
+    fullMatch: string;
+    lang: string | undefined;
+    codeText: string;
+  }> = [];
 
   let match;
   while ((match = preCodeRegex.exec(code)) !== null) {
@@ -232,17 +237,26 @@ export async function highlightJsxCodeBlocks(
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop
-    const highlighted = await highlight(codeText, lang || undefined);
-    // Wrap in set:html to avoid raw { } in JSX context being parsed as expressions
-    const safeReplacement = `<_Fragment set:html={${JSON.stringify(highlighted)}} />`;
-    replacements.push({ match: fullMatch, replacement: safeReplacement });
+    toHighlight.push({ fullMatch, lang, codeText });
   }
 
-  // Apply replacements
+  if (toHighlight.length === 0) {
+    return code;
+  }
+
+  // Phase 2: Highlight all code blocks in parallel
+  const highlighted = await Promise.all(
+    toHighlight.map(({ codeText, lang }) => highlight(codeText, lang || undefined))
+  );
+
+  // Phase 3: Build replacements and apply them
   let result = code;
-  for (const { match, replacement } of replacements) {
-    result = result.replace(match, replacement);
+  for (let i = 0; i < toHighlight.length; i++) {
+    const { fullMatch } = toHighlight[i]!;
+    const highlightedHtml = highlighted[i]!;
+    // Wrap in set:html to avoid raw { } in JSX context being parsed as expressions
+    const replacement = `<_Fragment set:html={${JSON.stringify(highlightedHtml)}} />`;
+    result = result.replace(fullMatch, replacement);
   }
 
   return result;

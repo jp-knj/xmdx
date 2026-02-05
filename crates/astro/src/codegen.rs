@@ -908,8 +908,285 @@ pub struct AstroModuleOptions<'a> {
     pub has_user_default_export: bool,
 }
 
-fn render_profile_snippet() -> &'static str {
-    r#"const __markflowRenderProfileEnabled = typeof process !== 'undefined' && process.env?.MARKFLOW_RENDER_PROFILE === '1';
+/// Builder for constructing Astro-compatible JavaScript modules.
+///
+/// # Example
+///
+/// ```
+/// use xmdx_astro::codegen::AstroModuleBuilder;
+///
+/// let module = AstroModuleBuilder::new("/src/content/page.md")
+///     .with_runtime_imports()
+///     .with_frontmatter("{\"title\": \"Hello\"}")
+///     .with_headings("[]")
+///     .with_jsx("<p>Hello World</p>")
+///     .build();
+/// ```
+#[derive(Debug, Clone)]
+pub struct AstroModuleBuilder<'a> {
+    filepath: &'a str,
+    imports: Vec<&'a str>,
+    exports: Vec<&'a str>,
+    jsx: Option<&'a str>,
+    frontmatter_json: Option<&'a str>,
+    headings_json: Option<&'a str>,
+    url: Option<&'a str>,
+    layout_path: Option<&'a str>,
+    has_user_default_export: bool,
+    include_runtime_imports: bool,
+}
+
+impl<'a> AstroModuleBuilder<'a> {
+    /// Creates a new builder with the given file path.
+    pub fn new(filepath: &'a str) -> Self {
+        Self {
+            filepath,
+            imports: Vec::new(),
+            exports: Vec::new(),
+            jsx: None,
+            frontmatter_json: None,
+            headings_json: None,
+            url: None,
+            layout_path: None,
+            has_user_default_export: false,
+            include_runtime_imports: false,
+        }
+    }
+
+    /// Adds Astro runtime imports (Fragment, jsx, createComponent, renderJSX).
+    pub fn with_runtime_imports(mut self) -> Self {
+        self.include_runtime_imports = true;
+        self
+    }
+
+    /// Adds a single import statement.
+    pub fn add_import(mut self, import: &'a str) -> Self {
+        self.imports.push(import);
+        self
+    }
+
+    /// Adds multiple import statements.
+    pub fn add_imports(mut self, imports: &'a [String]) -> Self {
+        for import in imports {
+            self.imports.push(import.as_str());
+        }
+        self
+    }
+
+    /// Sets the layout import path.
+    pub fn with_layout(mut self, layout_path: &'a str) -> Self {
+        self.layout_path = Some(layout_path);
+        self
+    }
+
+    /// Adds a single export statement.
+    pub fn add_export(mut self, export: &'a str) -> Self {
+        self.exports.push(export);
+        self
+    }
+
+    /// Adds multiple export statements.
+    pub fn add_exports(mut self, exports: &'a [String]) -> Self {
+        for export in exports {
+            self.exports.push(export.as_str());
+        }
+        self
+    }
+
+    /// Sets whether the user provided their own default export.
+    pub fn has_user_default_export(mut self, value: bool) -> Self {
+        self.has_user_default_export = value;
+        self
+    }
+
+    /// Sets the JSX content for the component.
+    pub fn with_jsx(mut self, jsx: &'a str) -> Self {
+        self.jsx = Some(jsx);
+        self
+    }
+
+    /// Sets the frontmatter JSON.
+    pub fn with_frontmatter(mut self, json: &'a str) -> Self {
+        self.frontmatter_json = Some(json);
+        self
+    }
+
+    /// Sets the headings JSON.
+    pub fn with_headings(mut self, json: &'a str) -> Self {
+        self.headings_json = Some(json);
+        self
+    }
+
+    /// Sets the URL for the module.
+    pub fn with_url(mut self, url: &'a str) -> Self {
+        self.url = Some(url);
+        self
+    }
+
+    /// Creates a builder from AstroModuleOptions for backwards compatibility.
+    pub fn from_options(options: &AstroModuleOptions<'a>) -> Self {
+        let mut builder = Self::new(options.filepath)
+            .with_runtime_imports()
+            .with_frontmatter(options.frontmatter_json)
+            .with_headings(options.headings_json)
+            .with_jsx(options.jsx)
+            .add_imports(options.hoisted_imports)
+            .add_exports(options.hoisted_exports)
+            .has_user_default_export(options.has_user_default_export);
+
+        if let Some(url) = options.url {
+            builder = builder.with_url(url);
+        }
+
+        if let Some(layout) = options.layout_import {
+            builder = builder.with_layout(layout);
+        }
+
+        builder
+    }
+
+    /// Builds the complete Astro module as a string.
+    pub fn build(self) -> String {
+        let mut code = String::new();
+
+        // Runtime imports section
+        if self.include_runtime_imports {
+            self.write_runtime_imports(&mut code);
+        }
+
+        // Layout import
+        if let Some(layout) = self.layout_path {
+            let _ = writeln!(code, "import Layout from {};", js_string_literal(layout));
+        }
+
+        // User imports
+        for import in &self.imports {
+            let _ = writeln!(code, "{}", import);
+        }
+
+        // User exports
+        for export in &self.exports {
+            let _ = writeln!(code, "{}", export);
+        }
+
+        // Standard Astro exports
+        self.write_astro_exports(&mut code);
+
+        // xmdxContent component
+        self.write_xmdx_content(&mut code);
+
+        // Default export
+        self.write_default_export(&mut code);
+
+        code
+    }
+
+    fn write_runtime_imports(&self, code: &mut String) {
+        let _ = writeln!(
+            code,
+            "import {{ Fragment, jsx as __jsx }} from 'astro/jsx-runtime';"
+        );
+        let _ = writeln!(code, "const _Fragment = Fragment;");
+        let _ = writeln!(
+            code,
+            "const _jsx = (type, props, ...children) => {{\n  const resolved = props ?? {{}};\n  if (children.length > 0) {{\n    resolved.children = children.length === 1 ? children[0] : children;\n  }}\n  return __jsx(type, resolved, resolved.key);\n}};"
+        );
+        let _ = writeln!(
+            code,
+            "import {{ createComponent, renderJSX }} from 'astro/runtime/server/index.js';"
+        );
+    }
+
+    fn write_astro_exports(&self, code: &mut String) {
+        let frontmatter = self.frontmatter_json.unwrap_or("{}");
+        let headings = self.headings_json.unwrap_or("[]");
+
+        let _ = writeln!(code, "export const frontmatter = {};", frontmatter);
+        let _ = writeln!(
+            code,
+            "export const file = {};",
+            js_string_literal(self.filepath)
+        );
+
+        let url_literal = self
+            .url
+            .map(js_string_literal)
+            .unwrap_or_else(|| "undefined".to_string());
+        let _ = writeln!(code, "export const url = {};", url_literal);
+
+        let _ = writeln!(code, "export const headings = {};", headings);
+        let _ = writeln!(code, "export function getHeadings() {{");
+        let _ = writeln!(code, "  return {};", headings);
+        let _ = writeln!(code, "}}");
+    }
+
+    fn write_xmdx_content(&self, code: &mut String) {
+        code.push_str(RENDER_PROFILE_SNIPPET);
+
+        let jsx = self.jsx.unwrap_or("");
+
+        let _ = writeln!(code, "// function xmdxContent");
+        let _ = writeln!(
+            code,
+            "const xmdxContent = createComponent((result, props) => {{"
+        );
+        let _ = writeln!(code, "  if (__markflowRenderProfileEnabled) {{");
+        let _ = writeln!(code, "    const __markflowStart = __markflowRenderNow();");
+        let _ = writeln!(code, "    const __markflowOut = renderJSX(result, (");
+        write_jsx_fragment(code, jsx, "    ");
+        let _ = writeln!(code, "    ));");
+        let _ = writeln!(
+            code,
+            "    const __markflowDuration = __markflowRenderNow() - __markflowStart;"
+        );
+        let _ = writeln!(
+            code,
+            "    __markflowRenderTotals.set(file, (__markflowRenderTotals.get(file) ?? 0) + __markflowDuration);"
+        );
+        let _ = writeln!(
+            code,
+            "    __markflowRenderCounts.set(file, (__markflowRenderCounts.get(file) ?? 0) + 1);"
+        );
+        let _ = writeln!(code, "    return __markflowOut;");
+        let _ = writeln!(code, "  }}");
+        let _ = writeln!(code, "  return renderJSX(result, (");
+        write_jsx_fragment(code, jsx, "    ");
+        let _ = writeln!(code, "  ));");
+        let _ = writeln!(code, "}}, file);");
+
+        let _ = writeln!(code, "export const Content = xmdxContent;");
+
+        // MDX component markers for Astro Content Collections
+        let _ = writeln!(code, "Content[Symbol.for('mdx-component')] = true;");
+        let _ = writeln!(
+            code,
+            "Content[Symbol.for('astro.needsHeadRendering')] = !Boolean(frontmatter.layout);"
+        );
+        let _ = writeln!(
+            code,
+            "Content.moduleId = {};",
+            js_string_literal(self.filepath)
+        );
+    }
+
+    fn write_default_export(&self, code: &mut String) {
+        if self.has_user_default_export {
+            return;
+        }
+
+        if self.layout_path.is_some() {
+            let _ = writeln!(
+                code,
+                "export default createComponent((result, props) => renderJSX(result, _jsx(Layout, {{...props, frontmatter: frontmatter, children: _jsx(xmdxContent, {{...props}})}})), file);"
+            );
+        } else {
+            let _ = writeln!(code, "export default xmdxContent;");
+        }
+    }
+}
+
+/// Render profiling code snippet.
+const RENDER_PROFILE_SNIPPET: &str = r#"const __markflowRenderProfileEnabled = typeof process !== 'undefined' && process.env?.MARKFLOW_RENDER_PROFILE === '1';
 const __markflowRenderProfile = __markflowRenderProfileEnabled ? (() => {
   const key = '__markflowRenderProfile';
   const g = globalThis;
@@ -948,8 +1225,7 @@ const __markflowRenderProfile = __markflowRenderProfileEnabled ? (() => {
 const __markflowRenderTotals = __markflowRenderProfile ? __markflowRenderProfile.totals : null;
 const __markflowRenderCounts = __markflowRenderProfile ? __markflowRenderProfile.counts : null;
 const __markflowRenderNow = () => (globalThis.performance && typeof globalThis.performance.now === 'function') ? globalThis.performance.now() : Date.now();
-"#
-}
+"#;
 
 fn write_jsx_fragment(code: &mut String, jsx: &str, indent: &str) {
     let _ = writeln!(code, "{}<>", indent);
@@ -958,120 +1234,6 @@ fn write_jsx_fragment(code: &mut String, jsx: &str, indent: &str) {
         code.push('\n');
     }
     let _ = writeln!(code, "{}</>", indent);
-}
-
-/// Emits Astro runtime imports: Fragment, jsx, createComponent, renderJSX.
-fn emit_runtime_imports(code: &mut String, options: &AstroModuleOptions<'_>) {
-    let _ = writeln!(
-        code,
-        "import {{ Fragment, jsx as __jsx }} from 'astro/jsx-runtime';"
-    );
-    let _ = writeln!(code, "const _Fragment = Fragment;");
-    let _ = writeln!(
-        code,
-        "const _jsx = (type, props, ...children) => {{\n  const resolved = props ?? {{}};\n  if (children.length > 0) {{\n    resolved.children = children.length === 1 ? children[0] : children;\n  }}\n  return __jsx(type, resolved, resolved.key);\n}};"
-    );
-    let _ = writeln!(
-        code,
-        "import {{ createComponent, renderJSX }} from 'astro/runtime/server/index.js';"
-    );
-
-    if let Some(layout) = options.layout_import {
-        let _ = writeln!(code, "import Layout from {};", js_string_literal(layout));
-    }
-
-    for import in options.hoisted_imports {
-        let _ = writeln!(code, "{}", import);
-    }
-
-    for export in options.hoisted_exports {
-        let _ = writeln!(code, "{}", export);
-    }
-}
-
-/// Emits standard Astro exports (frontmatter, file, url, headings).
-fn emit_astro_exports(code: &mut String, options: &AstroModuleOptions<'_>) {
-    let _ = writeln!(
-        code,
-        "export const frontmatter = {};",
-        options.frontmatter_json
-    );
-    let _ = writeln!(
-        code,
-        "export const file = {};",
-        js_string_literal(options.filepath)
-    );
-    let url_literal = options
-        .url
-        .map(js_string_literal)
-        .unwrap_or_else(|| "undefined".to_string());
-    let _ = writeln!(code, "export const url = {};", url_literal);
-    let _ = writeln!(code, "export const headings = {};", options.headings_json);
-    let _ = writeln!(code, "export function getHeadings() {{");
-    let _ = writeln!(code, "  return {};", options.headings_json);
-    let _ = writeln!(code, "}}");
-}
-
-/// Emits the xmdxContent component with optional render profiling.
-fn emit_xmdx_content(code: &mut String, options: &AstroModuleOptions<'_>) {
-    code.push_str(render_profile_snippet());
-
-    let _ = writeln!(code, "// function xmdxContent");
-    let _ = writeln!(
-        code,
-        "const xmdxContent = createComponent((result, props) => {{"
-    );
-    let _ = writeln!(code, "  if (__markflowRenderProfileEnabled) {{");
-    let _ = writeln!(code, "    const __markflowStart = __markflowRenderNow();");
-    let _ = writeln!(code, "    const __markflowOut = renderJSX(result, (");
-    write_jsx_fragment(code, options.jsx, "    ");
-    let _ = writeln!(code, "    ));");
-    let _ = writeln!(
-        code,
-        "    const __markflowDuration = __markflowRenderNow() - __markflowStart;"
-    );
-    let _ = writeln!(
-        code,
-        "    __markflowRenderTotals.set(file, (__markflowRenderTotals.get(file) ?? 0) + __markflowDuration);"
-    );
-    let _ = writeln!(
-        code,
-        "    __markflowRenderCounts.set(file, (__markflowRenderCounts.get(file) ?? 0) + 1);"
-    );
-    let _ = writeln!(code, "    return __markflowOut;");
-    let _ = writeln!(code, "  }}");
-    let _ = writeln!(code, "  return renderJSX(result, (");
-    write_jsx_fragment(code, options.jsx, "    ");
-    let _ = writeln!(code, "  ));");
-    let _ = writeln!(code, "}}, file);");
-
-    let _ = writeln!(code, "export const Content = xmdxContent;");
-
-    // Add MDX component markers for Astro Content Collections
-    let _ = writeln!(code, "Content[Symbol.for('mdx-component')] = true;");
-    let _ = writeln!(
-        code,
-        "Content[Symbol.for('astro.needsHeadRendering')] = !Boolean(frontmatter.layout);"
-    );
-    let _ = writeln!(
-        code,
-        "Content.moduleId = {};",
-        js_string_literal(options.filepath)
-    );
-}
-
-/// Emits the default export (unless the user provided their own).
-fn emit_default_export(code: &mut String, options: &AstroModuleOptions<'_>) {
-    if !options.has_user_default_export {
-        if options.layout_import.is_some() {
-            let _ = writeln!(
-                code,
-                "export default createComponent((result, props) => renderJSX(result, _jsx(Layout, {{...props, frontmatter: frontmatter, children: _jsx(xmdxContent, {{...props}})}})), file);"
-            );
-        } else {
-            let _ = writeln!(code, "export default xmdxContent;");
-        }
-    }
 }
 
 /// Generates an Astro-compatible JavaScript module from the given options.
@@ -1084,12 +1246,7 @@ fn emit_default_export(code: &mut String, options: &AstroModuleOptions<'_>) {
 /// - MDX component markers for Astro Content Collections
 /// - Default export (unless user provided one)
 pub fn generate_astro_module(options: &AstroModuleOptions<'_>) -> String {
-    let mut code = String::new();
-    emit_runtime_imports(&mut code, options);
-    emit_astro_exports(&mut code, options);
-    emit_xmdx_content(&mut code, options);
-    emit_default_export(&mut code, options);
-    code
+    AstroModuleBuilder::from_options(options).build()
 }
 
 #[cfg(test)]

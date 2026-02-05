@@ -3,6 +3,7 @@
  * @module vite-plugin
  */
 
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { transformWithEsbuild, type ResolvedConfig, type Plugin } from 'vite';
 import MagicString from 'magic-string';
 import { build as esbuildBuild, type BuildResult } from 'esbuild';
 import type { SourceMapInput } from 'rollup';
+import { runParallelEsbuild } from './vite-plugin/esbuild-pool.js';
 import {
   createRegistry,
   starlightLibrary,
@@ -127,11 +129,12 @@ import type {
   XmdxBinding,
   XmdxCompiler,
   CompileResult,
-  BatchCompileResult,
+  MdxBatchCompileResult,
   XmdxPluginOptions,
 } from './vite-plugin/types.js';
 import { loadXmdxBinding, ENABLE_SHIKI, IS_MDAST } from './vite-plugin/binding-loader.js';
-import { wrapHtmlInJsxModule, compileFallbackModule } from './vite-plugin/jsx-module.js';
+import { compileFallbackModule } from './vite-plugin/jsx-module.js';
+import { wrapMdxModule } from './vite-plugin/mdx-wrapper.js';
 import { normalizeStarlightComponents } from './vite-plugin/normalize-config.js';
 import { ShikiManager } from './vite-plugin/shiki-manager.js';
 
@@ -204,15 +207,31 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   let compiler: XmdxCompiler | undefined;
   let resolvedConfig: ResolvedConfig | undefined;
   const sourceLookup = new Map<string, string>();
-  type CachedCompileResult = NonNullable<BatchCompileResult['results'][number]['result']> & {
+  type CachedModuleResult = NonNullable<import('./vite-plugin/types.js').ModuleBatchCompileResult['results'][number]['result']> & {
+    originalSource?: string;
+    processedSource?: string;
+  };
+  type CachedMdxResult = NonNullable<MdxBatchCompileResult['results'][number]['result']> & {
     originalSource?: string;
     processedSource?: string;
   };
   const originalSourceCache = new Map<string, string>();   // Raw markdown before preprocess hooks
   const processedSourceCache = new Map<string, string>();  // Preprocessed markdown fed to compiler
-  const compilationCache = new Map<string, CachedCompileResult>();
+  const moduleCompilationCache = new Map<string, CachedModuleResult>();  // MD files compiled to modules via Rust
+  const mdxCompilationCache = new Map<string, CachedMdxResult>();        // MDX files compiled via mdxjs-rs
   const esbuildCache = new Map<string, { code: string; map?: SourceMapInput }>();  // Pre-compiled esbuild results
   const fallbackFiles = new Set<string>();
+
+  // Persistent cache for SSR/Client 2-pass builds
+  // These survive between buildStart calls, avoiding redundant recompilation
+  let buildPassCount = 0;
+  const persistentCache = {
+    esbuild: new Map<string, { code: string; map?: SourceMapInput }>(),
+    moduleCompilation: new Map<string, CachedModuleResult>(),
+    mdxCompilation: new Map<string, CachedMdxResult>(),
+    fallbackFiles: new Set<string>(),
+    fallbackReasons: new Map<string, string>(),
+  };
   const fallbackReasons = new Map<string, string>();
   const processedFiles = new Set<string>();
   let totalProcessingTimeMs = 0;
@@ -338,6 +357,46 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       // Only batch compile in build mode (not dev/serve)
       if (resolvedConfig?.command !== 'build') return;
 
+      buildPassCount++;
+      debugLog(`Build pass ${buildPassCount}`);
+
+      // Pass 2+: Reuse cached results from previous build pass (SSR → Client)
+      if (buildPassCount > 1 && persistentCache.esbuild.size > 0) {
+        debugTime('buildStart:total');
+        debugLog(`Reusing ${persistentCache.esbuild.size} cached esbuild results from pass ${buildPassCount - 1}`);
+
+        // Restore all caches from persistent storage
+        for (const [k, v] of persistentCache.esbuild) {
+          esbuildCache.set(k, v);
+        }
+        for (const [k, v] of persistentCache.moduleCompilation) {
+          moduleCompilationCache.set(k, v);
+        }
+        for (const [k, v] of persistentCache.mdxCompilation) {
+          mdxCompilationCache.set(k, v);
+        }
+        for (const file of persistentCache.fallbackFiles) {
+          fallbackFiles.add(file);
+        }
+        for (const [k, v] of persistentCache.fallbackReasons) {
+          fallbackReasons.set(k, v);
+        }
+
+        console.info(
+          `[xmdx] Build pass ${buildPassCount}: Reusing ${persistentCache.esbuild.size} cached results`
+        );
+        debugTimeEnd('buildStart:total');
+        return;
+      }
+
+      // Check for potential cache inconsistency
+      const root = resolvedConfig.root;
+      const astroDir = path.join(root, '.astro');
+      const distDir = path.join(root, 'dist');
+      if (existsSync(astroDir) && !existsSync(distDir)) {
+        console.warn('[xmdx] Stale cache detected (.astro exists but dist does not). Consider running `rm -rf .astro` if you encounter module resolution errors.');
+      }
+
       debugTime('buildStart:total');
       debugTime('buildStart:glob');
 
@@ -446,37 +505,87 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
       try {
         debugTime('buildStart:batchCompile');
+        debugTime('buildStart:shikiInit');
+
+        // Start Shiki init in parallel with batch compile (Shiki doesn't depend on compile results)
+        const shikiPromise = shikiManager.init();
+
+        // Separate MD and MDX files for different compilation paths
+        const mdInputs = inputs.filter(i => !i.filepath?.endsWith('.mdx'));
+        const mdxInputs = inputs.filter(i => i.filepath?.endsWith('.mdx'));
+
+        debugLog(`Separated: ${mdInputs.length} MD files, ${mdxInputs.length} MDX files`);
 
         // Batch compile with parallel processing
         const binding = providedBinding ?? (await loadXmdxBinding());
-        const batchResult = binding.compileBatch(inputs, {
-          continueOnError: true,
-          config: compilerOptions,
-        });
 
-        debugTimeEnd('buildStart:batchCompile');
+        // Compile MD files to complete Astro modules via Rust (no TypeScript wrapping needed)
+        let mdStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
+        if (mdInputs.length > 0) {
+          const mdBatchResult = binding.compileBatchToModule(mdInputs, {
+            continueOnError: true,
+            config: compilerOptions,
+          });
+          mdStats = mdBatchResult.stats;
 
-        // Cache successful results
-        for (const result of batchResult.results) {
-          if (result.result) {
-            compilationCache.set(result.id, {
-              ...result.result,
-              originalSource: originalSourceCache.get(result.id),
-              processedSource: processedSourceCache.get(result.id),
-            });
+          // Cache MD module results
+          for (const result of mdBatchResult.results) {
+            if (result.result) {
+              moduleCompilationCache.set(result.id, {
+                ...result.result,
+                originalSource: originalSourceCache.get(result.id),
+                processedSource: processedSourceCache.get(result.id),
+              });
+            } else if (result.error) {
+              // Track compilation failures for fallback
+              fallbackFiles.add(result.id);
+              fallbackReasons.set(result.id, result.error);
+            }
           }
         }
 
+        // Compile MDX files with mdxjs-rs
+        let mdxStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
+        if (mdxInputs.length > 0) {
+          const mdxBatchResult = binding.compileMdxBatch(mdxInputs, {
+            continueOnError: true,
+            config: compilerOptions,
+          });
+          mdxStats = mdxBatchResult.stats;
+
+          // Cache MDX results
+          for (const result of mdxBatchResult.results) {
+            if (result.result) {
+              mdxCompilationCache.set(result.id, {
+                ...result.result,
+                originalSource: originalSourceCache.get(result.id),
+                processedSource: processedSourceCache.get(result.id),
+              });
+            } else if (result.error) {
+              // Track MDX compilation failures for fallback
+              fallbackFiles.add(result.id);
+              fallbackReasons.set(result.id, result.error);
+            }
+          }
+        }
+
+        debugTimeEnd('buildStart:batchCompile');
+
+        const totalSucceeded = mdStats.succeeded + mdxStats.succeeded;
+        const totalFiles = mdStats.total + mdxStats.total;
+        const totalTime = mdStats.processingTimeMs + mdxStats.processingTimeMs;
+
         console.info(
-          `[xmdx] Batch compiled ${batchResult.stats.succeeded}/${batchResult.stats.total} files in ${batchResult.stats.processingTimeMs.toFixed(0)}ms`
+          `[xmdx] Batch compiled ${totalSucceeded}/${totalFiles} files in ${totalTime.toFixed(0)}ms` +
+          (mdxInputs.length > 0 ? ` (${mdxStats.succeeded} MDX via mdxjs-rs)` : '')
         );
 
         // Batch esbuild transformation for fast-path eligible files
         const esbuildStartTime = performance.now();
         const jsxInputs: Array<{ id: string; virtualId: string; jsx: string }> = [];
 
-        debugTime('buildStart:shikiInit');
-        const resolvedShiki = await shikiManager.init();
+        // Wait for Shiki initialization (started in parallel with batch compile)
+        const resolvedShiki = await shikiPromise;
         debugTimeEnd('buildStart:shikiInit');
 
         // Normalize starlightComponents for TransformContext
@@ -484,21 +593,24 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
         debugTime('buildStart:pipelineProcessing');
 
-        // Collect fast-path eligible entries (non-MDX, no imports, no JSX components)
-        // Note: Exports are now handled by Rust and injected via wrapHtmlInJsxModule
-        const fastPathEntries: Array<[string, CachedCompileResult]> = [];
-        for (const [filename, cached] of compilationCache) {
-          if (filename.endsWith('.mdx')) continue;
-          const hasUserImports = (cached.hoistedImports?.length ?? 0) > 0;
-          const hasJsxComponents = cached.html && /\{\.\.\.|\<[A-Z]/.test(cached.html);
-          if (hasUserImports || hasJsxComponents) continue;
-          fastPathEntries.push([filename, cached]);
+        // Collect all compiled entries for batch esbuild processing
+        // MD files: complete modules from Rust (no TypeScript wrapping)
+        // MDX files: wrapped via wrapMdxModule (mdxjs-rs output)
+        const mdModuleEntries: Array<[string, CachedModuleResult]> = [];
+        for (const [filename, cached] of moduleCompilationCache) {
+          mdModuleEntries.push([filename, cached]);
         }
 
-        // Process in chunks to bound concurrency (Shiki highlighting is async)
+        // MDX files use the mdxjs-rs output directly
+        const mdxFastPathEntries: Array<[string, CachedMdxResult]> = [];
+        for (const [filename, cached] of mdxCompilationCache) {
+          mdxFastPathEntries.push([filename, cached]);
+        }
+
+        // Process MD module entries in chunks (complete modules from Rust)
         const PIPELINE_CHUNK_SIZE = 50;
-        for (let i = 0; i < fastPathEntries.length; i += PIPELINE_CHUNK_SIZE) {
-          const chunk = fastPathEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
+        for (let i = 0; i < mdModuleEntries.length; i += PIPELINE_CHUNK_SIZE) {
+          const chunk = mdModuleEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
           const chunkResults = await Promise.all(
             chunk.map(async ([filename, cached]) => {
               // Parse frontmatter
@@ -512,11 +624,62 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
               }
               const headings = cached.headings || [];
 
-              // Wrap HTML in JSX module with hoisted exports
-              const jsxCode = wrapHtmlInJsxModule(cached.html, frontmatter, headings, filename, {
-                hoistedExports: cached.hoistedExports,
-                hasUserDefaultExport: cached.hasUserDefaultExport,
-              });
+              // Use complete module code from Rust (no wrapHtmlInJsxModule needed)
+              const jsxCode = cached.code;
+
+              // Get source for hooks
+              const sourceForHooks =
+                originalSourceCache.get(filename) ??
+                cached.originalSource ??
+                processedSourceCache.get(filename) ??
+                cached.processedSource ??
+                '';
+
+              // Create transform context and run pipeline
+              const ctx: TransformContext = {
+                code: jsxCode,
+                source: sourceForHooks,
+                filename,
+                frontmatter,
+                headings,
+                registry,
+                config: {
+                  expressiveCode,
+                  starlightComponents: normalizedStarlightComponents,
+                  shiki: shikiManager.forCode(jsxCode, resolvedShiki),
+                },
+              };
+
+              const transformed = await transformPipeline(ctx);
+              const virtualId = `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`;
+              return { id: filename, virtualId, jsx: transformed.code };
+            })
+          );
+          jsxInputs.push(...chunkResults);
+        }
+
+        // Process MDX files in chunks (mdxjs-rs output is already JavaScript)
+        for (let i = 0; i < mdxFastPathEntries.length; i += PIPELINE_CHUNK_SIZE) {
+          const chunk = mdxFastPathEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
+          const chunkResults = await Promise.all(
+            chunk.map(async ([filename, cached]) => {
+              // Parse frontmatter
+              let frontmatter: Record<string, unknown> = {};
+              if (cached.frontmatterJson) {
+                try {
+                  frontmatter = JSON.parse(cached.frontmatterJson) as Record<string, unknown>;
+                } catch {
+                  frontmatter = {};
+                }
+              }
+              const headings = cached.headings || [];
+
+              // Wrap MDX output in Astro component format
+              const jsxCode = wrapMdxModule(cached.code, {
+                frontmatter,
+                headings,
+                registry,
+              }, filename);
 
               // Get source for hooks
               const sourceForHooks =
@@ -550,77 +713,92 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
 
         debugTimeEnd('buildStart:pipelineProcessing');
-        debugLog(`Pipeline processed ${jsxInputs.length} files for esbuild batch`);
+        debugLog(`Pipeline processed ${jsxInputs.length} files for esbuild batch (${mdModuleEntries.length} MD modules, ${mdxFastPathEntries.length} MDX)`);
 
         if (jsxInputs.length > 0) {
           debugTime('buildStart:esbuild');
 
-          // Batch transform all JSX through esbuild using virtual file plugin
+          // Batch transform all JSX through esbuild
+          // Use parallel workers for large batches (>= 100 files)
           try {
-            // Create a clean entry point name for each file (avoid null bytes and special chars)
-            const entryMap = new Map<string, { id: string; jsx: string }>();
-            for (let i = 0; i < jsxInputs.length; i++) {
-              const entry = `entry${i}.jsx`;
-              const input = jsxInputs[i]!;
-              entryMap.set(entry, { id: input.id, jsx: input.jsx });
+            const useParallel = jsxInputs.length >= 100;
+
+            let usedParallel = false;
+            if (useParallel) {
+              // Parallel worker-based esbuild for large batches
+              try {
+                debugLog(`Using parallel esbuild workers for ${jsxInputs.length} files`);
+                const parallelResults = await runParallelEsbuild(
+                  jsxInputs.map((input) => ({ id: input.id, jsx: input.jsx }))
+                );
+                for (const [id, result] of parallelResults) {
+                  esbuildCache.set(id, { code: result.code, map: result.map as SourceMapInput });
+                }
+                usedParallel = true;
+              } catch (workerErr) {
+                // Workers failed - fall through to single-threaded mode
+                debugLog(`Worker esbuild failed, falling back to single-threaded: ${workerErr}`);
+              }
             }
 
-            const result: BuildResult = await esbuildBuild({
-              write: false,
-              bundle: false,
-              format: 'esm',
-              sourcemap: 'external',
-              loader: { '.jsx': 'jsx' },
-              jsx: 'transform',
-              jsxFactory: '_jsx',
-              jsxFragment: '_Fragment',
-              entryPoints: Array.from(entryMap.keys()),
-              outdir: 'out', // Required but not used since write: false
-              plugins: [{
-                name: 'xmdx-virtual-jsx',
-                setup(build) {
-                  // Resolve all entry points to themselves
-                  build.onResolve({ filter: /^entry\d+\.jsx$/ }, args => {
-                    return { path: args.path, namespace: 'xmdx-jsx' };
-                  });
-                  // External - don't bundle
-                  build.onResolve({ filter: /.*/ }, args => {
-                    return { path: args.path, external: true };
-                  });
-                  // Load virtual JSX content
-                  build.onLoad({ filter: /.*/, namespace: 'xmdx-jsx' }, args => {
-                    const entry = entryMap.get(args.path);
-                    return entry ? { contents: entry.jsx, loader: 'jsx' } : null;
+            if (!usedParallel) {
+              // Single-threaded esbuild for small batches (lower overhead)
+              const entryMap = new Map<string, { id: string; jsx: string }>();
+              for (let i = 0; i < jsxInputs.length; i++) {
+                const entry = `entry${i}.jsx`;
+                const input = jsxInputs[i]!;
+                entryMap.set(entry, { id: input.id, jsx: input.jsx });
+              }
+
+              const result: BuildResult = await esbuildBuild({
+                write: false,
+                bundle: false,
+                format: 'esm',
+                sourcemap: 'external',
+                loader: { '.jsx': 'jsx' },
+                jsx: 'transform',
+                jsxFactory: '_jsx',
+                jsxFragment: '_Fragment',
+                entryPoints: Array.from(entryMap.keys()),
+                outdir: 'out',
+                plugins: [
+                  {
+                    name: 'xmdx-virtual-jsx',
+                    setup(build) {
+                      build.onResolve({ filter: /^entry\d+\.jsx$/ }, (args) => {
+                        return { path: args.path, namespace: 'xmdx-jsx' };
+                      });
+                      build.onResolve({ filter: /.*/ }, (args) => {
+                        return { path: args.path, external: true };
+                      });
+                      build.onLoad({ filter: /.*/, namespace: 'xmdx-jsx' }, (args) => {
+                        const entry = entryMap.get(args.path);
+                        return entry ? { contents: entry.jsx, loader: 'jsx' } : null;
+                      });
+                    },
+                  },
+                ],
+              });
+
+              for (const output of result.outputFiles || []) {
+                const basename = path.basename(output.path);
+                if (basename.endsWith('.map')) continue;
+                const entryName = basename.replace(/\.js$/, '.jsx');
+                const entry = entryMap.get(entryName);
+                if (entry) {
+                  const mapOutput = result.outputFiles?.find((o) => o.path === output.path + '.map');
+                  esbuildCache.set(entry.id, {
+                    code: output.text,
+                    map: mapOutput?.text as SourceMapInput | undefined,
                   });
                 }
-              }]
-            });
-
-            // Store results in esbuild cache
-            for (const output of result.outputFiles || []) {
-              // Output path format: out/entry0.js or out/entry0.js.map
-              const basename = path.basename(output.path);
-              if (basename.endsWith('.map')) continue; // Handle maps separately
-
-              // Find matching input by entry name
-              const entryName = basename.replace(/\.js$/, '.jsx');
-              const entry = entryMap.get(entryName);
-
-              if (entry) {
-                // Find corresponding source map
-                const mapOutput = result.outputFiles?.find(o =>
-                  o.path === output.path + '.map'
-                );
-                esbuildCache.set(entry.id, {
-                  code: output.text,
-                  map: mapOutput?.text as SourceMapInput | undefined,
-                });
               }
             }
 
             const esbuildEndTime = performance.now();
             console.info(
-              `[xmdx] Batch esbuild transformed ${esbuildCache.size} files in ${(esbuildEndTime - esbuildStartTime).toFixed(0)}ms`
+              `[xmdx] Batch esbuild transformed ${esbuildCache.size} files in ${(esbuildEndTime - esbuildStartTime).toFixed(0)}ms` +
+                (usedParallel ? ' (parallel workers)' : '')
             );
 
             debugTimeEnd('buildStart:esbuild');
@@ -631,6 +809,24 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             );
           }
         }
+
+        // Persist caches for subsequent build passes (SSR → Client)
+        for (const [k, v] of esbuildCache) {
+          persistentCache.esbuild.set(k, v);
+        }
+        for (const [k, v] of moduleCompilationCache) {
+          persistentCache.moduleCompilation.set(k, v);
+        }
+        for (const [k, v] of mdxCompilationCache) {
+          persistentCache.mdxCompilation.set(k, v);
+        }
+        for (const file of fallbackFiles) {
+          persistentCache.fallbackFiles.add(file);
+        }
+        for (const [k, v] of fallbackReasons) {
+          persistentCache.fallbackReasons.set(k, v);
+        }
+        debugLog(`Persisted ${persistentCache.esbuild.size} esbuild results for subsequent passes`);
 
         debugTimeEnd('buildStart:total');
       } catch (err) {
@@ -730,84 +926,150 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
 
         // Check cache FIRST, before any file I/O (populated in build mode by buildStart)
-        const cached = compilationCache.get(filename);
+        const cachedModule = moduleCompilationCache.get(filename);
+        const cachedMdx = mdxCompilationCache.get(filename);
         const isMdx = filename.endsWith('.mdx');
 
-        if (cached && !isMdx) {
-          const hasUserImports = (cached.hoistedImports?.length ?? 0) > 0;
-          const hasJsxComponents = cached.html && /\{\.\.\.|\<[A-Z]/.test(cached.html);
-
-          // Exports are handled by Rust and injected into the module
-          if (!hasUserImports && !hasJsxComponents) {
-            // FAST PATH: Use cached result without file I/O
-            const startTime = performance.now();
-            let frontmatter: Record<string, unknown> = {};
-            if (cached.frontmatterJson) {
-              try {
-                frontmatter = JSON.parse(cached.frontmatterJson) as Record<string, unknown>;
-              } catch {
-                frontmatter = {};
-              }
+        // FAST PATH: MD files with complete modules from Rust
+        if (cachedModule && !isMdx) {
+          const startTime = performance.now();
+          let frontmatter: Record<string, unknown> = {};
+          if (cachedModule.frontmatterJson) {
+            try {
+              frontmatter = JSON.parse(cachedModule.frontmatterJson) as Record<string, unknown>;
+            } catch {
+              frontmatter = {};
             }
-            const headings = cached.headings || [];
-
-            const jsxCode = wrapHtmlInJsxModule(cached.html, frontmatter, headings, filename, {
-              hoistedExports: cached.hoistedExports,
-              hasUserDefaultExport: cached.hasUserDefaultExport,
-            });
-            const result: CompileResult = {
-              code: jsxCode,
-              map: null,
-              frontmatter_json: cached.frontmatterJson,
-              headings,
-              imports: [],
-            };
-
-            const endTime = performance.now();
-            totalProcessingTimeMs += endTime - startTime;
-            processedFiles.add(filename);
-
-            const normalizedStarlightComponents = normalizeStarlightComponents(starlightComponents);
-            const sourceForHooks =
-              originalSourceCache.get(filename) ??
-              cached.originalSource ??
-              processedSourceCache.get(filename) ??
-              cached.processedSource ??
-              (await readFile(filename, 'utf8'));
-            const ctx: TransformContext = {
-              code: result.code,
-              source: sourceForHooks, // Preserve markdown for user hooks
-              filename,
-              frontmatter,
-              headings,
-              registry,
-              config: {
-                expressiveCode,
-                starlightComponents: normalizedStarlightComponents,
-                shiki: await shikiManager.getFor(result.code),
-              },
-            };
-
-            const tpStart = LOAD_PROFILE ? performance.now() : 0;
-            const transformed = await transformPipeline(ctx);
-            result.code = transformed.code;
-            if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart);
-
-            const esStart = LOAD_PROFILE ? performance.now() : 0;
-            const esbuildResult = await transformWithEsbuild(result.code, id, ESBUILD_JSX_CONFIG);
-            if (loadProfiler) loadProfiler.record('esbuild', performance.now() - esStart);
-
-            if (loadProfiler) {
-              const elapsed = performance.now() - loadStart;
-              loadProfiler.cacheHits++;
-              loadProfiler.recordFile(filename, elapsed);
-            }
-
-            return {
-              code: esbuildResult.code,
-              map: esbuildResult.map ?? result.map ?? undefined,
-            };
           }
+          const headings = cachedModule.headings || [];
+
+          // Use complete module code from Rust (no wrapHtmlInJsxModule needed)
+          const result: CompileResult = {
+            code: cachedModule.code,
+            map: null,
+            frontmatter_json: cachedModule.frontmatterJson,
+            headings,
+            imports: [],
+          };
+
+          const endTime = performance.now();
+          totalProcessingTimeMs += endTime - startTime;
+          processedFiles.add(filename);
+
+          const normalizedStarlightComponents = normalizeStarlightComponents(starlightComponents);
+          const sourceForHooks =
+            originalSourceCache.get(filename) ??
+            cachedModule.originalSource ??
+            processedSourceCache.get(filename) ??
+            cachedModule.processedSource ??
+            (await readFile(filename, 'utf8'));
+          const ctx: TransformContext = {
+            code: result.code,
+            source: sourceForHooks,
+            filename,
+            frontmatter,
+            headings,
+            registry,
+            config: {
+              expressiveCode,
+              starlightComponents: normalizedStarlightComponents,
+              shiki: await shikiManager.getFor(result.code),
+            },
+          };
+
+          const tpStart = LOAD_PROFILE ? performance.now() : 0;
+          const transformed = await transformPipeline(ctx);
+          result.code = transformed.code;
+          if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart);
+
+          const esStart = LOAD_PROFILE ? performance.now() : 0;
+          const esbuildResult = await transformWithEsbuild(result.code, id, ESBUILD_JSX_CONFIG);
+          if (loadProfiler) loadProfiler.record('esbuild', performance.now() - esStart);
+
+          if (loadProfiler) {
+            const elapsed = performance.now() - loadStart;
+            loadProfiler.cacheHits++;
+            loadProfiler.recordFile(filename, elapsed);
+          }
+
+          return {
+            code: esbuildResult.code,
+            map: esbuildResult.map ?? result.map ?? undefined,
+          };
+        }
+
+        // FAST PATH: MDX files compiled via mdxjs-rs
+        if (cachedMdx && isMdx) {
+          const startTime = performance.now();
+          let frontmatter: Record<string, unknown> = {};
+          if (cachedMdx.frontmatterJson) {
+            try {
+              frontmatter = JSON.parse(cachedMdx.frontmatterJson) as Record<string, unknown>;
+            } catch {
+              frontmatter = {};
+            }
+          }
+          const headings = cachedMdx.headings || [];
+
+          // Wrap MDX output in Astro component format
+          const jsxCode = wrapMdxModule(cachedMdx.code, {
+            frontmatter,
+            headings,
+            registry,
+          }, filename);
+
+          const result: CompileResult = {
+            code: jsxCode,
+            map: null,
+            frontmatter_json: cachedMdx.frontmatterJson,
+            headings,
+            imports: [],
+          };
+
+          const endTime = performance.now();
+          totalProcessingTimeMs += endTime - startTime;
+          processedFiles.add(filename);
+
+          const normalizedStarlightComponents = normalizeStarlightComponents(starlightComponents);
+          const sourceForHooks =
+            originalSourceCache.get(filename) ??
+            cachedMdx.originalSource ??
+            processedSourceCache.get(filename) ??
+            cachedMdx.processedSource ??
+            (await readFile(filename, 'utf8'));
+          const ctx: TransformContext = {
+            code: result.code,
+            source: sourceForHooks,
+            filename,
+            frontmatter,
+            headings,
+            registry,
+            config: {
+              expressiveCode,
+              starlightComponents: normalizedStarlightComponents,
+              shiki: await shikiManager.getFor(result.code),
+            },
+          };
+
+          const tpStart = LOAD_PROFILE ? performance.now() : 0;
+          const transformed = await transformPipeline(ctx);
+          result.code = transformed.code;
+          if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart);
+
+          const esStart = LOAD_PROFILE ? performance.now() : 0;
+          const esbuildResult = await transformWithEsbuild(result.code, id, ESBUILD_JSX_CONFIG);
+          if (loadProfiler) loadProfiler.record('esbuild', performance.now() - esStart);
+
+          if (loadProfiler) {
+            const elapsed = performance.now() - loadStart;
+            loadProfiler.cacheHits++;
+            loadProfiler.recordFile(filename, elapsed);
+          }
+
+          return {
+            code: esbuildResult.code,
+            map: esbuildResult.map ?? result.map ?? undefined,
+          };
         }
 
         // Lazy initialize compiler on first use (only needed for cache miss path)
@@ -845,7 +1107,50 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         let frontmatter: Record<string, unknown> = {};
         let headings: Array<{ depth: number; slug: string; text: string }> = [];
 
-        if (IS_MDAST) {
+        // MDX files: Use mdxjs-rs for full MDX support (JSX, ESM imports, etc.)
+        if (isMdx) {
+          const binding = await loadXmdxBinding();
+
+          // Compile single MDX file with mdxjs-rs
+          const mdxBatchResult = binding.compileMdxBatch(
+            [{ id: filename, source: processedSource }],
+            { continueOnError: false, config: compilerOptions }
+          );
+
+          const mdxResult = mdxBatchResult.results[0];
+          if (mdxResult?.error) {
+            throw new Error(`MDX compilation failed: ${mdxResult.error}`);
+          }
+          if (!mdxResult?.result) {
+            throw new Error(`MDX compilation returned no result for ${filename}`);
+          }
+
+          // Parse frontmatter and headings
+          if (mdxResult.result.frontmatterJson) {
+            try {
+              frontmatter = JSON.parse(mdxResult.result.frontmatterJson) as Record<string, unknown>;
+            } catch {
+              frontmatter = {};
+            }
+          }
+          headings = mdxResult.result.headings || [];
+
+          // Wrap MDX output in Astro component format
+          const jsxCode = wrapMdxModule(mdxResult.result.code, {
+            frontmatter,
+            headings,
+            registry,
+          }, filename);
+
+          result = {
+            code: jsxCode,
+            map: null,
+            frontmatter_json: mdxResult.result.frontmatterJson ?? '',
+            headings,
+            imports: [],
+          };
+        } else if (IS_MDAST) {
+          // MD files: Use markdown-rs via parseBlocks
           const binding = await loadXmdxBinding();
 
           // Extract user imports BEFORE processing (user imports take precedence over registry)
