@@ -23,7 +23,7 @@ export { DEFAULT_EXTENSIONS } from '../utils/paths.js';
 export { loadXmdxBinding, resetBindingPromise, ENABLE_SHIKI, IS_MDAST } from './binding-loader.js';
 
 // Re-export JSX module utilities
-export { wrapHtmlInJsxModule, compileFallbackModule } from './jsx-module.js';
+export { compileFallbackModule } from './jsx-module.js';
 
 // Re-export directive rewriter
 export { rewriteFallbackDirectives, injectFallbackImports } from './directive-rewriter.js';

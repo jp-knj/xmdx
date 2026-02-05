@@ -5,6 +5,8 @@
 pub mod error;
 /// YAML frontmatter extraction helpers.
 pub mod frontmatter;
+/// MDX compilation using mdxjs-rs.
+pub mod mdx_compiler;
 /// Markdown parsing utilities and extension hooks.
 pub mod parse;
 /// Slug generation utilities.
@@ -14,6 +16,7 @@ pub use error::{
     ErrorSeverity, MarkflowError, ParseDiagnostics, ParseWarning, RecoverableError, SourceLocation,
 };
 pub use frontmatter::{FrontmatterError, FrontmatterExtraction, extract_frontmatter};
+pub use mdx_compiler::{MdxCompileError, MdxCompileOptions, MdxHeading, MdxOutput, compile_mdx};
 pub use parse::{
     AstTransform, ParseOptions, ParserPipeline, TextTransform, parse_mdast,
     parse_mdast_with_options,

@@ -304,6 +304,22 @@ describe('blocksToJsx', () => {
       expect(result).not.toContain('set:html={');
     });
 
+    it('should self-close void HTML tags when embedding slot content', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Section',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<Card>Content</Card><img src="/img.png">' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      expect(result).toContain('<Section><Card>Content</Card><img src="/img.png" /></Section>');
+      expect(result).not.toContain('<img src="/img.png">');
+    });
+
     it('should convert HTML entities to JSX expressions in nested component content', () => {
       const blocks: Block[] = [
         {
