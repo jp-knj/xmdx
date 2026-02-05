@@ -1,0 +1,13 @@
+{
+  "name": "xmdx-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:napi": "pnpm --filter xmdx-napi build",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,124 @@
+/**
+ * Type definitions for the Xmdx Vite plugin
+ * @module vite-plugin/types
+ */
+
+import type { DefaultTreeAdapterMap } from 'parse5';
+import type { ComponentLibrary } from 'xmdx/registry';
+import type { XmdxPlugin, MdxImportHandlingOptions } from '../types.js';
+
+// Parse5 DOM types
+export type DocumentFragment = DefaultTreeAdapterMap['documentFragment'];
+export type Node = DefaultTreeAdapterMap['node'];
+export type Element = DefaultTreeAdapterMap['element'];
+export type TextNode = DefaultTreeAdapterMap['textNode'];
+
+/**
+ * Native NAPI binding interface for Xmdx compiler.
+ */
+export interface XmdxBinding {
+  createCompiler?: (config: Record<string, unknown>) => XmdxCompiler;
+  XmdxCompiler?: new (config: Record<string, unknown>) => XmdxCompiler;
+  compileBatch: (
+    inputs: Array<{ id: string; source: string; filepath: string }>,
+    options: { continueOnError: boolean; config: Record<string, unknown> }
+  ) => BatchCompileResult;
+  parseBlocks: (
+    source: string,
+    options: { enable_directives: boolean }
+  ) => ParseBlocksResult;
+  parseFrontmatter: (source: string) => { frontmatter: Record<string, unknown> };
+}
+
+/**
+ * Compiler instance for single-file compilation.
+ */
+export interface XmdxCompiler {
+  compile: (
+    source: string,
+    filename: string,
+    options: { file?: string; url?: string }
+  ) => CompileResult;
+}
+
+/**
+ * Result from single-file compilation.
+ */
+export interface CompileResult {
+  code: string;
+  map?: unknown;
+  frontmatter_json?: string;
+  headings?: Array<{ depth: number; slug: string; text: string }>;
+  imports?: Array<{ path: string }>;
+  diagnostics?: {
+    warnings?: Array<{ line: number; message: string }>;
+  };
+}
+
+/**
+ * Export specification from Rust compiler.
+ */
+export interface ExportSpec {
+  source: string;
+  isDefault: boolean;
+}
+
+/**
+ * Result from batch compilation.
+ */
+export interface BatchCompileResult {
+  results: Array<{
+    id: string;
+    result?: {
+      html: string;
+      frontmatterJson?: string;
+      headings?: Array<{ depth: number; slug: string; text: string }>;
+      hoistedImports?: Array<{ source: string; kind: string }>;
+      hoistedExports?: ExportSpec[];
+      hasUserDefaultExport?: boolean;
+    };
+  }>;
+  stats: {
+    succeeded: number;
+    total: number;
+    processingTimeMs: number;
+  };
+}
+
+/**
+ * Result from parsing blocks.
+ */
+/** A render block from the Rust compiler. */
+export interface RenderBlockData {
+  type: 'html' | 'component' | 'code';
+  content?: string;
+  name?: string;
+  props?: Record<string, unknown>;
+  slotChildren?: RenderBlockData[];
+  code?: string;
+  lang?: string;
+  meta?: string;
+}
+
+export interface ParseBlocksResult {
+  blocks: RenderBlockData[];
+  headings: Array<{ depth: number; slug: string; text: string }>;
+}
+
+/**
+ * Plugin options for the Xmdx Vite plugin.
+ */
+export interface XmdxPluginOptions {
+  include?: (id: string) => boolean;
+  libraries?: ComponentLibrary[];
+  starlightComponents?: boolean | { enabled?: boolean; components?: string[]; module?: string };
+  expressiveCode?: boolean | { enabled?: boolean; component?: string; module?: string };
+  compiler?: {
+    jsx?: {
+      code_sample_components?: string[];
+    };
+  };
+  plugins?: XmdxPlugin[];
+  binding?: XmdxBinding;
+  mdx?: MdxImportHandlingOptions;
+}

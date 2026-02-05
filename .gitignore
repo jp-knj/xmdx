@@ -141,5 +141,8 @@ vite.config.ts.timestamp-*
 # target
 target
 
+# napi-rs build artifacts
+*.node
+
 # ai
 .claude

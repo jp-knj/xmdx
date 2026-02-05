@@ -1,0 +1,32 @@
+{
+  "name": "@xmdx/astro-loader",
+  "version": "0.0.1",
+  "description": "Astro Content Collections loader backed by the xmdx Rust engine",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown build src/index.ts --format esm --dts --out-dir dist",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "astro",
+    "markdown",
+    "loader",
+    "xmdx"
+  ],
+  "peerDependencies": {
+    "astro": "5.16.4"
+  },
+  "dependencies": {
+    "globby": "16.0.0",
+    "xmdx-napi": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "0.15.0",
+    "typescript": "5.7.2"
+  }
+}
