@@ -126,6 +126,28 @@ pub fn compile_mdx(
     })
 }
 
+/// Checks if a line is an indented code block (4+ spaces or tab at start).
+/// Per CommonMark spec, such lines are code blocks, not headings.
+fn is_indented_code_block(line: &str) -> bool {
+    let mut chars = line.chars();
+    let mut space_count = 0;
+
+    for c in chars.by_ref() {
+        match c {
+            ' ' => {
+                space_count += 1;
+                if space_count >= 4 {
+                    return true;
+                }
+            }
+            '\t' => return true,
+            _ => break,
+        }
+    }
+
+    false
+}
+
 /// Extracts headings from MDX/Markdown source.
 ///
 /// This function parses the source looking for ATX-style headings (`# Heading`)
@@ -136,9 +158,15 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     let mut slugger = Slugger::new();
 
     for line in source.lines() {
+        // Skip indented code blocks (4+ spaces or tab) before trimming
+        // Per CommonMark, these are code blocks and should not be parsed as headings
+        if is_indented_code_block(line) {
+            continue;
+        }
+
         let trimmed = line.trim();
 
-        // Track code blocks with proper fence length matching
+        // Track fenced code blocks with proper fence length matching
         if let Some((marker, len)) = parse_fence_marker(trimmed) {
             if let Some((open_marker, open_len)) = fence_state {
                 // Inside a code block - check if this closes it
@@ -696,5 +724,57 @@ key: "unclosed
         assert_eq!(headings.len(), 2);
         assert_eq!(headings[0].text, "Before");
         assert_eq!(headings[1].text, "After");
+    }
+
+    #[test]
+    fn test_indented_code_blocks() {
+        // Lines with 4+ spaces or tab at start are indented code blocks per CommonMark
+        // They should NOT be treated as headings
+        let source = r#"
+# Real Heading
+
+Some text here.
+
+    # Not a heading (4 spaces)
+
+More text.
+
+	# Not a heading (tab)
+
+## Another Real Heading
+
+- List item
+    # Not a heading (inside list)
+
+### Final Heading
+"#;
+
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 3);
+        assert_eq!(headings[0].text, "Real Heading");
+        assert_eq!(headings[1].text, "Another Real Heading");
+        assert_eq!(headings[2].text, "Final Heading");
+    }
+
+    #[test]
+    fn test_is_indented_code_block() {
+        // 4+ spaces = indented code block
+        assert!(is_indented_code_block("    # code"));
+        assert!(is_indented_code_block("     # code"));
+        assert!(is_indented_code_block("        # deeply indented"));
+
+        // Tab = indented code block
+        assert!(is_indented_code_block("\t# code"));
+        assert!(is_indented_code_block("\t\t# nested tabs"));
+
+        // Less than 4 spaces = not indented code block
+        assert!(!is_indented_code_block("# heading"));
+        assert!(!is_indented_code_block(" # heading"));
+        assert!(!is_indented_code_block("  # heading"));
+        assert!(!is_indented_code_block("   # heading"));
+
+        // Mixed (space + tab counts as code block if space + tab >= 4)
+        assert!(is_indented_code_block("   \t# mixed")); // 3 spaces + tab = code block (tab at any point)
     }
 }

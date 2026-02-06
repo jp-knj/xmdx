@@ -265,33 +265,38 @@ function detectUsedComponents(code: string, registry: Registry): UsedComponent[]
 
 /**
  * Generates import statements for the used components.
+ * For default exports, uses the convention: ${modulePath}/${name}.astro
+ * to match the rest of the codebase (blocks-to-jsx, inject-components, directive-rewriter).
  */
 function generateComponentImports(components: UsedComponent[], registry: Registry): string {
-  // Group components by module path for cleaner imports
+  // Group components by module path for cleaner imports (named exports only)
   const byModule = new Map<string, UsedComponent[]>();
+  const defaultExports: UsedComponent[] = [];
 
   for (const component of components) {
-    const existing = byModule.get(component.modulePath) ?? [];
-    existing.push(component);
-    byModule.set(component.modulePath, existing);
+    if (component.exportType === 'default') {
+      // Default exports use individual imports with full path
+      defaultExports.push(component);
+    } else {
+      const existing = byModule.get(component.modulePath) ?? [];
+      existing.push(component);
+      byModule.set(component.modulePath, existing);
+    }
   }
 
   const imports: string[] = [];
 
+  // Generate named imports grouped by module
   for (const [modulePath, moduleComponents] of byModule) {
-    const namedImports = moduleComponents
-      .filter(c => c.exportType === 'named')
-      .map(c => c.name);
-
-    const defaultImport = moduleComponents.find(c => c.exportType === 'default');
-
-    if (defaultImport && namedImports.length > 0) {
-      imports.push(`import ${defaultImport.name}, { ${namedImports.join(', ')} } from '${modulePath}';`);
-    } else if (defaultImport) {
-      imports.push(`import ${defaultImport.name} from '${modulePath}';`);
-    } else if (namedImports.length > 0) {
+    const namedImports = moduleComponents.map(c => c.name);
+    if (namedImports.length > 0) {
       imports.push(`import { ${namedImports.join(', ')} } from '${modulePath}';`);
     }
+  }
+
+  // Generate individual default imports with full path convention
+  for (const comp of defaultExports) {
+    imports.push(`import ${comp.name} from '${comp.modulePath}/${comp.name}.astro';`);
   }
 
   return imports.join('\n');
