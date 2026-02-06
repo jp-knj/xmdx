@@ -72,6 +72,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": ">=0.21.0",
+    "magic-string": "^0.30.0",
+    "rollup": ">=4.0.0",
     "typescript": "^5.7.0"
   }
 }

@@ -16,7 +16,7 @@ export declare class XmdxCompiler {
    * Compiles multiple Markdown/MDX files in parallel using Rayon.
    *
    * This method uses the compiler's configuration for all files and processes
-   * them concurrently for faster batch compilation.
+   * them concurrently for faster batch compilation. Returns IR results.
    *
    * # Arguments
    *
@@ -25,9 +25,26 @@ export declare class XmdxCompiler {
    *
    * # Returns
    *
-   * Returns a `BatchProcessingResult` containing individual results and statistics.
+   * Returns a `BatchProcessingResult` containing individual IR results and statistics.
    */
   compileBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): BatchProcessingResult
+  /**
+   * Compiles multiple Markdown/MDX files to complete Astro modules in parallel.
+   *
+   * Unlike `compileBatch` which returns IR for further processing in TypeScript,
+   * this method returns complete Astro module code ready for esbuild transformation.
+   * This eliminates the need for TypeScript's `wrapHtmlInJsxModule` step.
+   *
+   * # Arguments
+   *
+   * * `inputs` - Array of files to compile
+   * * `options` - Optional batch processing options (thread count, error handling)
+   *
+   * # Returns
+   *
+   * Returns a `ModuleBatchProcessingResult` containing complete module code and statistics.
+   */
+  compileBatchToModule(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): ModuleBatchProcessingResult
 }
 
 /** Input for batch processing - represents a single file to compile. */
@@ -93,10 +110,11 @@ export interface BlockOptions {
 }
 
 /**
- * Compiles multiple Markdown/MDX files in parallel using Rayon.
+ * Compiles multiple Markdown/MDX files in parallel using Rayon, returning IR.
  *
  * This function processes files concurrently, leveraging all available CPU cores
- * (or a specified maximum) for faster batch compilation.
+ * (or a specified maximum) for faster batch compilation. Returns IR for further
+ * processing in TypeScript.
  *
  * # Arguments
  *
@@ -105,7 +123,7 @@ export interface BlockOptions {
  *
  * # Returns
  *
- * Returns a `BatchProcessingResult` containing individual results and statistics.
+ * Returns a `BatchProcessingResult` containing individual IR results and statistics.
  *
  * # Example (JavaScript)
  *
@@ -124,6 +142,41 @@ World' },
  * ```
  */
 export declare function compileBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): BatchProcessingResult
+
+/**
+ * Compiles multiple Markdown/MDX files to complete Astro modules in parallel.
+ *
+ * Unlike `compileBatch` which returns IR for further processing in TypeScript,
+ * this function returns complete Astro module code ready for esbuild transformation.
+ * This eliminates the need for TypeScript's `wrapHtmlInJsxModule` step.
+ *
+ * # Arguments
+ *
+ * * `inputs` - Array of files to compile, each with an id, source, and optional filepath
+ * * `options` - Optional batch processing options (thread count, error handling, config)
+ *
+ * # Returns
+ *
+ * Returns a `ModuleBatchProcessingResult` containing complete module code and statistics.
+ *
+ * # Example (JavaScript)
+ *
+ * ```javascript
+ * const { compileBatchToModule } = require('xmdx-napi');
+ *
+ * const inputs = [
+ *   { id: 'file1.md', source: '# Hello
+World' },
+ *   { id: 'file2.md', source: '# Goodbye
+World' },
+ * ];
+ *
+ * const result = compileBatchToModule(inputs, { continueOnError: true });
+ * // result.results[0].result.code is a complete Astro module
+ * console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
+ * ```
+ */
+export declare function compileBatchToModule(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): ModuleBatchProcessingResult
 
 /** Compiles Markdown/MDX and returns a neutral IR. */
 export declare function compileIr(source: string, filepath: string, options?: FileOptions | undefined | null, config?: CompilerConfig | undefined | null): CompileIrResult
@@ -153,6 +206,41 @@ export interface CompileIrResult {
   /** Whether user provided their own `export default` statement. */
   hasUserDefaultExport: boolean
 }
+
+/**
+ * Compiles multiple MDX files in parallel using mdxjs-rs.
+ *
+ * This function uses the mdxjs-rs crate for native MDX compilation with proper
+ * JSX handling. It processes .mdx files with mdxjs-rs (which uses SWC internally)
+ * and falls back to markdown-rs for .md files.
+ *
+ * # Arguments
+ *
+ * * `inputs` - Array of files to compile, each with an id, source, and optional filepath
+ * * `options` - Optional batch processing options (thread count, error handling, config)
+ *
+ * # Returns
+ *
+ * Returns a `MdxBatchProcessingResult` containing individual results and statistics.
+ *
+ * # Example (JavaScript)
+ *
+ * ```javascript
+ * const { compileMdxBatch } = require('xmdx-napi');
+ *
+ * const inputs = [
+ *   { id: 'file1.mdx', source: '# Hello
+
+<CustomComponent />' },
+ *   { id: 'file2.md', source: '# Goodbye
+World' },
+ * ];
+ *
+ * const result = compileMdxBatch(inputs, { continueOnError: true });
+ * console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
+ * ```
+ */
+export declare function compileMdxBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): MdxBatchProcessingResult
 
 /** Options passed to the compiler constructor. */
 export interface CompilerConfig {
@@ -279,6 +367,59 @@ export interface ImportSpec {
   source: string
   /** Logical kind (hoisted or transform-required). */
   kind: ImportKind
+}
+
+/** Result of MDX batch processing containing all results and statistics. */
+export interface MdxBatchProcessingResult {
+  /** Individual results for each input file. */
+  results: Array<MdxBatchResult>
+  /** Processing statistics. */
+  stats: BatchStats
+}
+
+/** Result for a single MDX file in a batch. */
+export interface MdxBatchResult {
+  /** File identifier matching the input. */
+  id: string
+  /** Compilation result (present on success). */
+  result?: MdxCompileResult
+  /** Error message (present on failure). */
+  error?: string
+}
+
+/**
+ * Result from MDX compilation using mdxjs-rs.
+ * Unlike CompileIrResult which returns JSX for further processing,
+ * this returns complete JavaScript code ready for use.
+ */
+export interface MdxCompileResult {
+  /** Compiled JavaScript code (complete module with MDXContent export). */
+  code: string
+  /** Serialized frontmatter JSON string. */
+  frontmatterJson: string
+  /** Heading metadata collected during parsing. */
+  headings: Array<HeadingEntry>
+}
+
+/** Result of module batch processing containing all results and statistics. */
+export interface ModuleBatchProcessingResult {
+  /** Individual results for each input file. */
+  results: Array<ModuleBatchResult>
+  /** Processing statistics. */
+  stats: BatchStats
+}
+
+/**
+ * Result for a single file in a module batch.
+ * Unlike BatchResult which returns IR, this returns complete module code.
+ */
+export interface ModuleBatchResult {
+  /** File identifier matching the input. */
+  id: string
+  /** Compilation result with complete module code (present on success). */
+  result?: CompileResult
+  /** Error message (present on failure). */
+  error?: string
 }
 
 /**

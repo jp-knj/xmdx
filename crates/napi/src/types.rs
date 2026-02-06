@@ -223,3 +223,17 @@ pub struct ParseBlocksResult {
     /// Extracted heading metadata.
     pub headings: Vec<HeadingEntry>,
 }
+
+/// Result from MDX compilation using mdxjs-rs.
+/// Unlike CompileIrResult which returns JSX for further processing,
+/// this returns complete JavaScript code ready for use.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct MdxCompileResult {
+    /// Compiled JavaScript code (complete module with MDXContent export).
+    pub code: String,
+    /// Serialized frontmatter JSON string.
+    pub frontmatter_json: String,
+    /// Heading metadata collected during parsing.
+    pub headings: Vec<HeadingEntry>,
+}

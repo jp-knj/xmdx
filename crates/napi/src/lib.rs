@@ -4,7 +4,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::path::Path;
-use xmdx_core::{MarkflowError, extract_frontmatter};
+use xmdx_core::{MarkflowError, MdxCompileOptions, compile_mdx, extract_frontmatter};
 
 /// Batch processing types and functions.
 pub mod batch;
@@ -192,10 +192,11 @@ pub fn parse_blocks(input: String, opts: Option<BlockOptions>) -> napi::Result<P
     Ok(ParseBlocksResult { blocks, headings })
 }
 
-/// Compiles multiple Markdown/MDX files in parallel using Rayon.
+/// Compiles multiple Markdown/MDX files in parallel using Rayon, returning IR.
 ///
 /// This function processes files concurrently, leveraging all available CPU cores
-/// (or a specified maximum) for faster batch compilation.
+/// (or a specified maximum) for faster batch compilation. Returns IR for further
+/// processing in TypeScript.
 ///
 /// # Arguments
 ///
@@ -204,7 +205,7 @@ pub fn parse_blocks(input: String, opts: Option<BlockOptions>) -> napi::Result<P
 ///
 /// # Returns
 ///
-/// Returns a `BatchProcessingResult` containing individual results and statistics.
+/// Returns a `BatchProcessingResult` containing individual IR results and statistics.
 ///
 /// # Example (JavaScript)
 ///
@@ -312,6 +313,318 @@ pub fn compile_batch(
     let elapsed = start.elapsed();
 
     Ok(BatchProcessingResult {
+        results,
+        stats: BatchStats {
+            total,
+            succeeded: succeeded.load(Ordering::Relaxed),
+            failed: failed.load(Ordering::Relaxed),
+            processing_time_ms: elapsed.as_secs_f64() * 1000.0,
+        },
+    })
+}
+
+/// Compiles multiple Markdown/MDX files to complete Astro modules in parallel.
+///
+/// Unlike `compileBatch` which returns IR for further processing in TypeScript,
+/// this function returns complete Astro module code ready for esbuild transformation.
+/// This eliminates the need for TypeScript's `wrapHtmlInJsxModule` step.
+///
+/// # Arguments
+///
+/// * `inputs` - Array of files to compile, each with an id, source, and optional filepath
+/// * `options` - Optional batch processing options (thread count, error handling, config)
+///
+/// # Returns
+///
+/// Returns a `ModuleBatchProcessingResult` containing complete module code and statistics.
+///
+/// # Example (JavaScript)
+///
+/// ```javascript
+/// const { compileBatchToModule } = require('xmdx-napi');
+///
+/// const inputs = [
+///   { id: 'file1.md', source: '# Hello\nWorld' },
+///   { id: 'file2.md', source: '# Goodbye\nWorld' },
+/// ];
+///
+/// const result = compileBatchToModule(inputs, { continueOnError: true });
+/// // result.results[0].result.code is a complete Astro module
+/// console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
+/// ```
+#[napi(js_name = "compileBatchToModule")]
+pub fn compile_batch_to_module(
+    inputs: Vec<BatchInput>,
+    options: Option<BatchOptions>,
+) -> napi::Result<batch::ModuleBatchProcessingResult> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let opts = options.unwrap_or_default();
+    let continue_on_error = opts.continue_on_error.unwrap_or(true);
+    let config = opts.config.clone();
+
+    // Configure thread pool if max_threads is specified
+    let pool = if let Some(max_threads) = opts.max_threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(max_threads as usize)
+            .build()
+            .ok()
+    } else {
+        None
+    };
+
+    let total = inputs.len() as u32;
+    let succeeded = AtomicU32::new(0);
+    let failed = AtomicU32::new(0);
+
+    let process_input = |input: BatchInput| -> batch::ModuleBatchResult {
+        let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
+        match compiler::compile_ir(input.source, filepath, None, config.clone()) {
+            Ok(ir) => {
+                // Convert IR to complete module
+                match compiler::compile_document_from_ir(ir) {
+                    Ok(result) => {
+                        succeeded.fetch_add(1, Ordering::Relaxed);
+                        batch::ModuleBatchResult {
+                            id: input.id,
+                            result: Some(result),
+                            error: None,
+                        }
+                    }
+                    Err(e) => {
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        batch::ModuleBatchResult {
+                            id: input.id,
+                            result: None,
+                            error: Some(e.to_string()),
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                failed.fetch_add(1, Ordering::Relaxed);
+                batch::ModuleBatchResult {
+                    id: input.id,
+                    result: None,
+                    error: Some(e.to_string()),
+                }
+            }
+        }
+    };
+
+    let results: Vec<batch::ModuleBatchResult> = if continue_on_error {
+        // Process all files regardless of errors
+        if let Some(pool) = pool {
+            pool.install(|| inputs.into_par_iter().map(process_input).collect())
+        } else {
+            inputs.into_par_iter().map(process_input).collect()
+        }
+    } else {
+        // Stop on first error
+        let mut results = Vec::with_capacity(inputs.len());
+        let mut had_error = false;
+
+        if let Some(pool) = pool {
+            pool.install(|| {
+                for input in inputs {
+                    if had_error {
+                        break;
+                    }
+                    let result = process_input(input);
+                    if result.error.is_some() {
+                        had_error = true;
+                    }
+                    results.push(result);
+                }
+            });
+        } else {
+            for input in inputs {
+                if had_error {
+                    break;
+                }
+                let result = process_input(input);
+                if result.error.is_some() {
+                    had_error = true;
+                }
+                results.push(result);
+            }
+        }
+        results
+    };
+
+    let elapsed = start.elapsed();
+
+    Ok(batch::ModuleBatchProcessingResult {
+        results,
+        stats: batch::BatchStats {
+            total,
+            succeeded: succeeded.load(Ordering::Relaxed),
+            failed: failed.load(Ordering::Relaxed),
+            processing_time_ms: elapsed.as_secs_f64() * 1000.0,
+        },
+    })
+}
+
+/// Compiles multiple MDX files in parallel using mdxjs-rs.
+///
+/// This function uses the mdxjs-rs crate for native MDX compilation with proper
+/// JSX handling. It processes .mdx files with mdxjs-rs (which uses SWC internally)
+/// and falls back to markdown-rs for .md files.
+///
+/// # Arguments
+///
+/// * `inputs` - Array of files to compile, each with an id, source, and optional filepath
+/// * `options` - Optional batch processing options (thread count, error handling, config)
+///
+/// # Returns
+///
+/// Returns a `MdxBatchProcessingResult` containing individual results and statistics.
+///
+/// # Example (JavaScript)
+///
+/// ```javascript
+/// const { compileMdxBatch } = require('xmdx-napi');
+///
+/// const inputs = [
+///   { id: 'file1.mdx', source: '# Hello\n\n<CustomComponent />' },
+///   { id: 'file2.md', source: '# Goodbye\nWorld' },
+/// ];
+///
+/// const result = compileMdxBatch(inputs, { continueOnError: true });
+/// console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
+/// ```
+#[napi(js_name = "compileMdxBatch")]
+pub fn compile_mdx_batch(
+    inputs: Vec<BatchInput>,
+    options: Option<BatchOptions>,
+) -> napi::Result<MdxBatchProcessingResult> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let opts = options.unwrap_or_default();
+    let continue_on_error = opts.continue_on_error.unwrap_or(true);
+    let config = opts.config.clone();
+
+    // Configure thread pool if max_threads is specified
+    let pool = if let Some(max_threads) = opts.max_threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(max_threads as usize)
+            .build()
+            .ok()
+    } else {
+        None
+    };
+
+    let total = inputs.len() as u32;
+    let succeeded = AtomicU32::new(0);
+    let failed = AtomicU32::new(0);
+
+    let process_input = |input: BatchInput| -> MdxBatchResult {
+        let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
+        let is_mdx = filepath.ends_with(".mdx");
+
+        if is_mdx {
+            // Use mdxjs-rs for MDX files
+            let mdx_options = MdxCompileOptions {
+                jsx_import_source: config
+                    .as_ref()
+                    .and_then(|c| c.jsx_import_source.clone())
+                    .or_else(|| Some("astro".to_string())),
+                jsx: false,
+            };
+
+            match compile_mdx(&input.source, &filepath, Some(mdx_options)) {
+                Ok(output) => {
+                    succeeded.fetch_add(1, Ordering::Relaxed);
+                    MdxBatchResult {
+                        id: input.id,
+                        result: Some(MdxCompileResult {
+                            code: output.code,
+                            frontmatter_json: output.frontmatter_json,
+                            headings: output
+                                .headings
+                                .into_iter()
+                                .map(|h| HeadingEntry {
+                                    depth: h.depth,
+                                    slug: h.slug,
+                                    text: h.text,
+                                })
+                                .collect(),
+                        }),
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    failed.fetch_add(1, Ordering::Relaxed);
+                    MdxBatchResult {
+                        id: input.id,
+                        result: None,
+                        error: Some(e.to_string()),
+                    }
+                }
+            }
+        } else {
+            // Reject non-MDX files - they should use compileBatch instead
+            failed.fetch_add(1, Ordering::Relaxed);
+            MdxBatchResult {
+                id: input.id,
+                result: None,
+                error: Some(format!(
+                    "compileMdxBatch only supports .mdx files. Use compileBatch for '{}' instead.",
+                    filepath
+                )),
+            }
+        }
+    };
+
+    let results: Vec<MdxBatchResult> = if continue_on_error {
+        // Process all files regardless of errors
+        if let Some(pool) = pool {
+            pool.install(|| inputs.into_par_iter().map(process_input).collect())
+        } else {
+            inputs.into_par_iter().map(process_input).collect()
+        }
+    } else {
+        // Stop on first error
+        let mut results = Vec::with_capacity(inputs.len());
+        let mut had_error = false;
+
+        if let Some(pool) = pool {
+            pool.install(|| {
+                for input in inputs {
+                    if had_error {
+                        break;
+                    }
+                    let result = process_input(input);
+                    if result.error.is_some() {
+                        had_error = true;
+                    }
+                    results.push(result);
+                }
+            });
+        } else {
+            for input in inputs {
+                if had_error {
+                    break;
+                }
+                let result = process_input(input);
+                if result.error.is_some() {
+                    had_error = true;
+                }
+                results.push(result);
+            }
+        }
+        results
+    };
+
+    let elapsed = start.elapsed();
+
+    Ok(MdxBatchProcessingResult {
         results,
         stats: BatchStats {
             total,

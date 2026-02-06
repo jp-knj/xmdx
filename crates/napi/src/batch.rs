@@ -1,6 +1,6 @@
 //! Batch processing types and utilities for parallel compilation.
 
-use crate::types::{CompileIrResult, CompilerConfig};
+use crate::types::{CompileIrResult, CompilerConfig, MdxCompileResult};
 use napi_derive::napi;
 
 /// Input for batch processing - represents a single file to compile.
@@ -59,6 +59,51 @@ pub struct BatchOptions {
 pub struct BatchProcessingResult {
     /// Individual results for each input file.
     pub results: Vec<BatchResult>,
+    /// Processing statistics.
+    pub stats: BatchStats,
+}
+
+/// Result for a single MDX file in a batch.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct MdxBatchResult {
+    /// File identifier matching the input.
+    pub id: String,
+    /// Compilation result (present on success).
+    pub result: Option<MdxCompileResult>,
+    /// Error message (present on failure).
+    pub error: Option<String>,
+}
+
+/// Result of MDX batch processing containing all results and statistics.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct MdxBatchProcessingResult {
+    /// Individual results for each input file.
+    pub results: Vec<MdxBatchResult>,
+    /// Processing statistics.
+    pub stats: BatchStats,
+}
+
+/// Result for a single file in a module batch.
+/// Unlike BatchResult which returns IR, this returns complete module code.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct ModuleBatchResult {
+    /// File identifier matching the input.
+    pub id: String,
+    /// Compilation result with complete module code (present on success).
+    pub result: Option<crate::types::CompileResult>,
+    /// Error message (present on failure).
+    pub error: Option<String>,
+}
+
+/// Result of module batch processing containing all results and statistics.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct ModuleBatchProcessingResult {
+    /// Individual results for each input file.
+    pub results: Vec<ModuleBatchResult>,
     /// Processing statistics.
     pub stats: BatchStats,
 }
