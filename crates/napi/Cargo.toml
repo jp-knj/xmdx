@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 xmdx-core = { path = "../core" }
@@ -19,3 +19,6 @@ serde_json = { workspace = true }
 
 [build-dependencies]
 napi-build = { workspace = true }
+
+[dev-dependencies]
+napi = { version = "3", default-features = false, features = ["napi4", "serde-json", "noop"] }

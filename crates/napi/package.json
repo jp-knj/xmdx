@@ -1,15 +1,25 @@
 {
   "name": "xmdx-napi",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "High-performance streaming Markdown to HTML parser built with Rust for Astro (Node.js NAPI bindings)",
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
     "name": "xmdx",
-    "package": "xmdx-napi"
+    "package": "xmdx-napi",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "x86_64-unknown-linux-musl"
+      ]
+    }
   },
   "scripts": {
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
     "build": "napi build --platform --release --esm",
     "build:napi": "pnpm run build",
     "smoke:napi": "node ../../scripts/smoke-napi.mjs",
