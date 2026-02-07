@@ -301,7 +301,7 @@ fn strip_inline_markdown(text: &str) -> String {
                 if chars.peek() == Some(&'(') {
                     chars.next();
                     let mut depth = 1;
-                    while let Some(next) = chars.next() {
+                    for next in chars.by_ref() {
                         match next {
                             '(' => depth += 1,
                             ')' => {
@@ -330,7 +330,7 @@ fn strip_inline_markdown(text: &str) -> String {
                 if chars.peek() == Some(&'(') {
                     chars.next();
                     let mut depth = 1;
-                    while let Some(next) = chars.next() {
+                    for next in chars.by_ref() {
                         match next {
                             '(' => depth += 1,
                             ')' => {

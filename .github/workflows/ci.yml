@@ -55,12 +55,15 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/napi
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build NAPI binding
         working-directory: crates/napi
         run: bun run build
 
-      - name: Run tests
+      - name: Run Rust tests
+        run: cargo test -p xmdx-napi
+
+      - name: Run JS tests
         working-directory: crates/napi
         run: bun test
