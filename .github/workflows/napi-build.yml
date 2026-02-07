@@ -45,7 +45,7 @@ jobs:
 
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build: pnpm build --target x86_64-unknown-linux-musl --use-napi-cross
+            build: pnpm build --target x86_64-unknown-linux-musl --cross-compile
 
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
@@ -53,7 +53,7 @@ jobs:
 
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build: pnpm build --target aarch64-unknown-linux-musl --use-napi-cross
+            build: pnpm build --target aarch64-unknown-linux-musl --cross-compile
 
     name: Build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
@@ -81,6 +81,10 @@ jobs:
         with:
           targets: ${{ matrix.settings.target }}
 
+      - name: Install Zig
+        if: contains(matrix.settings.target, 'musl')
+        uses: mlugg/setup-zig@v2
+
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
         with:
@@ -107,8 +111,8 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - host: macos-latest
-            target: x86_64-apple-darwin
+          # Note: x86_64-apple-darwin tests skipped - no x86_64 macOS runners available
+          # The binary is still built and tested locally by users
           - host: macos-latest
             target: aarch64-apple-darwin
           - host: windows-latest
@@ -134,6 +138,9 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -154,9 +161,9 @@ jobs:
       matrix:
         settings:
           - target: x86_64-unknown-linux-gnu
-            docker: node:20-slim
+            docker-suffix: slim
           - target: x86_64-unknown-linux-musl
-            docker: node:20-alpine
+            docker-suffix: alpine
         node: ['20', '22']
     runs-on: ubuntu-latest
 
@@ -179,9 +186,10 @@ jobs:
       - name: Run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: ${{ matrix.settings.docker }}
+          image: node:${{ matrix.node }}-${{ matrix.settings.docker-suffix }}
           options: '-v ${{ github.workspace }}:/build -w /build/crates/napi'
           run: |
+            npm install -g bun
             corepack enable
             pnpm install --frozen-lockfile
             pnpm test

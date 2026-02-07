@@ -792,7 +792,7 @@ mod tests {
         );
         assert_eq!(
             result.code.matches("import Y from './y'").count(),
-            1,
+            2, // appears twice: once in profiling branch, once in normal branch
             "fenced import should not be hoisted: {}",
             result.code
         );

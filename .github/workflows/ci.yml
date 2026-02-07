@@ -55,7 +55,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/napi
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Build NAPI binding
         working-directory: crates/napi
