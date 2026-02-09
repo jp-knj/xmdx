@@ -5,24 +5,48 @@
 
 import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
+import type { ExpressiveCodeManager } from '../vite-plugin/expressive-code-manager.js';
+
+// PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
+const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;
+const PRE_CODE_PATTERN = /<pre[^>]*><code(?: class="language-([^"]+)")?>([\s\S]*?)<\/code><\/pre>/g;
+// Uses "unrolled loop" pattern for better backtracking performance
+const JS_STRING_CODE_PATTERN =
+  /"<pre[^"\\]*(?:\\.[^"\\]*)*><code(?:\s+class=\\"language-([^"\\]+)\\")?>((?:[^"\\]*(?:\\.[^"\\]*)*)?)<\/code><\/pre>"/g;
+const JS_ESCAPE_PATTERN = /\\(.|$)/g;
 
 /**
  * Decodes HTML entities in a string.
+ * Optimized single-pass decoder.
  */
 export function decodeHtmlEntities(value: string): string {
   if (!value || !value.includes('&')) return value;
-  return value
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16))
-    )
-    .replace(/&#([0-9]+);/g, (_, num: string) =>
-      String.fromCodePoint(Number.parseInt(num, 10))
-    )
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
+
+  // Reset regex lastIndex for reuse (global regex stateful)
+  HTML_ENTITY_REGEX.lastIndex = 0;
+  return value.replace(HTML_ENTITY_REGEX, (match, entity: string) => {
+    switch (entity) {
+      case 'lt':
+        return '<';
+      case 'gt':
+        return '>';
+      case 'amp':
+        return '&';
+      case 'quot':
+        return '"';
+      case 'apos':
+        return "'";
+      case 'nbsp':
+        return '\u00A0';
+    }
+    if (entity.startsWith('#x') || entity.startsWith('#X')) {
+      return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+    }
+    if (entity.startsWith('#')) {
+      return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+    }
+    return match;
+  });
 }
 
 /**
@@ -45,14 +69,85 @@ export function rewriteExpressiveCodeBlocks(
   if (!code || typeof code !== 'string') {
     return { code, changed: false };
   }
+
+  // PERF: Fast check before expensive regex
+  if (!code.includes('<pre')) {
+    return { code, changed: false };
+  }
+
   // Pattern matches <pre> with optional attributes (class, tabindex, etc.)
   // followed by <code> with optional language class
-  const pattern =
-    /<pre[^>]*><code(?: class="language-([^"]+)")?>([\s\S]*?)<\/code><\/pre>/g;
+  // PERF: Reset pre-compiled regex for reuse
+  PRE_CODE_PATTERN.lastIndex = 0;
   let changed = false;
-  const next = code.replace(pattern, (_match, lang: string | undefined, raw: string) => {
-    changed = true;
+  const next = code.replace(PRE_CODE_PATTERN, (match, lang: string | undefined, raw: string) => {
     const decoded = decodeHtmlEntities(raw);
+    // Skip empty code blocks
+    if (!decoded.trim()) return match;
+    changed = true;
+    const props = [`code={${JSON.stringify(decoded)}}`];
+    if (lang) {
+      props.push(`lang="${lang}"`);
+    }
+    return `<${componentName} ${props.join(' ')} />`;
+  });
+  return { code: next, changed };
+}
+
+/**
+ * Rewrites code blocks that appear as JS string literals with escaped quotes.
+ *
+ * This handles the output from mdxjs-rs where code blocks are converted to:
+ * "<pre class=\"astro-code\" tabindex=\"0\"><code class=\"language-sh\">...</code></pre>"
+ *
+ * The pattern matches the escaped version and converts it to ExpressiveCode components.
+ */
+export function rewriteJsStringCodeBlocks(
+  code: string,
+  componentName: string
+): RewriteResult {
+  if (!code || typeof code !== 'string') {
+    return { code, changed: false };
+  }
+
+  // PERF: Fast check before expensive regex - skip if no escaped pre tags
+  if (!code.includes('<pre') && !code.includes('\\u003cpre')) {
+    return { code, changed: false };
+  }
+
+  // Pattern matches JS string literals containing code blocks with escaped quotes
+  // The input contains literal backslash-quote sequences like: \"
+  //
+  // Example input: "<pre class=\"astro-code\" tabindex=\"0\"><code class=\"language-sh\">npm install</code></pre>"
+  //
+  // PERF: Uses pre-compiled "unrolled loop" pattern for better performance
+  JS_STRING_CODE_PATTERN.lastIndex = 0;
+
+  let changed = false;
+  const next = code.replace(JS_STRING_CODE_PATTERN, (match, lang: string | undefined, escapedContent: string) => {
+    // Unescape the content in a single pass
+    // Handle escape sequences: \\ -> \, \n -> newline, \t -> tab, \r -> CR, \" -> "
+    JS_ESCAPE_PATTERN.lastIndex = 0;
+    const content = escapedContent.replace(JS_ESCAPE_PATTERN, (_, char: string) => {
+      switch (char) {
+        case 'n':
+          return '\n';
+        case 't':
+          return '\t';
+        case 'r':
+          return '\r';
+        case '"':
+          return '"';
+        case '\\':
+          return '\\';
+        default:
+          return char;
+      }
+    });
+    const decoded = decodeHtmlEntities(content);
+    // Skip empty code blocks
+    if (!decoded.trim()) return match;
+    changed = true;
     const props = [`code={${JSON.stringify(decoded)}}`];
     if (lang) {
       props.push(`lang="${lang}"`);
@@ -79,6 +174,11 @@ export function rewriteSetHtmlCodeBlocks(
   }
 
   const marker = '<_Fragment set:html={';
+
+  // PERF: Fast check before searching
+  if (!code.includes(marker)) {
+    return { code, changed: false };
+  }
   let result = code;
   let changed = false;
   let searchStart = 0;
@@ -144,4 +244,88 @@ export function injectExpressiveCodeComponent(
       ? `import { Code } from '${config.moduleId}';`
       : `import { Code as ${importName} } from '${config.moduleId}';`;
   return insertAfterImports(code, importLine);
+}
+
+// PERF: Pre-compiled regex pattern for Code/ExpressiveCode components
+const CODE_COMPONENT_PATTERN =
+  /<(Code|ExpressiveCode)\s+code=\{([^}]+)\}(?:\s+lang="([^"]+)")?(?:\s+[^>]*)?\s*\/>/g;
+
+/**
+ * Pre-renders ExpressiveCode components at build time.
+ *
+ * This transform replaces `<Code code={...} lang="..." />` components with
+ * pre-rendered HTML using `<_Fragment set:html={...} />`. This avoids the
+ * expensive per-file ExpressiveCode rendering during SSG, significantly
+ * improving build performance.
+ *
+ * Before: <Code code={"console.log('hello')"} lang="js" />
+ * After:  <_Fragment set:html={"<figure class=\"expressive-code\">...</figure>"} />
+ *
+ * @param code - The JSX code containing Code components
+ * @param ecManager - The ExpressiveCode manager instance
+ * @returns Transformed code with pre-rendered HTML
+ */
+export async function renderExpressiveCodeBlocks(
+  code: string,
+  ecManager: ExpressiveCodeManager
+): Promise<RewriteResult> {
+  // Quick bail-out checks
+  if (!code || !ecManager.enabled || !code.includes('code={')) {
+    return { code, changed: false };
+  }
+
+  // Find all Code/ExpressiveCode component instances
+  CODE_COMPONENT_PATTERN.lastIndex = 0;
+  const matches: Array<{
+    fullMatch: string;
+    index: number;
+    codeProp: string;
+    lang?: string;
+  }> = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = CODE_COMPONENT_PATTERN.exec(code)) !== null) {
+    matches.push({
+      fullMatch: match[0],
+      index: match.index,
+      codeProp: match[2]!,
+      lang: match[3],
+    });
+  }
+
+  if (matches.length === 0) {
+    return { code, changed: false };
+  }
+
+  // Render all code blocks in parallel
+  const rendered = await Promise.all(
+    matches.map(async ({ codeProp, lang }) => {
+      try {
+        // Parse the JSON-encoded code value
+        const codeValue = JSON.parse(codeProp) as string;
+        // Skip empty code blocks
+        if (!codeValue.trim()) return null;
+        // Render through ExpressiveCode
+        return await ecManager.render(codeValue, lang);
+      } catch {
+        // Parse error or render failure - skip this block
+        return null;
+      }
+    })
+  );
+
+  // Replace matches in reverse order to preserve indices
+  let result = code;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const html = rendered[i];
+    if (html) {
+      const { fullMatch, index } = matches[i]!;
+      // Replace Code component with pre-rendered HTML Fragment
+      const replacement = `<_Fragment set:html={${JSON.stringify(html)}} />`;
+      result = result.slice(0, index) + replacement + result.slice(index + fullMatch.length);
+    }
+  }
+
+  const changed = rendered.some((r) => r !== null);
+  return { code: result, changed };
 }
