@@ -12,17 +12,19 @@ import MagicString from 'magic-string';
 import { build as esbuildBuild, type BuildResult } from 'esbuild';
 import type { SourceMapInput } from 'rollup';
 import { runParallelEsbuild } from './vite-plugin/esbuild-pool.js';
+import { DiskCache } from './vite-plugin/disk-cache.js';
 import {
   createRegistry,
   starlightLibrary,
   astroLibrary,
-  expressiveCodeLibrary,
   type ComponentLibrary,
   type Registry,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
 import { blocksToJsx } from './transforms/blocks-to-jsx.js';
+import { renderExpressiveCodeBlocks } from './transforms/expressive-code.js';
 import { resolveExpressiveCodeConfig } from './utils/config.js';
+import { ExpressiveCodeManager } from './vite-plugin/expressive-code-manager.js';
 import { stripFrontmatter } from './utils/frontmatter.js';
 import { hasProblematicMdxPatterns, detectProblematicMdxPatterns } from './utils/mdx-detection.js';
 import { extractImportStatements } from './utils/imports.js';
@@ -159,10 +161,6 @@ export function resolveLibraries(options: XmdxPluginOptions): {
     libraries.push(starlightLibrary);
   }
 
-  if (options.expressiveCode) {
-    libraries.push(expressiveCodeLibrary);
-  }
-
   const registry = createRegistry(libraries);
   return { libraries, registry };
 }
@@ -222,6 +220,33 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const esbuildCache = new Map<string, { code: string; map?: SourceMapInput }>();  // Pre-compiled esbuild results
   const fallbackFiles = new Set<string>();
 
+  // PERF: Cache parsed frontmatter to avoid redundant JSON.parse calls
+  const frontmatterCache = new Map<string, Record<string, unknown>>();
+
+  /**
+   * Parse frontmatter JSON with caching.
+   * Returns cached result if available, otherwise parses and caches.
+   */
+  function parseFrontmatterCached(json: string | undefined, filename: string): Record<string, unknown> {
+    if (!json) return {};
+
+    // Include JSON content in cache key to invalidate on content change
+    const cacheKey = `${filename}:${json}`;
+    const cached = frontmatterCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      frontmatterCache.set(cacheKey, parsed);
+      return parsed;
+    } catch {
+      frontmatterCache.set(cacheKey, {});
+      return {};
+    }
+  }
+
   // Persistent cache for SSR/Client 2-pass builds
   // These survive between buildStart calls, avoiding redundant recompilation
   let buildPassCount = 0;
@@ -236,6 +261,10 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const processedFiles = new Set<string>();
   let totalProcessingTimeMs = 0;
 
+  // Disk cache for cross-build persistence (enabled by XMDX_DISK_CACHE=1 or options.cache)
+  const diskCacheEnabled = process.env.XMDX_DISK_CACHE === '1' || userOptions.cache === true;
+  let diskCache: DiskCache | null = null;
+
   const providedBinding = userOptions.binding ?? null;
 
   // Collect hooks from plugins
@@ -249,7 +278,14 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     beforeOutput: hooks.beforeOutput,
   });
 
+  const include = userOptions.include ?? shouldCompile;
+  const starlightComponents = userOptions.starlightComponents ?? false;
+  const expressiveCode = resolveExpressiveCodeConfig(
+    userOptions.expressiveCode ?? false
+  );
+
   // Build compiler options with default code_sample_components
+  // Note: rewrite_code_blocks is set based on whether ExpressiveCode is enabled
   const compilerOptions = {
     ...(userOptions.compiler ?? {}),
     jsx: {
@@ -257,13 +293,10 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       code_sample_components:
         userOptions.compiler?.jsx?.code_sample_components ?? ['Code', 'Prism'],
     },
+    // Enable code block rewriting so Rust outputs <Code> components
+    // Starlight's EC integration processes these at runtime
+    rewriteCodeBlocks: !!expressiveCode,
   };
-
-  const include = userOptions.include ?? shouldCompile;
-  const starlightComponents = userOptions.starlightComponents ?? false;
-  const expressiveCode = resolveExpressiveCodeConfig(
-    userOptions.expressiveCode ?? false
-  );
 
   // Resolve libraries and create registry
   const { registry } = resolveLibraries(userOptions);
@@ -285,6 +318,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   // 1. XMDX_SHIKI=1 env var is set, OR
   // 2. ExpressiveCode is explicitly disabled (fallback highlighting)
   const shikiManager = new ShikiManager(ENABLE_SHIKI || !expressiveCode);
+
+  // ExpressiveCode pre-rendering manager for build-time code highlighting
+  const ecManager = new ExpressiveCodeManager(expressiveCode);
 
   // Lazy compiler initialization to avoid Vite module runner timing issues
   const getCompiler = async (): Promise<XmdxCompiler> => {
@@ -360,6 +396,18 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       buildPassCount++;
       debugLog(`Build pass ${buildPassCount}`);
 
+      // Initialize disk cache on first pass
+      if (buildPassCount === 1 && diskCacheEnabled && !diskCache) {
+        diskCache = new DiskCache(resolvedConfig.root, true);
+        await diskCache.init();
+        // PERF: Batch-load all cache entries into memory to avoid per-file I/O
+        const preloaded = await diskCache.preloadEntries();
+        const stats = diskCache.getStats();
+        if (stats.entries > 0) {
+          console.info(`[xmdx] Disk cache enabled (${stats.entries} cached entries, ${preloaded} preloaded)`);
+        }
+      }
+
       // Pass 2+: Reuse cached results from previous build pass (SSR → Client)
       if (buildPassCount > 1 && persistentCache.esbuild.size > 0) {
         debugTime('buildStart:total');
@@ -430,6 +478,10 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       };
       const disallowedImportSources = new Map<string, number>();
 
+      // Track source hashes for disk cache
+      const sourceHashes = new Map<string, string>();
+      let diskCacheHits = 0;
+
       // Read all files in parallel and prepare batch inputs
       const inputsOrNull = await Promise.all(
         files.map(async (file) => {
@@ -442,7 +494,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           }
 
           // Pre-detect problematic patterns - these files will be handled by Astro's MDX plugin
-          const detection = detectProblematicMdxPatterns(processedSource, mdxOptions);
+          const detection = detectProblematicMdxPatterns(processedSource, mdxOptions, file);
           if (detection.hasProblematicPatterns) {
             fallbackFiles.add(file);
             fallbackReasons.set(file, detection.reason ?? 'Unknown pattern');
@@ -460,11 +512,32 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             return null;
           }
 
+          // Compute content hash for disk cache
+          const contentHash = DiskCache.computeHash(processedSource);
+          sourceHashes.set(file, contentHash);
+
+          // Check disk cache for cached esbuild result
+          if (diskCache) {
+            const cached = await diskCache.get(file, contentHash);
+            if (cached) {
+              // Direct cache hit - use cached esbuild result
+              esbuildCache.set(file, { code: cached.code, map: cached.map });
+              diskCacheHits++;
+              processedFiles.add(file);
+              return null; // Skip compilation
+            }
+          }
+
           originalSourceCache.set(file, rawSource);       // For TransformContext.source
           processedSourceCache.set(file, processedSource); // For potential reuse in cache fast path
-          return { id: file, source: processedSource, filepath: file };
+          return { id: file, source: processedSource, filepath: file, contentHash };
         })
       );
+
+      if (diskCacheHits > 0) {
+        debugLog(`Disk cache hits: ${diskCacheHits}/${files.length} files`);
+        console.info(`[xmdx] Disk cache: ${diskCacheHits} files loaded from cache`);
+      }
 
       debugTimeEnd('buildStart:readFiles');
 
@@ -507,8 +580,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         debugTime('buildStart:batchCompile');
         debugTime('buildStart:shikiInit');
 
-        // Start Shiki init in parallel with batch compile (Shiki doesn't depend on compile results)
+        // Start Shiki and ExpressiveCode init in parallel with batch compile
         const shikiPromise = shikiManager.init();
+        const ecPromise = ecManager.init();
 
         // Separate MD and MDX files for different compilation paths
         const mdInputs = inputs.filter(i => !i.filepath?.endsWith('.mdx'));
@@ -582,10 +656,10 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
         // Batch esbuild transformation for fast-path eligible files
         const esbuildStartTime = performance.now();
-        const jsxInputs: Array<{ id: string; virtualId: string; jsx: string }> = [];
+        const jsxInputs: Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }> = [];
 
-        // Wait for Shiki initialization (started in parallel with batch compile)
-        const resolvedShiki = await shikiPromise;
+        // Wait for Shiki and ExpressiveCode initialization (started in parallel with batch compile)
+        const [resolvedShiki, resolvedEc] = await Promise.all([shikiPromise, ecPromise]);
         debugTimeEnd('buildStart:shikiInit');
 
         // Normalize starlightComponents for TransformContext
@@ -613,15 +687,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           const chunk = mdModuleEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
           const chunkResults = await Promise.all(
             chunk.map(async ([filename, cached]) => {
-              // Parse frontmatter
-              let frontmatter: Record<string, unknown> = {};
-              if (cached.frontmatterJson) {
-                try {
-                  frontmatter = JSON.parse(cached.frontmatterJson) as Record<string, unknown>;
-                } catch {
-                  frontmatter = {};
-                }
-              }
+              // PERF: Parse frontmatter with caching
+              const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
               const headings = cached.headings || [];
 
               // Use complete module code from Rust (no wrapHtmlInJsxModule needed)
@@ -651,8 +718,14 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
               };
 
               const transformed = await transformPipeline(ctx);
+
+              // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+              // This ensures proper CSS/JS injection via Starlight's EC integration
+              const finalCode = transformed.code;
+
               const virtualId = `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`;
-              return { id: filename, virtualId, jsx: transformed.code };
+              const contentHash = sourceHashes.get(filename);
+              return { id: filename, virtualId, jsx: finalCode, contentHash };
             })
           );
           jsxInputs.push(...chunkResults);
@@ -663,15 +736,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           const chunk = mdxFastPathEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
           const chunkResults = await Promise.all(
             chunk.map(async ([filename, cached]) => {
-              // Parse frontmatter
-              let frontmatter: Record<string, unknown> = {};
-              if (cached.frontmatterJson) {
-                try {
-                  frontmatter = JSON.parse(cached.frontmatterJson) as Record<string, unknown>;
-                } catch {
-                  frontmatter = {};
-                }
-              }
+              // PERF: Parse frontmatter with caching
+              const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
               const headings = cached.headings || [];
 
               // Wrap MDX output in Astro component format
@@ -705,8 +771,13 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
               };
 
               const transformed = await transformPipeline(ctx);
+
+              // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+              const finalCode = transformed.code;
+
               const virtualId = `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`;
-              return { id: filename, virtualId, jsx: transformed.code };
+              const contentHash = sourceHashes.get(filename);
+              return { id: filename, virtualId, jsx: finalCode, contentHash };
             })
           );
           jsxInputs.push(...chunkResults);
@@ -802,6 +873,45 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             );
 
             debugTimeEnd('buildStart:esbuild');
+
+            // Write newly compiled results to disk cache
+            if (diskCache) {
+              debugTime('buildStart:diskCacheWrite');
+              const entriesToCache: Array<{
+                filename: string;
+                sourceHash: string;
+                code: string;
+                map?: SourceMapInput;
+              }> = [];
+
+              // Build hash lookup from jsxInputs
+              const inputHashMap = new Map<string, string>();
+              for (const input of jsxInputs) {
+                if (input.contentHash) {
+                  inputHashMap.set(input.id, input.contentHash);
+                }
+              }
+
+              // Collect entries that need to be cached
+              for (const [id, cached] of esbuildCache) {
+                const hash = inputHashMap.get(id);
+                if (hash) {
+                  entriesToCache.push({
+                    filename: id,
+                    sourceHash: hash,
+                    code: cached.code,
+                    map: cached.map,
+                  });
+                }
+              }
+
+              if (entriesToCache.length > 0) {
+                await diskCache.setBatch(entriesToCache);
+                await diskCache.flush();
+                debugLog(`Wrote ${entriesToCache.length} entries to disk cache`);
+              }
+              debugTimeEnd('buildStart:diskCacheWrite');
+            }
           } catch (esbuildErr) {
             debugTimeEnd('buildStart:esbuild');
             this.warn(
@@ -872,26 +982,24 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           ? stripQuery(unwrapVirtual(resolved.id) ?? resolved.id)
           : fallback();
 
-      // Pre-detected fallback files should be handled by Astro's MDX plugin
-      // which has proper remark-directive support and user-configured plugins
-      if (fallbackFiles.has(resolvedId)) {
-        return null;
-      }
+      // Note: We no longer return null for fallback files because xmdx IS the MDX plugin.
+      // Returning null would cause Vite to try parsing raw MDX as JS, which fails.
+      // Instead, we resolve all MDX files and use compileFallbackModule in the load hook
+      // for files with problematic patterns.
 
-      // Dev mode pre-detection: check if file needs fallback before returning virtualId
-      // This ensures dev mode delegates problematic files to Astro MDX just like build mode does
-      if (resolvedConfig?.command !== 'build') {
+      // Dev mode pre-detection: mark files for fallback before proceeding
+      // These will be compiled with @mdx-js/mdx in the load hook
+      if (resolvedConfig?.command !== 'build' && !fallbackFiles.has(resolvedId)) {
         try {
           const source = await readFile(resolvedId, 'utf8');
           let processedSource = source;
           for (const preprocessHook of hooks.preprocess) {
             processedSource = preprocessHook(processedSource, resolvedId);
           }
-          const detection = detectProblematicMdxPatterns(processedSource, mdxOptions);
+          const detection = detectProblematicMdxPatterns(processedSource, mdxOptions, resolvedId);
           if (detection.hasProblematicPatterns) {
             fallbackFiles.add(resolvedId);
             fallbackReasons.set(resolvedId, detection.reason ?? 'Pre-detected problematic MDX patterns (dev mode)');
-            return null; // Delegate to Astro's MDX plugin
           }
         } catch {
           // File read failed, let normal path handle it
@@ -912,6 +1020,18 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         stripQuery(id.slice(VIRTUAL_MODULE_PREFIX.length).replace(new RegExp(`${OUTPUT_EXTENSION.replace('.', '\\.')}$`), ''));
 
       try {
+        // FALLBACK PATH: Files with problematic patterns use @mdx-js/mdx
+        // This handles files that were pre-detected in buildStart or resolveId
+        if (fallbackFiles.has(filename)) {
+          const source = await readFile(filename, 'utf8');
+          let processedSource = source;
+          for (const preprocessHook of hooks.preprocess) {
+            processedSource = preprocessHook(processedSource, filename);
+          }
+          // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+          return compileFallbackModule(filename, processedSource, id, registry, hasStarlightConfigured);
+        }
+
         // FASTEST PATH: Check esbuild cache first (O(1) lookup, populated in buildStart)
         const loadStart = LOAD_PROFILE ? performance.now() : 0;
         const cachedEsbuildResult = esbuildCache.get(filename);
@@ -933,14 +1053,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         // FAST PATH: MD files with complete modules from Rust
         if (cachedModule && !isMdx) {
           const startTime = performance.now();
-          let frontmatter: Record<string, unknown> = {};
-          if (cachedModule.frontmatterJson) {
-            try {
-              frontmatter = JSON.parse(cachedModule.frontmatterJson) as Record<string, unknown>;
-            } catch {
-              frontmatter = {};
-            }
-          }
+          // PERF: Parse frontmatter with caching
+          const frontmatter = parseFrontmatterCached(cachedModule.frontmatterJson, filename);
           const headings = cachedModule.headings || [];
 
           // Use complete module code from Rust (no wrapHtmlInJsxModule needed)
@@ -982,6 +1096,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           result.code = transformed.code;
           if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart);
 
+          // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+
           const esStart = LOAD_PROFILE ? performance.now() : 0;
           const esbuildResult = await transformWithEsbuild(result.code, id, ESBUILD_JSX_CONFIG);
           if (loadProfiler) loadProfiler.record('esbuild', performance.now() - esStart);
@@ -1001,14 +1117,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         // FAST PATH: MDX files compiled via mdxjs-rs
         if (cachedMdx && isMdx) {
           const startTime = performance.now();
-          let frontmatter: Record<string, unknown> = {};
-          if (cachedMdx.frontmatterJson) {
-            try {
-              frontmatter = JSON.parse(cachedMdx.frontmatterJson) as Record<string, unknown>;
-            } catch {
-              frontmatter = {};
-            }
-          }
+          // PERF: Parse frontmatter with caching
+          const frontmatter = parseFrontmatterCached(cachedMdx.frontmatterJson, filename);
           const headings = cachedMdx.headings || [];
 
           // Wrap MDX output in Astro component format
@@ -1056,6 +1166,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           result.code = transformed.code;
           if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart);
 
+          // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+
           const esStart = LOAD_PROFILE ? performance.now() : 0;
           const esbuildResult = await transformWithEsbuild(result.code, id, ESBUILD_JSX_CONFIG);
           if (loadProfiler) loadProfiler.record('esbuild', performance.now() - esStart);
@@ -1090,7 +1202,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         // Early detection of problematic patterns - skip to fallback
         // Note: Pre-detected files from buildStart are handled by resolveId returning null
         // This catches files that weren't pre-detected (e.g., preprocess hooks revealed the pattern)
-        const detection = detectProblematicMdxPatterns(processedSource, mdxOptions);
+        const detection = detectProblematicMdxPatterns(processedSource, mdxOptions, filename);
         if (detection.hasProblematicPatterns) {
           this.warn(
             `[xmdx] Skipping ${filename}: ${detection.reason ?? 'contains patterns incompatible with markdown-rs'}`
@@ -1098,6 +1210,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           fallbackFiles.add(filename);
           fallbackReasons.set(filename, detection.reason ?? 'Detected problematic MDX patterns');
           // Use @mdx-js/mdx as fallback compiler for runtime-detected files
+          // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
           return compileFallbackModule(filename, processedSource, id, registry, hasStarlightConfigured);
         }
 
@@ -1224,6 +1337,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         result.code = transformed.code;
         if (loadProfiler) loadProfiler.record('transform-pipeline', performance.now() - tpStart2);
 
+        // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+
         if (Array.isArray(result?.imports)) {
           for (const dep of result.imports) {
             if (dep?.path) {
@@ -1283,6 +1398,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
           for (const preprocessHook of hooks.preprocess) {
             processedFallbackSource = preprocessHook(processedFallbackSource, filename);
           }
+          // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
           return compileFallbackModule(filename, processedFallbackSource, id, registry, hasStarlightConfigured);
         }
         throw new Error(`[xmdx] Compile failed for ${filename}: ${message}`);
@@ -1291,6 +1407,12 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
     async buildEnd() {
       if (loadProfiler) loadProfiler.dump(resolvedConfig?.root ?? '');
+
+      // Clean up stale disk cache entries
+      if (diskCache && buildPassCount === 1) {
+        await diskCache.cleanup(processedFiles);
+        await diskCache.flush();
+      }
 
       if (process.env.XMDX_STATS !== '1') return;
 

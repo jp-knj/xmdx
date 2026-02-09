@@ -11,10 +11,6 @@ export type {
   BatchCompileResult,
   ParseBlocksResult,
   XmdxPluginOptions,
-  DocumentFragment,
-  Node,
-  Element,
-  TextNode,
 } from './types.js';
 
 export { DEFAULT_EXTENSIONS } from '../utils/paths.js';
