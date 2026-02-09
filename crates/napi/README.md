@@ -1,4 +1,4 @@
-# xmdx-napi
+# @xmdx/napi
 
 Native Node.js bindings for xmdx - a high-performance Markdown/MDX compiler built with Rust.
 
@@ -6,20 +6,20 @@ Native Node.js bindings for xmdx - a high-performance Markdown/MDX compiler buil
 
 | Platform | Architecture | Package |
 |----------|--------------|---------|
-| macOS | x64 | `@xmdx/darwin-x64` |
-| macOS | ARM64 | `@xmdx/darwin-arm64` |
-| Windows | x64 | `@xmdx/win32-x64-msvc` |
-| Linux (glibc) | x64 | `@xmdx/linux-x64-gnu` |
-| Linux (glibc) | ARM64 | `@xmdx/linux-arm64-gnu` |
-| Linux (musl) | x64 | `@xmdx/linux-x64-musl` |
-| Linux (musl) | ARM64 | `@xmdx/linux-arm64-musl` |
+| macOS | x64 | `@xmdx/napi-darwin-x64` |
+| macOS | ARM64 | `@xmdx/napi-darwin-arm64` |
+| Windows | x64 | `@xmdx/napi-win32-x64-msvc` |
+| Linux (glibc) | x64 | `@xmdx/napi-linux-x64-gnu` |
+| Linux (glibc) | ARM64 | `@xmdx/napi-linux-arm64-gnu` |
+| Linux (musl) | x64 | `@xmdx/napi-linux-x64-musl` |
+| Linux (musl) | ARM64 | `@xmdx/napi-linux-arm64-musl` |
 
 The correct binary is automatically selected at install time.
 
 ## Installation
 
 ```bash
-npm install xmdx-napi
+npm install @xmdx/napi
 ```
 
 ## API
@@ -29,7 +29,7 @@ npm install xmdx-napi
 Compiles Markdown source to HTML synchronously.
 
 ```js
-import { compile } from 'xmdx-napi';
+import { compile } from '@xmdx/napi';
 
 const html = compile('# Hello, world!');
 console.log(html);
@@ -41,7 +41,7 @@ console.log(html);
 Compiles a code block with syntax highlighting using Shiki.
 
 ```js
-import { compileCodeBlock } from 'xmdx-napi';
+import { compileCodeBlock } from '@xmdx/napi';
 
 const html = await compileCodeBlock('const x = 1;', 'javascript');
 ```

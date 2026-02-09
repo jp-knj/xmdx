@@ -1,6 +1,6 @@
 {
   "name": "astro-xmdx",
-  "version": "0.0.2",
+  "version": "0.0.3-next.7",
   "description": "Astro integration for xmdx - high-performance MDX compiler",
   "type": "module",
   "main": "./index.ts",
@@ -72,7 +72,7 @@
     "glob": "^11.0.0",
     "gray-matter": "^4.0.3",
     "xmdx": "workspace:*",
-    "xmdx-napi": "workspace:*",
+    "@xmdx/napi": "workspace:*",
     "remark-directive": "^3.0.0",
     "remark-gfm": "^4.0.0",
     "shiki": "^3.20.0"

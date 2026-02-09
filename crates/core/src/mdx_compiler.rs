@@ -1654,4 +1654,61 @@ Warning
             output.code
         );
     }
+
+    #[test]
+    fn test_steps_component_with_indented_note_and_tip_directives() {
+        // Real Starlight tutorial content often indents directives with 4 spaces
+        // inside list items under <Steps>.
+        let source = r#"
+<Steps>
+1. First step
+
+    :::note
+    A new Astro project can only be created in an empty folder.
+    :::
+
+2. Second step
+
+    :::tip[Keyboard shortcut]
+    Use Cmd+J to toggle the terminal.
+    :::
+</Steps>
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Steps with indented directives compilation failed: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+
+        // Should convert directives to Aside components (not keep ::: markers)
+        assert!(
+            output.code.contains("Aside"),
+            "Should contain Aside component. Output:\n{}",
+            output.code
+        );
+        assert!(
+            !output.code.contains(":::note"),
+            "Raw note directive should not remain. Output:\n{}",
+            output.code
+        );
+        assert!(
+            !output.code.contains(":::tip"),
+            "Raw tip directive should not remain. Output:\n{}",
+            output.code
+        );
+
+        // List should stay intact (no split list start=2)
+        let has_fragmented_list = output.code.contains(r#"start: "2""#)
+            || output.code.contains(r#"start: 2"#)
+            || output.code.contains("start={2}");
+        assert!(
+            !has_fragmented_list,
+            "List inside Steps should NOT be fragmented. Output:\n{}",
+            output.code
+        );
+    }
 }

@@ -1227,4 +1227,145 @@ export const authClient = createAuthClient();
             ),
         }
     }
+
+    #[test]
+    fn test_inline_jsx_in_paragraph_renders_inline() {
+        // Regression test: Inline JSX elements inside paragraphs should NOT
+        // create separate blocks. They should be rendered inline to keep
+        // the paragraph HTML structure intact.
+        // See: https://github.com/anthropics/markflow/issues/XXX
+        let input = "Click on the <kbd>+ New blok</kbd> button and create the following Bloks:";
+        let options = Options {
+            enable_directives: true,
+            ..Default::default()
+        };
+
+        let result = to_blocks(input, &options).unwrap();
+
+        // Should be a SINGLE HTML block containing the entire paragraph
+        assert_eq!(
+            result.blocks.len(),
+            1,
+            "Expected 1 block (inline JSX in paragraph), got {}: {:?}",
+            result.blocks.len(),
+            result.blocks
+        );
+
+        match &result.blocks[0] {
+            RenderBlock::Html { content } => {
+                // Should contain the complete paragraph with inline <kbd>
+                assert!(
+                    content.contains("<p>Click on the <kbd"),
+                    "Should start with <p>Click on the <kbd, got: {}",
+                    content
+                );
+                assert!(
+                    content.contains("</kbd> button and create the following Bloks:</p>"),
+                    "Should end with </kbd> button...</p>, got: {}",
+                    content
+                );
+                // Verify the kbd tag is properly rendered inline
+                assert!(
+                    content.contains("<kbd>+ New blok</kbd>"),
+                    "Should contain <kbd>+ New blok</kbd>, got: {}",
+                    content
+                );
+            }
+            other => panic!("Expected HTML block, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_inline_jsx_in_paragraph_followed_by_list() {
+        // Test case from storyblok.mdx: inline <kbd> followed by list
+        let input = r#"Click on the <kbd>+ New blok</kbd> button and create the following Bloks:
+
+1. First item
+2. Second item"#;
+        let options = Options {
+            enable_directives: true,
+            ..Default::default()
+        };
+
+        let result = to_blocks(input, &options).unwrap();
+
+        // Should be a SINGLE HTML block containing both paragraph and list
+        assert_eq!(
+            result.blocks.len(),
+            1,
+            "Expected 1 block (paragraph + list), got {}: {:?}",
+            result.blocks.len(),
+            result.blocks
+        );
+
+        match &result.blocks[0] {
+            RenderBlock::Html { content } => {
+                // Should contain the paragraph with inline kbd
+                assert!(
+                    content.contains("<kbd>+ New blok</kbd>"),
+                    "Should contain inline kbd, got: {}",
+                    content
+                );
+                // Should contain the list
+                assert!(
+                    content.contains("<ol>"),
+                    "Should contain <ol>, got: {}",
+                    content
+                );
+                assert!(
+                    content.contains("<li>First item</li>"),
+                    "Should contain first item, got: {}",
+                    content
+                );
+                // The text after </kbd> should be properly part of the paragraph
+                assert!(
+                    content.contains("</kbd> button and create the following Bloks:</p>"),
+                    "Text after </kbd> should be in paragraph, got: {}",
+                    content
+                );
+            }
+            other => panic!("Expected HTML block, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_multiple_inline_jsx_in_paragraph() {
+        let input = "Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.";
+        let options = Options {
+            enable_directives: true,
+            ..Default::default()
+        };
+
+        let result = to_blocks(input, &options).unwrap();
+
+        // Should be a single HTML block
+        assert_eq!(
+            result.blocks.len(),
+            1,
+            "Expected 1 block, got {}: {:?}",
+            result.blocks.len(),
+            result.blocks
+        );
+
+        match &result.blocks[0] {
+            RenderBlock::Html { content } => {
+                assert!(
+                    content.contains("<kbd>Ctrl</kbd>"),
+                    "Should contain first kbd, got: {}",
+                    content
+                );
+                assert!(
+                    content.contains("<kbd>C</kbd>"),
+                    "Should contain second kbd, got: {}",
+                    content
+                );
+                assert!(
+                    content.contains("+"),
+                    "Should contain + between kbd elements, got: {}",
+                    content
+                );
+            }
+            other => panic!("Expected HTML block, got: {:?}", other),
+        }
+    }
 }

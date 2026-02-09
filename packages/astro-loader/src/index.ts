@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { globby } from 'globby';
-import { parseFrontmatter, type FrontmatterResult } from 'xmdx-napi';
+import { parseFrontmatter, type FrontmatterResult } from '@xmdx/napi';
 
 export interface XmdxLoaderOptions {
   /** Directory (relative to project root) that contains the target content collection. */

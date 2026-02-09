@@ -16,7 +16,7 @@ A high-performance streaming Markdown/MDX engine built with Rust, designed for m
 |---------|-------------|
 | [`xmdx`](./packages/xmdx) | Core JavaScript API with Node.js and browser support |
 | [`astro-xmdx`](./packages/astro-xmdx) | Astro integration with presets and plugins |
-| [`xmdx-napi`](./crates/napi) | Native Node.js bindings (NAPI-RS) |
+| [`@xmdx/napi`](./crates/napi) | Native Node.js bindings (NAPI-RS) |
 | `xmdx-wasm` | WebAssembly build for browsers |
 
 ## Quick Start
