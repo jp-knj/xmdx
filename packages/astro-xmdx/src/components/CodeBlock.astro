@@ -1,0 +1,45 @@
+---
+/**
+ * CodeBlock component that bridges MDX's pre/code interface to ExpressiveCode.
+ *
+ * MDX passes code blocks as:
+ *   <pre><code className="language-sh">content</code></pre>
+ *
+ * This component extracts the code content and language from the children
+ * and renders it using ExpressiveCode's Code component.
+ */
+import { Code } from 'astro-expressive-code/components';
+
+interface Props {
+  children: any;
+}
+
+const { children } = Astro.props;
+
+/**
+ * Extracts code content and language from MDX code element children.
+ */
+function extractCodeInfo(node: any): { code: string; lang?: string } {
+  if (!node) return { code: '' };
+
+  // Handle direct string children (rare case)
+  if (typeof node === 'string') return { code: node };
+
+  // Handle code element with props
+  if (node.props) {
+    const className = node.props.className || node.props.class || '';
+    const langMatch = className.match(/language-(\w+)/);
+    const lang = langMatch?.[1];
+    const code = typeof node.props.children === 'string'
+      ? node.props.children
+      : '';
+    return { code, lang };
+  }
+
+  return { code: '' };
+}
+
+const { code, lang } = extractCodeInfo(children);
+---
+
+<Code code={code} lang={lang} />
