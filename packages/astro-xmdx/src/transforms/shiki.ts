@@ -3,113 +3,166 @@
  * @module transforms/shiki
  */
 
-import { parseFragment, serialize } from 'parse5';
-import type { DocumentFragment, Node, Element, TextNode } from '../vite-plugin/types.js';
-
 /**
  * Shiki highlighter function type.
  */
 export type ShikiHighlighter = (code: string, lang?: string) => Promise<string>;
 
+// PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
+const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;
+const JS_ESCAPE_REGEX = /\\(.)/g;
+const PRE_TAG_CHECK = /<pre[\s>]/;
+const PRE_CODE_REGEX = /<pre[^>]*>\s*<code(?:\s+class="([^"]*)")?[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g;
+const JSX_PRE_CODE_REGEX = /<pre[^>]*><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g;
+const JSX_STRING_DECODE_REGEX = /\{"([^"]*)"\}/g;
+
 /**
- * Walks an HTML AST tree and applies a visitor function to each node.
+ * Decodes HTML entities to plain text.
+ * Optimized single-pass decoder for common HTML entities.
  */
-function walk(node: Node, visit: (node: Node) => void): void {
-  visit(node);
-  if ('childNodes' in node && node.childNodes) {
-    for (const child of node.childNodes) {
-      walk(child, visit);
-    }
+function decodeHtmlEntities(text: string): string {
+  // Fast path: no entities
+  if (!text.includes('&')) {
+    return text;
   }
+
+  // PERF: Reset pre-compiled regex for reuse
+  HTML_ENTITY_REGEX.lastIndex = 0;
+  return text.replace(HTML_ENTITY_REGEX, (match, entity: string) => {
+    // Named entities
+    switch (entity) {
+      case 'lt':
+        return '<';
+      case 'gt':
+        return '>';
+      case 'amp':
+        return '&';
+      case 'quot':
+        return '"';
+      case 'apos':
+        return "'";
+      case 'nbsp':
+        return '\u00A0';
+    }
+    // Numeric entities
+    if (entity.startsWith('#x') || entity.startsWith('#X')) {
+      return String.fromCharCode(parseInt(entity.slice(2), 16));
+    }
+    if (entity.startsWith('#')) {
+      return String.fromCharCode(parseInt(entity.slice(1), 10));
+    }
+    // Unknown entity, return as-is
+    return match;
+  });
 }
 
 /**
- * Gets an attribute value from an HTML AST node.
+ * Decodes JavaScript escape sequences in a string.
+ * Optimized single-pass decoder.
  */
-function getAttr(node: Element, name: string): string | null {
-  const attrs = node.attrs || [];
-  const found = attrs.find((attr) => attr.name === name);
-  return found ? found.value : null;
-}
-
-/**
- * Extracts text content from an HTML AST node recursively.
- */
-function getText(node: Node): string {
-  if (!('childNodes' in node) || !node.childNodes) return '';
-  let text = '';
-  for (const child of node.childNodes) {
-    if (child.nodeName === '#text') {
-      text += (child as TextNode).value || '';
-    } else {
-      text += getText(child);
-    }
+function decodeJsEscapes(text: string): string {
+  // Fast path: no escapes
+  if (!text.includes('\\')) {
+    return text;
   }
-  return text;
+
+  // PERF: Reset pre-compiled regex for reuse
+  JS_ESCAPE_REGEX.lastIndex = 0;
+  return text.replace(JS_ESCAPE_REGEX, (_, char: string) => {
+    switch (char) {
+      case 'n':
+        return '\n';
+      case 't':
+        return '\t';
+      case 'r':
+        return '\r';
+      case '\\':
+        return '\\';
+      case '"':
+        return '"';
+      case "'":
+        return "'";
+      default:
+        return char;
+    }
+  });
 }
 
 /**
  * Highlights code blocks in HTML using Shiki syntax highlighter.
+ * Uses regex-based parsing for better performance (avoids parse5 overhead).
  */
 export async function highlightHtmlBlocks(
   html: string,
   highlight: ShikiHighlighter
 ): Promise<string> {
-  // PERF: Early skip if no <pre> tags exist (avoids expensive parse5 parsing)
-  if (!/<pre[\s>]/.test(html)) {
+  // PERF: Early skip if no <pre> tags exist
+  if (!PRE_TAG_CHECK.test(html)) {
     return html;
   }
 
-  // Suppress parse5 warnings for JSX components in HTML
-  const fragment = parseFragment(html, {
-    onParseError: (error) => {
-      // Silently ignore end-tag-mismatch errors (typically from JSX in <p> tags)
-      if ((error.code as string) === 'end-tag-mismatch') {
-        return;
-      }
-      // Log other parse errors for debugging
-      console.warn('[xmdx] parse5 warning:', error);
-    },
-  }) as DocumentFragment;
+  // PERF: Reset pre-compiled regex for reuse
+  PRE_CODE_REGEX.lastIndex = 0;
 
-  const tasks: Promise<void>[] = [];
+  // Phase 1: Collect all code blocks with their positions
+  const toHighlight: Array<{
+    start: number;
+    end: number;
+    lang: string | undefined;
+    codeText: string;
+  }> = [];
 
-  walk(fragment, (node) => {
-    if (node.nodeName !== 'pre') return;
-    const element = node as Element;
-    const codeNode = (element.childNodes || []).find(
-      (child): child is Element => child.nodeName === 'code'
-    );
-    if (!codeNode) return;
+  let match;
+  while ((match = PRE_CODE_REGEX.exec(html)) !== null) {
+    const [fullMatch, classAttr, rawContent = ''] = match;
 
-    const codeText = getText(codeNode).trimEnd();
-    if (!codeText) return;
-    const classAttr = getAttr(codeNode, 'class') || '';
+    // Skip if already processed by Shiki (has shiki class or data-language)
+    if (fullMatch.includes('class="shiki') || fullMatch.includes('data-language')) {
+      continue;
+    }
+
+    if (!rawContent) {
+      continue;
+    }
+
+    // Extract language from class attribute (e.g., "foo language-python bar" -> "python")
     const lang = classAttr
-      .split(/\s+/)
-      .find((value) => value.startsWith('language-'))
+      ?.split(/\s+/)
+      .find((cls) => cls.startsWith('language-'))
       ?.slice('language-'.length);
 
-    tasks.push(
-      highlight(codeText, lang).then((shikiHtml) => {
-        const highlighted = parseFragment(shikiHtml) as DocumentFragment;
-        const pre = (highlighted.childNodes || []).find(
-          (child): child is Element => child.nodeName === 'pre'
-        );
-        if (pre) {
-          element.nodeName = pre.nodeName;
-          element.tagName = pre.tagName;
-          element.attrs = pre.attrs;
-          element.childNodes = pre.childNodes;
-        }
-      })
-    );
-  });
+    // Decode HTML entities to plain text
+    const codeText = decodeHtmlEntities(rawContent).trimEnd();
 
-  if (tasks.length > 0) {
-    await Promise.all(tasks);
+    if (!codeText) {
+      continue;
+    }
+
+    toHighlight.push({
+      start: match.index,
+      end: match.index + fullMatch.length,
+      lang,
+      codeText,
+    });
   }
-  return serialize(fragment);
+
+  if (toHighlight.length === 0) {
+    return html;
+  }
+
+  // Phase 2: Highlight all code blocks in parallel
+  const highlighted = await Promise.all(
+    toHighlight.map(({ codeText, lang }) => highlight(codeText, lang || undefined))
+  );
+
+  // Phase 3: Apply replacements in reverse order to preserve offsets
+  let result = html;
+  for (let i = toHighlight.length - 1; i >= 0; i--) {
+    const { start, end } = toHighlight[i]!;
+    result = result.slice(0, start) + highlighted[i]! + result.slice(end);
+  }
+
+  return result;
 }
 
 /**
@@ -170,23 +223,23 @@ export async function highlightJsxCodeBlocks(
   }
 
   // Early skip if no <pre> tags in JSX context
-  if (!/<pre[\s>]/.test(code)) {
+  if (!PRE_TAG_CHECK.test(code)) {
     return code;
   }
 
-  // Match <pre> with optional attributes followed by <code class="language-xxx">content</code></pre>
-  // Content may contain JSX expressions like {"text"} or HTML entities
-  const preCodeRegex = /<pre[^>]*><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g;
+  // PERF: Reset pre-compiled regex for reuse
+  JSX_PRE_CODE_REGEX.lastIndex = 0;
 
-  // Phase 1: Collect all code blocks to highlight (no await in loop)
+  // Phase 1: Collect all code blocks with their positions
   const toHighlight: Array<{
-    fullMatch: string;
+    start: number;
+    end: number;
     lang: string | undefined;
     codeText: string;
   }> = [];
 
   let match;
-  while ((match = preCodeRegex.exec(code)) !== null) {
+  while ((match = JSX_PRE_CODE_REGEX.exec(code)) !== null) {
     const [fullMatch, lang, rawContent = ''] = match;
 
     // Skip if already processed by Shiki (has shiki class or data-language)
@@ -206,38 +259,23 @@ export async function highlightJsxCodeBlocks(
 
     // Decode JSX expressions back to plain text
     // Pattern: {"string"} or {"\n"} etc.
-    let codeText = rawContent
-      // Decode JSX string expressions: {"text"} -> text
-      .replace(/\{"([^"]*)"\}/g, (_, str) => {
-        // Handle escape sequences
-        return str
-          .replace(/\\n/g, '\n')
-          .replace(/\\t/g, '\t')
-          .replace(/\\r/g, '\r')
-          .replace(/\\\\/g, '\\')
-          .replace(/\\"/g, '"');
-      })
-      // Decode HTML entities that might remain
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
-        String.fromCharCode(parseInt(hex, 16))
-      )
-      .replace(/&#(\d+);/g, (_, num) =>
-        String.fromCharCode(parseInt(num, 10))
-      );
-
-    // Trim trailing whitespace but preserve internal structure
-    codeText = codeText.trimEnd();
+    // Then decode any remaining HTML entities
+    // PERF: Reset pre-compiled regex for reuse
+    JSX_STRING_DECODE_REGEX.lastIndex = 0;
+    const codeText = decodeHtmlEntities(
+      rawContent.replace(JSX_STRING_DECODE_REGEX, (_, str) => decodeJsEscapes(str))
+    ).trimEnd();
 
     if (!codeText) {
       continue;
     }
 
-    toHighlight.push({ fullMatch, lang, codeText });
+    toHighlight.push({
+      start: match.index,
+      end: match.index + fullMatch.length,
+      lang,
+      codeText,
+    });
   }
 
   if (toHighlight.length === 0) {
@@ -249,14 +287,14 @@ export async function highlightJsxCodeBlocks(
     toHighlight.map(({ codeText, lang }) => highlight(codeText, lang || undefined))
   );
 
-  // Phase 3: Build replacements and apply them
+  // Phase 3: Apply replacements in reverse order to preserve offsets
   let result = code;
-  for (let i = 0; i < toHighlight.length; i++) {
-    const { fullMatch } = toHighlight[i]!;
+  for (let i = toHighlight.length - 1; i >= 0; i--) {
+    const { start, end } = toHighlight[i]!;
     const highlightedHtml = highlighted[i]!;
     // Wrap in set:html to avoid raw { } in JSX context being parsed as expressions
     const replacement = `<_Fragment set:html={${JSON.stringify(highlightedHtml)}} />`;
-    result = result.replace(fullMatch, replacement);
+    result = result.slice(0, start) + replacement + result.slice(end);
   }
 
   return result;
@@ -265,7 +303,7 @@ export async function highlightJsxCodeBlocks(
 /**
  * Rewrites Astro set:html fragments with Shiki-highlighted code.
  * Searches for <_Fragment set:html={...} /> patterns and applies syntax highlighting.
- * Processes ALL occurrences in the code, not just the first one.
+ * Processes ALL occurrences in parallel for better performance.
  */
 export async function rewriteAstroSetHtml(
   code: string,
@@ -276,19 +314,24 @@ export async function rewriteAstroSetHtml(
   }
 
   const marker = '<_Fragment set:html={';
-  let result = code;
-  let searchStart = 0;
 
-  // Process ALL occurrences in a loop
+  // Phase 1: Collect all fragments without awaiting
+  const fragments: Array<{
+    start: number;
+    end: number;
+    html: string;
+  }> = [];
+
+  let searchStart = 0;
   while (true) {
-    const idx = result.indexOf(marker, searchStart);
+    const idx = code.indexOf(marker, searchStart);
     if (idx === -1) break;
 
     const start = idx + marker.length;
-    const end = result.indexOf('} />', start);
+    const end = code.indexOf('} />', start);
     if (end === -1) break;
 
-    const literal = result.slice(start, end).trim();
+    const literal = code.slice(start, end).trim();
     if (!literal) {
       searchStart = end;
       continue;
@@ -302,11 +345,27 @@ export async function rewriteAstroSetHtml(
       continue;
     }
 
-    const rewritten = await highlightHtmlBlocks(html, highlight);
-    const encoded = JSON.stringify(rewritten);
+    fragments.push({ start, end, html });
+    searchStart = end + 4; // Move past this occurrence
+  }
+
+  if (fragments.length === 0) {
+    return code;
+  }
+
+  // Phase 2: Highlight ALL fragments in parallel
+  const highlighted = await Promise.all(
+    fragments.map(({ html }) => highlightHtmlBlocks(html, highlight))
+  );
+
+  // Phase 3: Apply replacements in reverse order to preserve offsets
+  let result = code;
+  for (let i = fragments.length - 1; i >= 0; i--) {
+    const { start, end } = fragments[i]!;
+    const encoded = JSON.stringify(highlighted[i]!);
     result = result.slice(0, start) + encoded + result.slice(end);
-    searchStart = start + encoded.length + 4; // Move past this occurrence
   }
 
   return result;
 }
+
