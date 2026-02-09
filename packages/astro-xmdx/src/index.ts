@@ -3,10 +3,13 @@
  * @module astro-xmdx
  */
 
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import type { AstroIntegration } from 'astro';
 import type { ComponentLibrary } from 'xmdx/registry';
 import { xmdxPlugin } from './vite-plugin.js';
 import { mergePresets, STARLIGHT_DEFAULT_ALLOW_IMPORTS, type PresetConfig } from './presets/index.js';
+import { safeParseFrontmatter } from './utils/frontmatter.js';
 import type { XmdxPlugin, MdxImportHandlingOptions } from './types.js';
 
 /**
@@ -132,7 +135,83 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
   return {
     name: 'astro-xmdx',
     hooks: {
-      'astro:config:setup': ({ updateConfig }) => {
+      'astro:config:setup': async (options) => {
+        const {
+          config,
+          updateConfig,
+          addRenderer,
+        } = options;
+
+        // These are internal Astro APIs for content collection support
+        // They exist at runtime but are not exposed in public types
+        const addPageExtension = (options as Record<string, unknown>).addPageExtension as
+          | ((ext: string) => void)
+          | undefined;
+        const addContentEntryType = (options as Record<string, unknown>).addContentEntryType as
+          | ((config: {
+              extensions: string[];
+              getEntryInfo: (params: { fileUrl: URL; contents: string }) => Promise<{
+                data: Record<string, unknown>;
+                body: string;
+                slug?: string;
+                rawData: string;
+              }>;
+              contentModuleTypes: string;
+              handlePropagation?: boolean;
+            }) => void)
+          | undefined;
+
+        // Register the JSX renderer for MDX components
+        // Use URL resolution to work regardless of how the package is installed
+        addRenderer({
+          name: 'astro:jsx',
+          serverEntrypoint: new URL('./server.ts', import.meta.url).href,
+        });
+
+        // Register .mdx as a page extension (if available)
+        if (addPageExtension) {
+          addPageExtension('.mdx');
+        }
+
+        // Register MDX files with Content Collections (if available)
+        if (addContentEntryType) {
+          addContentEntryType({
+            extensions: ['.mdx'],
+            async getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
+              const parsed = safeParseFrontmatter(contents, fileURLToPath(fileUrl));
+              return {
+                data: parsed.frontmatter,
+                body: parsed.content.trim(),
+                slug: parsed.frontmatter.slug as string | undefined,
+                rawData: parsed.rawFrontmatter,
+              };
+            },
+            contentModuleTypes: await fs.readFile(
+              new URL('../template/content-module-types.d.ts', import.meta.url),
+              'utf-8'
+            ),
+            handlePropagation: true,
+          });
+        }
+
+        // Auto-detect Starlight and apply preset if not already configured
+        const hasStarlight = config.integrations?.some(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (i: any) => i.name === '@astrojs/starlight'
+        );
+
+        // Auto-apply Starlight preset when Starlight is detected and no explicit config
+        if (hasStarlight && resolvedOptions.starlightComponents === undefined && !resolvedOptions.mdx?.allowImports) {
+          resolvedOptions.mdx = {
+            ...resolvedOptions.mdx,
+            allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
+            ignoreCodeFences: true,
+          };
+          resolvedOptions.starlightComponents = true;
+          // Note: Do NOT auto-enable expressiveCode here - Starlight handles its own code blocks
+          // and the astro-expressive-code/components module may not be installed
+        }
+
         updateConfig({
           vite: {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

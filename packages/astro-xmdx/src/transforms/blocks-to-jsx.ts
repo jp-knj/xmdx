@@ -422,17 +422,37 @@ export function blocksToJsx(
   // Get supported directives from registry if available
   const supportedDirectives = registry?.getSupportedDirectives() ?? [];
 
+  // Buffer for accumulating consecutive HTML content.
+  // Instead of creating a Fragment for every html/code block, we accumulate
+  // consecutive static content and flush to a single Fragment only when we
+  // encounter a component (which requires its own JSX element).
+  // This reduces Fragment count from ~50 to ~3-5 per page, significantly
+  // reducing renderJSX calls during Astro SSG.
+  let htmlBuffer = '';
+
+  /**
+   * Flushes accumulated HTML buffer to fragments array.
+   * Called before components and at the end of processing.
+   */
+  const flushHtmlBuffer = () => {
+    if (htmlBuffer) {
+      fragments.push(`<_Fragment set:html={${JSON.stringify(htmlBuffer)}} />`);
+      htmlBuffer = '';
+    }
+  };
+
   for (const block of blocks) {
     if (block.type === 'html') {
-      // Use set:html to avoid HTML entity parsing issues with esbuild
-      // JSON.stringify handles all escaping; Astro parses the HTML at runtime
-      fragments.push(`<_Fragment set:html={${JSON.stringify(block.content ?? '')}} />`);
+      // Accumulate HTML content in buffer instead of creating individual Fragments
+      htmlBuffer += block.content ?? '';
     } else if (block.type === 'code') {
-      // Always render as HTML <pre><code>; ExpressiveCode rewriting happens in pipeline
+      // Accumulate code block HTML in buffer
+      // ExpressiveCode rewriting happens in pipeline before this
       const langAttr = block.lang ? ` class="language-${escapeHtml(block.lang)}"` : '';
-      const html = `<pre class="astro-code" tabindex="0"><code${langAttr}>${escapeHtml(block.code ?? '')}</code></pre>`;
-      fragments.push(`<_Fragment set:html={${JSON.stringify(html)}} />`);
+      htmlBuffer += `<pre class="astro-code" tabindex="0"><code${langAttr}>${escapeHtml(block.code ?? '')}</code></pre>`;
     } else if (block.type === 'component') {
+      // Flush accumulated HTML before component
+      flushHtmlBuffer();
       // Handle directive components using registry
       const isDirective = block.name ? supportedDirectives.includes(block.name) : false;
       let componentName = block.name ?? '';
@@ -574,6 +594,9 @@ export function blocksToJsx(
       }
     }
   }
+
+  // Flush any remaining HTML content after the last block
+  flushHtmlBuffer();
 
   // Generate imports grouped by module path
   const importsByModule = new Map<string, { named: string[]; default: string[] }>();

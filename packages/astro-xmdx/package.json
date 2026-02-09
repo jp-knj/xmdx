@@ -11,6 +11,11 @@
       "import": "./index.ts",
       "default": "./index.ts"
     },
+    "./server.js": {
+      "types": "./src/server.ts",
+      "import": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
     "./presets": {
       "types": "./src/presets/index.ts",
       "import": "./src/presets/index.ts",
@@ -34,7 +39,8 @@
   },
   "files": [
     "index.ts",
-    "src"
+    "src",
+    "template"
   ],
   "scripts": {
     "build": "tsc",
@@ -62,10 +68,11 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
+    "expressive-code": "^0.41.0",
     "glob": "^11.0.0",
+    "gray-matter": "^4.0.3",
     "xmdx": "workspace:*",
     "xmdx-napi": "workspace:*",
-    "parse5": "^7.1.2",
     "remark-directive": "^3.0.0",
     "remark-gfm": "^4.0.0",
     "shiki": "^3.20.0"

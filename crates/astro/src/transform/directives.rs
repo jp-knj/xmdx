@@ -165,6 +165,55 @@ pub(crate) fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
     })
 }
 
+/// Tokenize attributes respecting quoted values.
+/// Splits on whitespace but keeps quoted strings intact.
+fn tokenize_attrs(attrs: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let chars = attrs.char_indices().peekable();
+    let mut token_start: Option<usize> = None;
+    let mut in_quotes = false;
+    let mut quote_char = '"';
+
+    for (i, c) in chars {
+        match c {
+            '"' | '\'' if !in_quotes => {
+                if token_start.is_none() {
+                    token_start = Some(i);
+                }
+                in_quotes = true;
+                quote_char = c;
+            }
+            c if c == quote_char && in_quotes => {
+                in_quotes = false;
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if let Some(start) = token_start {
+                    let token = &attrs[start..i];
+                    if !token.is_empty() {
+                        tokens.push(token);
+                    }
+                    token_start = None;
+                }
+            }
+            _ => {
+                if token_start.is_none() {
+                    token_start = Some(i);
+                }
+            }
+        }
+    }
+
+    // Capture final token
+    if let Some(start) = token_start {
+        let token = &attrs[start..];
+        if !token.is_empty() {
+            tokens.push(token);
+        }
+    }
+
+    tokens
+}
+
 fn normalize_attrs(attrs: &str, has_bracket_title: bool) -> String {
     if attrs.is_empty() {
         return String::new();
@@ -172,7 +221,7 @@ fn normalize_attrs(attrs: &str, has_bracket_title: bool) -> String {
 
     let mut cleaned = String::new();
 
-    for tok in attrs.split_whitespace() {
+    for tok in tokenize_attrs(attrs) {
         let key = tok
             .split('=')
             .next()
@@ -323,5 +372,45 @@ mod tests {
         let (out, count) = rewrite_directives_to_asides(input);
         assert_eq!(count, 0);
         assert!(out.contains(":::note"));
+    }
+
+    #[test]
+    fn tokenize_attrs_simple() {
+        let tokens = tokenize_attrs("foo=\"bar\" baz=\"qux\"");
+        assert_eq!(tokens, vec!["foo=\"bar\"", "baz=\"qux\""]);
+    }
+
+    #[test]
+    fn tokenize_attrs_with_spaces_in_quotes() {
+        // Quoted values with spaces should stay intact
+        let tokens = tokenize_attrs("title=\"foo bar\" id=\"test\"");
+        assert_eq!(tokens, vec!["title=\"foo bar\"", "id=\"test\""]);
+    }
+
+    #[test]
+    fn tokenize_attrs_single_quotes() {
+        let tokens = tokenize_attrs("title='foo bar' id='test'");
+        assert_eq!(tokens, vec!["title='foo bar'", "id='test'"]);
+    }
+
+    #[test]
+    fn parse_directive_with_quoted_title_attr() {
+        // This is the regression case: title="foo bar" was being split incorrectly
+        let opening = parse_opening_directive(":::note title=\"foo bar\"").unwrap();
+        assert_eq!(opening.name, "note");
+        // title should be preserved as a single attribute
+        assert_eq!(opening.raw_attrs, "title=\"foo bar\"");
+    }
+
+    #[test]
+    fn parse_directive_with_multiple_spaced_attrs() {
+        let opening =
+            parse_opening_directive(":::warning title=\"Be careful here\" class=\"my class\"")
+                .unwrap();
+        assert_eq!(opening.name, "warning");
+        assert_eq!(
+            opening.raw_attrs,
+            "title=\"Be careful here\" class=\"my class\""
+        );
     }
 }

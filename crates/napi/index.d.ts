@@ -254,6 +254,11 @@ export interface CompilerConfig {
   jsxImportSource?: string
   /** Component registry configuration (JSON). */
   registry?: JsonValue
+  /**
+   * Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
+   * Only set to true when ExpressiveCode is enabled.
+   */
+  rewriteCodeBlocks?: boolean
 }
 
 /** Result returned by the streaming compiler. */

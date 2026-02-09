@@ -3,15 +3,8 @@
  * @module vite-plugin/types
  */
 
-import type { DefaultTreeAdapterMap } from 'parse5';
 import type { ComponentLibrary } from 'xmdx/registry';
 import type { XmdxPlugin, MdxImportHandlingOptions } from '../types.js';
-
-// Parse5 DOM types
-export type DocumentFragment = DefaultTreeAdapterMap['documentFragment'];
-export type Node = DefaultTreeAdapterMap['node'];
-export type Element = DefaultTreeAdapterMap['element'];
-export type TextNode = DefaultTreeAdapterMap['textNode'];
 
 /**
  * Native NAPI binding interface for Xmdx compiler.
@@ -186,4 +179,11 @@ export interface XmdxPluginOptions {
   plugins?: XmdxPlugin[];
   binding?: XmdxBinding;
   mdx?: MdxImportHandlingOptions;
+  /**
+   * Enable disk caching for compilation results.
+   * When enabled, compiled results are persisted to `.xmdx-cache/` for faster subsequent builds.
+   * Can also be enabled via XMDX_DISK_CACHE=1 environment variable.
+   * @default false
+   */
+  cache?: boolean;
 }

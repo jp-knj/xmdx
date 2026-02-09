@@ -6,6 +6,7 @@
 import {
   rewriteExpressiveCodeBlocks,
   rewriteSetHtmlCodeBlocks,
+  rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
 } from './expressive-code.js';
 import {
@@ -17,8 +18,17 @@ import { rewriteAstroSetHtml, highlightJsxCodeBlocks } from './shiki.js';
 import type { TransformContext } from '../types.js';
 
 /**
+ * Quick check for code block markers to short-circuit expensive transforms.
+ * Files without these markers can skip Shiki highlighting entirely.
+ */
+function hasCodeBlockMarkers(code: string): boolean {
+  return code.includes('<pre') || code.includes('<code');
+}
+
+/**
  * Transform that rewrites <pre><code> blocks to ExpressiveCode components.
  * Also handles code blocks inside set:html JSON strings (component slots).
+ * Also handles code blocks in JS string literals from mdxjs-rs.
  * Only runs if expressiveCode is configured.
  */
 export function transformExpressiveCode(ctx: TransformContext): TransformContext {
@@ -26,24 +36,36 @@ export function transformExpressiveCode(ctx: TransformContext): TransformContext
     return ctx;
   }
 
+  // PERF: Early-exit if no code block markers present
+  // This avoids 3 regex passes on files without code blocks
+  if (!hasCodeBlockMarkers(ctx.code)) {
+    return ctx;
+  }
+
   const componentName = ctx.config.expressiveCode.component;
 
   // First, rewrite code blocks inside set:html JSON strings (must run before
-  // the loose pattern, which would otherwise match <pre> inside JSON strings
-  // and corrupt the set:html wrapper)
+  // other patterns to avoid matching <pre> inside JSON strings and corrupting
+  // the set:html wrapper)
   let { code, changed } = rewriteSetHtmlCodeBlocks(ctx.code, componentName);
+
+  // Second, rewrite code blocks in JS string literals (from mdxjs-rs)
+  // This handles: "<pre class=\"astro-code\" ...>...</pre>"
+  // Runs after set:html handling so it doesn't interfere with those contexts
+  const jsStringResult = rewriteJsStringCodeBlocks(code, componentName);
+  code = jsStringResult.code;
+  changed = changed || jsStringResult.changed;
 
   // Then, rewrite any remaining loose <pre><code> blocks
   const looseResult = rewriteExpressiveCodeBlocks(code, componentName);
   code = looseResult.code;
   changed = changed || looseResult.changed;
 
+  // Inject the ExpressiveCode component import when code blocks were rewritten
   if (changed) {
-    return {
-      ...ctx,
-      code: injectExpressiveCodeComponent(code, ctx.config.expressiveCode),
-    };
+    code = injectExpressiveCodeComponent(code, ctx.config.expressiveCode);
   }
+
   return { ...ctx, code };
 }
 
@@ -51,10 +73,12 @@ export function transformExpressiveCode(ctx: TransformContext): TransformContext
  * Transform that applies Shiki syntax highlighting.
  * Only runs if shiki highlighter is available.
  *
- * Processes code blocks in two passes:
- * 1. rewriteAstroSetHtml: Handles code in <_Fragment set:html={...} /> patterns
- * 2. highlightJsxCodeBlocks: Handles code in direct JSX <pre><code> elements
- *    (when slot content with components bypasses set:html)
+ * Handles two patterns:
+ * 1. Code blocks in set:html fragments: <_Fragment set:html={...} />
+ * 2. Code blocks in direct JSX: <pre><code> elements
+ *
+ * PERF: Skips entirely when ExpressiveCode is configured, as it handles all
+ * code block patterns. This avoids redundant regex scanning.
  */
 export async function transformShikiHighlight(
   ctx: TransformContext
@@ -62,9 +86,21 @@ export async function transformShikiHighlight(
   if (!ctx.config.shiki || !ctx.code) {
     return ctx;
   }
-  // First pass: highlight code blocks in set:html fragments
+
+  // PERF: Skip Shiki when ExpressiveCode is configured
+  // ExpressiveCode already handles all code block patterns (set:html, JS strings, loose blocks)
+  // Running Shiki would just scan the same patterns and find nothing
+  if (ctx.config.expressiveCode) {
+    return ctx;
+  }
+
+  // Short-circuit: skip expensive transforms if no code blocks present
+  if (!hasCodeBlockMarkers(ctx.code)) {
+    return ctx;
+  }
+
+  // Two-pass highlighting: set:html fragments, then JSX code blocks
   let code = await rewriteAstroSetHtml(ctx.code, ctx.config.shiki);
-  // Second pass: highlight code blocks in direct JSX (mixed slots with components)
   code = await highlightJsxCodeBlocks(code, ctx.config.shiki);
   return { ...ctx, code };
 }
@@ -88,6 +124,7 @@ export function transformInjectComponentsFromRegistry(ctx: TransformContext): Tr
 export {
   rewriteExpressiveCodeBlocks,
   rewriteSetHtmlCodeBlocks,
+  rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
 } from './expressive-code.js';
 export {

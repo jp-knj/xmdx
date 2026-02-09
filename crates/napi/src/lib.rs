@@ -536,6 +536,10 @@ pub fn compile_mdx_batch(
                     .and_then(|c| c.jsx_import_source.clone())
                     .or_else(|| Some("astro".to_string())),
                 jsx: false,
+                rewrite_code_blocks: config
+                    .as_ref()
+                    .and_then(|c| c.rewrite_code_blocks)
+                    .unwrap_or(false),
             };
 
             match compile_mdx(&input.source, &filepath, Some(mdx_options)) {

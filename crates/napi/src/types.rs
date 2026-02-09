@@ -28,6 +28,9 @@ pub struct CompilerConfig {
     pub jsx_import_source: Option<String>,
     /// Component registry configuration (JSON).
     pub registry: Option<JsonValue>,
+    /// Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
+    /// Only set to true when ExpressiveCode is enabled.
+    pub rewrite_code_blocks: Option<bool>,
 }
 
 /// File-specific overrides that accompany each compilation.

@@ -13,17 +13,32 @@ import { ESBUILD_JSX_CONFIG } from '../constants.js';
 import { stripFrontmatter } from '../utils/frontmatter.js';
 import { loadXmdxBinding } from './binding-loader.js';
 import { rewriteFallbackDirectives, injectFallbackImports } from './directive-rewriter.js';
+// ExpressiveCode imports kept for FallbackExpressiveCodeOptions type (for API compatibility)
+import type { ExpressiveCodeConfig } from '../utils/config.js';
+import type { ExpressiveCodeManager } from './expressive-code-manager.js';
+
+/**
+ * Options for ExpressiveCode pre-rendering in fallback compilation.
+ */
+export interface FallbackExpressiveCodeOptions {
+  config: ExpressiveCodeConfig;
+  manager: ExpressiveCodeManager;
+}
 
 /**
  * Compiles a fallback module using @mdx-js/mdx.
  * Used for files with patterns that xmdx-core can't handle.
+ *
+ * Note: ExpressiveCode pre-rendering is disabled. Code blocks are output as-is
+ * and Starlight's ExpressiveCode integration handles them at runtime.
  */
 export async function compileFallbackModule(
   filename: string,
   source: string,
   virtualId: string,
   registry: Registry | null,
-  hasStarlightConfigured: boolean
+  hasStarlightConfigured: boolean,
+  _expressiveCodeOptions?: FallbackExpressiveCodeOptions // Unused - EC disabled
 ): Promise<{ code: string; map?: SourceMapInput }> {
   let frontmatter: Record<string, unknown> = {};
   try {
@@ -96,8 +111,12 @@ export const frontmatter = ${JSON.stringify(frontmatter)};
 export default XmdxContent;
 `;
 
+  // ExpressiveCode pre-rendering disabled - let Starlight handle code blocks
+  // Code blocks are output as-is and Starlight's EC integration processes them at runtime
+  const finalCode = wrappedCode;
+
   // Transform JSX through esbuild (same as the main compilation path)
-  const esbuildResult = await transformWithEsbuild(wrappedCode, virtualId, ESBUILD_JSX_CONFIG);
+  const esbuildResult = await transformWithEsbuild(finalCode, virtualId, ESBUILD_JSX_CONFIG);
 
   return {
     code: esbuildResult.code,

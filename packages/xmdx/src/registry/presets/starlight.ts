@@ -19,6 +19,7 @@ export const starlightLibrary: ComponentLibrary = {
     { name: 'LinkCard', modulePath: '@astrojs/starlight/components', exportType: 'named' },
     { name: 'LinkButton', modulePath: '@astrojs/starlight/components', exportType: 'named' },
     { name: 'Card', modulePath: '@astrojs/starlight/components', exportType: 'named' },
+    { name: 'Code', modulePath: '@astrojs/starlight/components', exportType: 'named' },
   ],
   directiveMappings: [
     { directive: 'note', component: 'Aside', injectProps: { type: { source: 'directive_name' } } },

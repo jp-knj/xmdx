@@ -3,6 +3,7 @@ import {
   decodeHtmlEntities,
   rewriteExpressiveCodeBlocks,
   rewriteSetHtmlCodeBlocks,
+  rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
 } from './expressive-code.js';
 
@@ -270,5 +271,56 @@ describe('injectExpressiveCodeComponent', () => {
     const config = { component: 'MyCode', moduleId: 'expressive-code' };
     const result = injectExpressiveCodeComponent(code, config);
     expect(result).toBe(code);
+  });
+});
+
+describe('rewriteJsStringCodeBlocks', () => {
+  test('returns unchanged code when no code blocks', () => {
+    const code = 'const x = 1; const y = "hello";';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe(code);
+    expect(result.changed).toBe(false);
+  });
+
+  test('rewrites simple code block from JS string literal', () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>const x = 1;</code></pre>"';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe('<Code code={"const x = 1;"} />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('rewrites code block with language', () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-javascript\\">const x = 1;</code></pre>"';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe('<Code code={"const x = 1;"} lang="javascript" />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('handles escaped newlines in code content', () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-sh\\">line1\\nline2</code></pre>"';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe('<Code code={"line1\\nline2"} lang="sh" />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('handles escaped quotes in code content', () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>const str = \\"hello\\";</code></pre>"';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('preserves surrounding JavaScript code', () => {
+    const code = 'const a = 1; "<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>test</code></pre>"; const b = 2;';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toBe('const a = 1; <Code code={"test"} />; const b = 2;');
+    expect(result.changed).toBe(true);
+  });
+
+  test('uses custom component name', () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>hello</code></pre>"';
+    const result = rewriteJsStringCodeBlocks(code, 'MyCode');
+    expect(result.code).toBe('<MyCode code={"hello"} />');
+    expect(result.changed).toBe(true);
   });
 });
