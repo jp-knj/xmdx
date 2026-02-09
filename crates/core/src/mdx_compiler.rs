@@ -3,6 +3,7 @@
 //! This module provides MDX compilation capabilities using the mdxjs-rs crate,
 //! which compiles MDX (Markdown with JSX) to JavaScript using markdown-rs and SWC.
 
+use crate::directives::rewrite_directives_to_asides;
 use crate::{FrontmatterExtraction, extract_frontmatter, slug::Slugger};
 use mdxjs::{JsxRuntime, Options, compile};
 
@@ -49,6 +50,9 @@ pub struct MdxCompileOptions {
     pub jsx_import_source: Option<String>,
     /// Whether to output JSX instead of function calls.
     pub jsx: bool,
+    /// Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
+    /// Only set to true when ExpressiveCode is enabled.
+    pub rewrite_code_blocks: bool,
 }
 
 /// Compiles MDX source to JavaScript.
@@ -103,6 +107,10 @@ pub fn compile_mdx(
     let frontmatter_json = serde_json::to_string(&value)?;
     let content = source[body_start..].to_string();
 
+    // Preprocess directives (:::note, :::caution, etc.) into JSX Aside tags
+    // This allows mdxjs-rs to parse the content without requiring remark-directive
+    let (content, _directive_count) = rewrite_directives_to_asides(&content);
+
     // Extract headings from the source before compilation
     let headings = extract_headings_from_source(&content);
 
@@ -119,6 +127,14 @@ pub fn compile_mdx(
     let js_code = compile(&content, &mdx_options)
         .map_err(|e| MdxCompileError::CompileError(e.to_string()))?;
 
+    // Post-process: convert JSX code blocks to HTML format for ExpressiveCode compatibility
+    // Only rewrite when ExpressiveCode is enabled, otherwise code blocks become escaped text
+    let js_code = if opts.rewrite_code_blocks {
+        rewrite_jsx_code_blocks(&js_code)
+    } else {
+        js_code
+    };
+
     Ok(MdxOutput {
         code: js_code,
         frontmatter_json,
@@ -126,9 +142,457 @@ pub fn compile_mdx(
     })
 }
 
+/// Rewrites JSX code block calls to HTML format for ExpressiveCode compatibility.
+///
+/// mdxjs-rs generates code blocks as:
+/// ```text
+/// _jsx(_components.pre, { children: _jsx(_components.code, { className: "language-sh", children: "..." }) })
+/// ```
+///
+/// This function converts them to HTML format:
+/// ```text
+/// "<pre class=\"astro-code\" tabindex=\"0\"><code class=\"language-sh\">...</code></pre>"
+/// ```
+///
+/// This allows the downstream ExpressiveCode transform to detect and process them.
+fn rewrite_jsx_code_blocks(code: &str) -> String {
+    let mut result = String::with_capacity(code.len());
+    let mut chars = code.chars().peekable();
+    // Match both _jsx(_components.pre and _jsx("pre" patterns
+    let patterns = ["_jsx(_components.pre", "_jsx(\"pre\""];
+
+    while let Some(c) = chars.next() {
+        // Check for _jsx( pattern start
+        if c == '_' {
+            let mut potential_match = String::from(c);
+            let mut temp_chars = chars.clone();
+
+            // Collect characters to match against patterns
+            let max_pattern_len = patterns.iter().map(|p| p.len()).max().unwrap_or(0);
+            for _ in 1..max_pattern_len {
+                if temp_chars.peek().is_some() {
+                    potential_match.push(temp_chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+
+            // Check if we match any pattern
+            let matched_pattern = patterns.iter().find(|&&p| potential_match.starts_with(p));
+
+            if let Some(&pattern) = matched_pattern {
+                // Save position before parse attempt so we can restore on failure
+                let saved_chars = chars.clone();
+
+                // Advance the main iterator to after the pattern
+                for _ in 0..(pattern.len() - 1) {
+                    chars.next();
+                }
+
+                // Try to parse the pre JSX call
+                if let Some(html) = parse_pre_jsx_call(&mut chars) {
+                    // Output as a quoted string for ExpressiveCode to process
+                    result.push_str(&format!("\"{}\"", escape_html_for_js(&html)));
+                } else {
+                    // Failed to parse, restore position and output just the first char
+                    // This preserves custom <pre> usage that doesn't match our pattern
+                    chars = saved_chars;
+                    result.push(c);
+                }
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Parses a _jsx("pre", ...) call and extracts the HTML representation.
+/// The iterator should be positioned right after `_jsx("pre"`.
+/// Returns the HTML string if successful.
+fn parse_pre_jsx_call(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
+    // Skip whitespace
+    skip_whitespace(chars);
+
+    // Expect comma
+    if chars.next() != Some(',') {
+        return None;
+    }
+
+    skip_whitespace(chars);
+
+    // Expect opening brace for props object
+    if chars.next() != Some('{') {
+        return None;
+    }
+
+    // Parse props object, looking for children: _jsx("code", ...)
+    let props_content = extract_balanced_braces(chars)?;
+
+    // Skip whitespace after props
+    skip_whitespace(chars);
+
+    // Consume the closing ) of _jsx("pre", ...)
+    if chars.peek() == Some(&')') {
+        chars.next();
+    }
+
+    // Find children property with _jsx(_components.code, ...) or _jsx("code", ...)
+    if let Some(code_call_start) = props_content.find("children:") {
+        let after_children = &props_content[code_call_start + "children:".len()..];
+        let trimmed = after_children.trim_start();
+
+        // Try both patterns: _jsx(_components.code and _jsx("code"
+        let code_patterns = ["_jsx(_components.code", "_jsx(\"code\""];
+        for pattern in code_patterns {
+            if trimmed.starts_with(pattern) {
+                // Parse the code JSX call
+                let code_jsx = &trimmed[pattern.len()..];
+                let (lang, content) = parse_code_jsx_props(code_jsx)?;
+
+                // Build plain HTML (will be escaped by caller)
+                let lang_class = lang
+                    .map(|l| format!(" class=\"language-{}\"", l))
+                    .unwrap_or_default();
+                return Some(format!(
+                    "<pre class=\"astro-code\" tabindex=\"0\"><code{}>{}</code></pre>",
+                    lang_class, content
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+/// Parses the props of a _jsx("code", ...) call.
+/// Input should be positioned after `_jsx("code"`.
+/// Returns (language, content) if successful.
+fn parse_code_jsx_props(input: &str) -> Option<(Option<String>, String)> {
+    let trimmed = input.trim_start();
+
+    // Expect comma
+    if !trimmed.starts_with(',') {
+        return None;
+    }
+    let after_comma = trimmed[1..].trim_start();
+
+    // Expect opening brace
+    if !after_comma.starts_with('{') {
+        return None;
+    }
+
+    // Find the props content between { and }
+    let props = extract_balanced_braces_from_str(&after_comma[1..])?;
+
+    let mut lang = None;
+
+    // Parse className and children from props
+    // This is simplified - handles common patterns
+
+    // Look for className: "language-xxx"
+    if let Some(class_idx) = props.find("className:") {
+        let after_class = props[class_idx + "className:".len()..].trim_start();
+        if after_class.starts_with('"') {
+            if let Some(class_value) = extract_js_string(after_class) {
+                if let Some(lang_part) = class_value.strip_prefix("language-") {
+                    lang = Some(lang_part.to_string());
+                }
+            }
+        }
+    }
+
+    // Look for children: "..." or children: `...` or children: '...'
+    if let Some(children_idx) = props.find("children:") {
+        let after_children = props[children_idx + "children:".len()..].trim_start();
+
+        // Handle double-quoted string literal
+        if after_children.starts_with('"') {
+            if let Some(value) = extract_js_string(after_children) {
+                return Some((lang, value));
+            }
+        }
+        // Handle template literal
+        else if after_children.starts_with('`') {
+            if let Some(value) = extract_template_literal(after_children) {
+                return Some((lang, value));
+            }
+        }
+        // Handle single-quoted string literal (common in mdxjs-rs output)
+        else if after_children.starts_with('\'') {
+            if let Some(value) = extract_single_quoted_string(after_children) {
+                return Some((lang, value));
+            }
+        }
+        // Children exists but not a string literal (dynamic) - abort rewrite
+        return None;
+    }
+
+    // No children key found - safe to return empty (plain <code></code>)
+    Some((lang, String::new()))
+}
+
+/// Extracts content between balanced braces from an iterator.
+fn extract_balanced_braces(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
+    let mut result = String::new();
+    let mut depth = 1;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '{' => {
+                depth += 1;
+                result.push(c);
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(result);
+                }
+                result.push(c);
+            }
+            '"' => {
+                result.push(c);
+                // Handle string literal
+                while let Some(sc) = chars.next() {
+                    result.push(sc);
+                    if sc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if sc == '"' {
+                        break;
+                    }
+                }
+            }
+            '`' => {
+                result.push(c);
+                // Handle template literal
+                while let Some(tc) = chars.next() {
+                    result.push(tc);
+                    if tc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if tc == '`' {
+                        break;
+                    }
+                }
+            }
+            '\'' => {
+                result.push(c);
+                // Handle single-quoted string
+                while let Some(sc) = chars.next() {
+                    result.push(sc);
+                    if sc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if sc == '\'' {
+                        break;
+                    }
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+
+    None // Unbalanced
+}
+
+/// Extracts content between balanced braces from a string slice.
+fn extract_balanced_braces_from_str(input: &str) -> Option<String> {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+    let mut depth = 1;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '{' => {
+                depth += 1;
+                result.push(c);
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(result);
+                }
+                result.push(c);
+            }
+            '"' => {
+                result.push(c);
+                while let Some(sc) = chars.next() {
+                    result.push(sc);
+                    if sc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if sc == '"' {
+                        break;
+                    }
+                }
+            }
+            '`' => {
+                result.push(c);
+                while let Some(tc) = chars.next() {
+                    result.push(tc);
+                    if tc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if tc == '`' {
+                        break;
+                    }
+                }
+            }
+            '\'' => {
+                result.push(c);
+                while let Some(sc) = chars.next() {
+                    result.push(sc);
+                    if sc == '\\' {
+                        if let Some(esc) = chars.next() {
+                            result.push(esc);
+                        }
+                    } else if sc == '\'' {
+                        break;
+                    }
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+
+    None
+}
+
+/// Extracts a JavaScript string literal value (double-quoted).
+fn extract_js_string(input: &str) -> Option<String> {
+    if !input.starts_with('"') {
+        return None;
+    }
+
+    let mut result = String::new();
+    let mut chars = input[1..].chars();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(esc) = chars.next() {
+                match esc {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    '\'' => result.push('\''),
+                    _ => {
+                        result.push('\\');
+                        result.push(esc);
+                    }
+                }
+            }
+        } else if c == '"' {
+            return Some(result);
+        } else {
+            result.push(c);
+        }
+    }
+
+    None
+}
+
+/// Extracts a template literal value.
+fn extract_template_literal(input: &str) -> Option<String> {
+    if !input.starts_with('`') {
+        return None;
+    }
+
+    let mut result = String::new();
+    let mut chars = input[1..].chars();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(esc) = chars.next() {
+                match esc {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '`' => result.push('`'),
+                    _ => {
+                        result.push('\\');
+                        result.push(esc);
+                    }
+                }
+            }
+        } else if c == '`' {
+            return Some(result);
+        } else {
+            result.push(c);
+        }
+    }
+
+    None
+}
+
+/// Extracts a single-quoted JavaScript string literal value.
+fn extract_single_quoted_string(input: &str) -> Option<String> {
+    if !input.starts_with('\'') {
+        return None;
+    }
+
+    let mut result = String::new();
+    let mut chars = input[1..].chars();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(esc) = chars.next() {
+                match esc {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '\'' => result.push('\''),
+                    '"' => result.push('"'),
+                    _ => {
+                        result.push('\\');
+                        result.push(esc);
+                    }
+                }
+            }
+        } else if c == '\'' {
+            return Some(result);
+        } else {
+            result.push(c);
+        }
+    }
+
+    None
+}
+
+/// Skips whitespace characters in the iterator.
+fn skip_whitespace(chars: &mut std::iter::Peekable<std::str::Chars>) {
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+}
+
+/// Escapes a string for use inside a JavaScript string literal.
+fn escape_html_for_js(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
 /// Checks if a line is an indented code block (4+ spaces or tab at start).
 /// Per CommonMark spec, such lines are code blocks, not headings.
-fn is_indented_code_block(line: &str) -> bool {
+pub fn is_indented_code_block(line: &str) -> bool {
     let mut chars = line.chars();
     let mut space_count = 0;
 
@@ -776,5 +1240,420 @@ More text.
 
         // Mixed (space + tab counts as code block if space + tab >= 4)
         assert!(is_indented_code_block("   \t# mixed")); // 3 spaces + tab = code block (tab at any point)
+    }
+
+    #[test]
+    fn test_rewrite_jsx_code_blocks_simple() {
+        // Simple code block with language
+        let input = r#"_jsx("pre", { children: _jsx("code", { className: "language-sh", children: "npm install" }) })"#;
+        let output = rewrite_jsx_code_blocks(input);
+        // The output should be a JS string literal with escaped quotes
+        assert!(
+            output.contains(r#"<pre class=\"astro-code\""#),
+            "Expected HTML pre tag, got: {}",
+            output
+        );
+        assert!(
+            output.contains(r#"class=\"language-sh\""#),
+            "Expected language class, got: {}",
+            output
+        );
+        assert!(
+            output.contains("npm install"),
+            "Expected code content, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_rewrite_jsx_code_blocks_no_language() {
+        // Code block without language class
+        let input = r#"_jsx("pre", { children: _jsx("code", { children: "plain code" }) })"#;
+        let output = rewrite_jsx_code_blocks(input);
+        assert!(
+            output.contains(r#"<pre class=\"astro-code\""#),
+            "Expected HTML pre tag, got: {}",
+            output
+        );
+        assert!(
+            output.contains("<code>plain code</code>"),
+            "Expected code without language, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_rewrite_jsx_code_blocks_with_escapes() {
+        // Code with escaped characters - input has escaped quotes
+        let input = r#"_jsx("pre", { children: _jsx("code", { className: "language-js", children: "const x = \"hello\";" }) })"#;
+        let output = rewrite_jsx_code_blocks(input);
+        // The code content should preserve the quotes (escaped in the JS string output)
+        assert!(
+            output.contains(r#"const x = \"hello\";"#),
+            "Expected escaped quotes in output, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_rewrite_jsx_code_blocks_preserves_other_content() {
+        // Mixed content - should only transform code blocks
+        let input = r#"_jsx("p", { children: "Hello" }); _jsx("pre", { children: _jsx("code", { children: "test" }) }); _jsx("div", {})"#;
+        let output = rewrite_jsx_code_blocks(input);
+        assert!(
+            output.contains(r#"_jsx("p", { children: "Hello" })"#),
+            "Should preserve other JSX, got: {}",
+            output
+        );
+        assert!(
+            output.contains(r#"<pre class=\"astro-code\""#),
+            "Should transform pre/code, got: {}",
+            output
+        );
+        assert!(
+            output.contains(r#"_jsx("div", {})"#),
+            "Should preserve other JSX, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_rewrite_jsx_code_blocks_nested_braces() {
+        // Code content containing braces
+        let input = r#"_jsx("pre", { children: _jsx("code", { className: "language-js", children: "function foo() { return {}; }" }) })"#;
+        let output = rewrite_jsx_code_blocks(input);
+        assert!(
+            output.contains("function foo() { return {}; }"),
+            "Expected code with braces, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_extract_js_string() {
+        assert_eq!(extract_js_string(r#""hello""#), Some("hello".to_string()));
+        assert_eq!(
+            extract_js_string(r#""hello \"world\"""#),
+            Some("hello \"world\"".to_string())
+        );
+        assert_eq!(
+            extract_js_string(r#""line1\nline2""#),
+            Some("line1\nline2".to_string())
+        );
+        assert_eq!(extract_js_string("not a string"), None);
+    }
+
+    #[test]
+    fn test_extract_template_literal() {
+        assert_eq!(
+            extract_template_literal("`hello`"),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            extract_template_literal("`multi\nline`"),
+            Some("multi\nline".to_string())
+        );
+        assert_eq!(extract_template_literal("not a template"), None);
+    }
+
+    #[test]
+    fn test_compile_mdx_with_code_block() {
+        // Test that code blocks in MDX are rewritten for ExpressiveCode
+        // when rewrite_code_blocks is enabled
+        let source = r#"---
+title: Test
+---
+
+# Hello
+
+```sh
+npm install astro
+```
+"#;
+
+        let options = MdxCompileOptions {
+            rewrite_code_blocks: true,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        // The compiled output should contain HTML-format code blocks
+        // that ExpressiveCode can detect
+        assert!(
+            output.code.contains(r#"<pre class=\"astro-code\""#),
+            "Expected HTML pre tag for ExpressiveCode, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains(r#"class=\"language-sh\""#),
+            "Expected language class, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("npm install astro"),
+            "Expected code content, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_with_directives() {
+        // Test that directive syntax is rewritten to Aside tags before mdxjs-rs
+        let source = r#"---
+title: Test
+---
+
+# Hello
+
+:::note[Important]
+This is a note.
+:::
+
+:::caution
+Be careful!
+:::
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        // The compiled output should contain Aside JSX components
+        assert!(
+            output.code.contains("Aside"),
+            "Expected Aside component in output, got: {}",
+            output.code
+        );
+        // Should have the directive marker attribute
+        assert!(
+            output.code.contains("data-mf-source"),
+            "Expected data-mf-source attribute, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_directive_in_code_block() {
+        // Directives inside code blocks should NOT be rewritten
+        let source = r#"---
+title: Test
+---
+
+# Hello
+
+```md
+:::note
+This should NOT be converted to an Aside.
+:::
+```
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        // The compiled output should NOT contain Aside since the directive is in a code block
+        assert!(
+            !output.code.contains("data-mf-source"),
+            "Should NOT convert directive inside code block, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_custom_element_in_list_structure() {
+        // Test if custom elements like <mf-aside> preserve list structure
+        // compared to standard HTML elements like <aside> which break lists
+        let source_custom = r#"
+1. First
+
+<mf-aside>test</mf-aside>
+
+2. Second
+"#;
+
+        let source_standard = r#"
+1. First
+
+<aside>test</aside>
+
+2. Second
+"#;
+
+        let result_custom = compile_mdx(source_custom, "test.mdx", None);
+        let result_standard = compile_mdx(source_standard, "test.mdx", None);
+
+        assert!(result_custom.is_ok(), "Custom element compilation failed");
+        assert!(
+            result_standard.is_ok(),
+            "Standard element compilation failed"
+        );
+
+        let output_custom = result_custom.unwrap();
+        let output_standard = result_standard.unwrap();
+
+        // Log both outputs for analysis
+        println!("Custom element output:\n{}", output_custom.code);
+        println!("\nStandard element output:\n{}", output_standard.code);
+
+        // Custom elements should NOT produce fragmented lists (start="2")
+        // Standard HTML block elements like <aside> WILL produce fragmented lists
+        let custom_has_start_2 = output_custom.code.contains(r#"start: "2""#)
+            || output_custom.code.contains(r#"start: 2"#)
+            || output_custom.code.contains("start={2}");
+        let standard_has_start_2 = output_standard.code.contains(r#"start: "2""#)
+            || output_standard.code.contains(r#"start: 2"#)
+            || output_standard.code.contains("start={2}");
+
+        println!("\nCustom has start=2: {}", custom_has_start_2);
+        println!("Standard has start=2: {}", standard_has_start_2);
+    }
+
+    #[test]
+    fn test_jsx_comment_in_list_structure() {
+        // Test if JSX comments preserve list structure
+        let source = r#"
+1. First
+
+{/* mf:directive:note|title=Important */}
+Warning content here
+{/* mf:/directive */}
+
+2. Second
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "JSX comment compilation failed: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        println!("JSX comment output:\n{}", output.code);
+
+        // Check if list is fragmented
+        let has_start_2 = output.code.contains(r#"start: "2""#)
+            || output.code.contains(r#"start: 2"#)
+            || output.code.contains("start={2}");
+        println!("\nJSX comment has start=2: {}", has_start_2);
+    }
+
+    #[test]
+    fn test_jsx_wrapper_in_list() {
+        // Test if putting JSX wrapper inline within the list preserves structure
+        // by using the "loose list" markdown pattern where content belongs to list items
+        let source = r#"
+1. First step
+
+   <Aside type="note">Warning content here</Aside>
+
+2. Second step
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Inline JSX compilation failed: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        println!("Inline JSX in list output:\n{}", output.code);
+
+        // Check if list is fragmented
+        let has_start_2 = output.code.contains(r#"start: "2""#)
+            || output.code.contains(r#"start: 2"#)
+            || output.code.contains("start={2}");
+        println!("\nInline JSX has start=2: {}", has_start_2);
+    }
+
+    #[test]
+    fn test_directive_in_list_preserves_structure() {
+        // This is the key test case from the plan:
+        // Directives inside numbered lists should NOT fragment the list
+        let source = r#"
+1. First step
+
+:::caution
+Warning text
+:::
+
+2. Second step
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Directive in list compilation failed: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        println!("Directive in list output:\n{}", output.code);
+
+        // The list should NOT be fragmented (no start="2")
+        let has_fragmented_list = output.code.contains(r#"start: "2""#)
+            || output.code.contains(r#"start: 2"#)
+            || output.code.contains("start={2}");
+
+        assert!(
+            !has_fragmented_list,
+            "List should NOT be fragmented. Output:\n{}",
+            output.code
+        );
+
+        // Should have Aside component
+        assert!(
+            output.code.contains("Aside"),
+            "Should contain Aside component. Output:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_steps_component_with_directive() {
+        // Simulate the <Steps> component use case from the plan
+        let source = r#"
+<Steps>
+1. First step
+
+:::caution
+Warning
+:::
+
+2. Second step
+</Steps>
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Steps compilation failed: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        println!("Steps with directive output:\n{}", output.code);
+
+        // Should contain Steps component
+        assert!(
+            output.code.contains("Steps"),
+            "Should contain Steps component"
+        );
+
+        // Should NOT have fragmented list with start="2"
+        let has_fragmented_list = output.code.contains(r#"start: "2""#)
+            || output.code.contains(r#"start: 2"#)
+            || output.code.contains("start={2}");
+
+        assert!(
+            !has_fragmented_list,
+            "List inside Steps should NOT be fragmented. Output:\n{}",
+            output.code
+        );
     }
 }

@@ -1,6 +1,10 @@
 #![deny(missing_docs)]
 //! Markflow core: markdown parsing utilities, frontmatter extraction, and slugs.
 
+/// Code fence detection utilities.
+pub mod code_fence;
+/// Directive rewriting utilities.
+pub mod directives;
 /// Core error and diagnostic types.
 pub mod error;
 /// YAML frontmatter extraction helpers.
@@ -22,3 +26,8 @@ pub use parse::{
     parse_mdast_with_options,
 };
 pub use slug::{Slugger, slugify};
+
+pub use code_fence::{FencePhase, FenceState, LineParseOutcome, advance_fence_state};
+pub use directives::{
+    DirectiveOpening, is_directive_closer, parse_opening_directive, rewrite_directives_to_asides,
+};
