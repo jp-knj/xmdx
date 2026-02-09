@@ -71,16 +71,17 @@ pub fn advance_fence_state(line: &str, state: FenceState) -> LineParseOutcome {
         && is_closing_fence(after_indent)
     {
         // Check that closer has same marker and length >= opener length
-        if let Some((marker, closer_len)) = detect_fence_marker_with_length(after_indent) {
-            if Some(marker) == state.marker && closer_len >= state.length {
-                next_state = FenceState {
-                    phase: FencePhase::Outside,
-                    marker: None,
-                    indent: 0,
-                    length: 0,
-                };
-                skip_rewrite = true;
-            }
+        if let Some((marker, closer_len)) = detect_fence_marker_with_length(after_indent)
+            && Some(marker) == state.marker
+            && closer_len >= state.length
+        {
+            next_state = FenceState {
+                phase: FencePhase::Outside,
+                marker: None,
+                indent: 0,
+                length: 0,
+            };
+            skip_rewrite = true;
         }
     }
 

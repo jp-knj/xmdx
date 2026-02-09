@@ -248,9 +248,8 @@ fn parse_pre_jsx_call(chars: &mut std::iter::Peekable<std::str::Chars>) -> Optio
         // Try both patterns: _jsx(_components.code and _jsx("code"
         let code_patterns = ["_jsx(_components.code", "_jsx(\"code\""];
         for pattern in code_patterns {
-            if trimmed.starts_with(pattern) {
+            if let Some(code_jsx) = trimmed.strip_prefix(pattern) {
                 // Parse the code JSX call
-                let code_jsx = &trimmed[pattern.len()..];
                 let (lang, content) = parse_code_jsx_props(code_jsx)?;
 
                 // Build plain HTML (will be escaped by caller)
@@ -296,12 +295,11 @@ fn parse_code_jsx_props(input: &str) -> Option<(Option<String>, String)> {
     // Look for className: "language-xxx"
     if let Some(class_idx) = props.find("className:") {
         let after_class = props[class_idx + "className:".len()..].trim_start();
-        if after_class.starts_with('"') {
-            if let Some(class_value) = extract_js_string(after_class) {
-                if let Some(lang_part) = class_value.strip_prefix("language-") {
-                    lang = Some(lang_part.to_string());
-                }
-            }
+        if after_class.starts_with('"')
+            && let Some(class_value) = extract_js_string(after_class)
+            && let Some(lang_part) = class_value.strip_prefix("language-")
+        {
+            lang = Some(lang_part.to_string());
         }
     }
 
@@ -322,10 +320,10 @@ fn parse_code_jsx_props(input: &str) -> Option<(Option<String>, String)> {
             }
         }
         // Handle single-quoted string literal (common in mdxjs-rs output)
-        else if after_children.starts_with('\'') {
-            if let Some(value) = extract_single_quoted_string(after_children) {
-                return Some((lang, value));
-            }
+        else if after_children.starts_with('\'')
+            && let Some(value) = extract_single_quoted_string(after_children)
+        {
+            return Some((lang, value));
         }
         // Children exists but not a string literal (dynamic) - abort rewrite
         return None;

@@ -118,12 +118,12 @@ pub fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
 /// Splits on whitespace but keeps quoted strings intact.
 fn tokenize_attrs(attrs: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
-    let mut chars = attrs.char_indices().peekable();
+    let chars = attrs.char_indices().peekable();
     let mut token_start: Option<usize> = None;
     let mut in_quotes = false;
     let mut quote_char = '"';
 
-    while let Some((i, c)) = chars.next() {
+    for (i, c) in chars {
         match c {
             '"' | '\'' if !in_quotes => {
                 if token_start.is_none() {
@@ -341,20 +341,20 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
             continue;
         }
 
-        if is_directive_closer(line) {
-            if let Some((opened, indent)) = directive_stack.pop() {
-                let end_tag = opened.to_aside_end();
-                writeln!(output, "{}{}", indent, end_tag).ok();
+        if is_directive_closer(line)
+            && let Some((opened, indent)) = directive_stack.pop()
+        {
+            let end_tag = opened.to_aside_end();
+            writeln!(output, "{}{}", indent, end_tag).ok();
 
-                // Insert blank line after if in list context
-                if !indent.is_empty() {
-                    writeln!(output).ok();
-                    prev_line_blank = true;
-                } else {
-                    prev_line_blank = false;
-                }
-                continue;
+            // Insert blank line after if in list context
+            if !indent.is_empty() {
+                writeln!(output).ok();
+                prev_line_blank = true;
+            } else {
+                prev_line_blank = false;
             }
+            continue;
         }
 
         // If we're inside a directive with indentation, indent the content too
@@ -367,11 +367,7 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
         } else {
             writeln!(output, "{}", line).ok();
         }
-        if trimmed.is_empty() {
-            prev_line_blank = true;
-        } else {
-            prev_line_blank = false;
-        }
+        prev_line_blank = trimmed.is_empty();
     }
 
     // For any unclosed directives, close them at the end to avoid broken output.
@@ -685,7 +681,7 @@ mod tests {
 
         // Should not be indented
         assert!(
-            out.starts_with("<Aside") || out.lines().nth(0).unwrap().starts_with("<Aside"),
+            out.starts_with("<Aside") || out.lines().next().unwrap().starts_with("<Aside"),
             "Directive before list should not be indented. Output:\n{}",
             out
         );
@@ -909,8 +905,7 @@ mod tests {
         let aside_end = lines.iter().position(|l| l.contains("</Aside>")).unwrap();
 
         // Check fence opener and closer are indented
-        for i in (aside_start + 1)..aside_end {
-            let line = lines[i];
+        for line in lines.iter().take(aside_end).skip(aside_start + 1) {
             if !line.trim().is_empty() {
                 assert!(
                     line.starts_with("   "),

@@ -169,12 +169,12 @@ pub(crate) fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
 /// Splits on whitespace but keeps quoted strings intact.
 fn tokenize_attrs(attrs: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
-    let mut chars = attrs.char_indices().peekable();
+    let chars = attrs.char_indices().peekable();
     let mut token_start: Option<usize> = None;
     let mut in_quotes = false;
     let mut quote_char = '"';
 
-    while let Some((i, c)) = chars.next() {
+    for (i, c) in chars {
         match c {
             '"' | '\'' if !in_quotes => {
                 if token_start.is_none() {
