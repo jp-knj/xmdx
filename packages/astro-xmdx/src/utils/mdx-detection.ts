@@ -126,13 +126,19 @@ function extractImportSources(content: string): string[] {
  * Note: Export statements are now handled by Rust (hoisted_exports) and no longer
  * trigger fallback. This significantly reduces fallback rate.
  *
+ * Note: Directive syntax (:::note, :::caution, etc.) is now preprocessed by Rust
+ * into JSX Aside tags before mdxjs-rs compilation, so directives no longer trigger
+ * fallback either.
+ *
  * @param source - The markdown/MDX source content
  * @param options - MDX handling options
+ * @param filepath - Optional file path to determine if MDX-specific checks apply
  * @returns Detailed detection result with reasons
  */
 export function detectProblematicMdxPatterns(
   source: string,
-  options?: MdxImportHandlingOptions
+  options?: MdxImportHandlingOptions,
+  filepath?: string
 ): MdxPatternDetectionResult {
   // Skip frontmatter when checking for imports
   let content = stripFrontmatter(source);
@@ -143,9 +149,16 @@ export function detectProblematicMdxPatterns(
     content = stripCodeFences(content);
   }
 
+  // Note: Directive syntax (:::note, :::tip, etc.) is now handled by Rust
+  // preprocessing (rewrite_directives_to_asides) before mdxjs-rs compilation.
+  // This converts directives to JSX Aside tags that mdxjs-rs can parse.
+
   // Note: Export statements are now handled by Rust and no longer trigger fallback
   // The Rust compiler extracts exports via collect_root_statements() and includes
   // them in hoisted_exports, which TypeScript then injects into the JSX module.
+
+  // Suppress unused parameter warning
+  void filepath;
 
   // Check for import statements
   const importPatterns = [
@@ -200,10 +213,12 @@ export function detectProblematicMdxPatterns(
  *
  * @param source - The markdown/MDX source content
  * @param options - MDX handling options
+ * @param filepath - Optional file path to determine if MDX-specific checks apply
  */
 export function hasProblematicMdxPatterns(
   source: string,
-  options?: MdxImportHandlingOptions
+  options?: MdxImportHandlingOptions,
+  filepath?: string
 ): boolean {
-  return detectProblematicMdxPatterns(source, options).hasProblematicPatterns;
+  return detectProblematicMdxPatterns(source, options, filepath).hasProblematicPatterns;
 }
