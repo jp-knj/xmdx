@@ -21,22 +21,6 @@ A high-performance streaming Markdown/MDX engine built with Rust, designed for m
 
 ## Quick Start
 
-### With Astro
-
-```bash
-npm install astro-xmdx
-```
-
-```js
-// astro.config.mjs
-import { defineConfig } from 'astro/config';
-import xmdx from 'astro-xmdx';
-
-export default defineConfig({
-  integrations: [xmdx()],
-});
-```
-
 ### Standalone
 
 ```bash
