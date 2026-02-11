@@ -17,9 +17,8 @@ import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '..
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { Transform } from '../pipeline/types.js';
 import { IS_MDAST } from './binding-loader.js';
-import type { CachedMdxResult, CachedModuleResult, EsbuildCacheEntry } from './cache-types.js';
+import type { CachedModuleResult, EsbuildCacheEntry } from './cache-types.js';
 import { compileFallbackModule } from './jsx-module.js';
-import { wrapMdxModule } from './mdx-wrapper.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { LoadProfiler } from './load-profiler.js';
 import { LOAD_PROFILE } from './load-profiler.js';
@@ -36,7 +35,6 @@ export interface LoadHandlerDeps {
   fallbackReasons: Map<string, string>;
   esbuildCache: Map<string, EsbuildCacheEntry>;
   moduleCompilationCache: Map<string, CachedModuleResult>;
-  mdxCompilationCache: Map<string, CachedMdxResult>;
   originalSourceCache: Map<string, string>;
   processedSourceCache: Map<string, string>;
   processedFiles: Set<string>;
@@ -49,7 +47,6 @@ export interface LoadHandlerDeps {
   shikiManager: ShikiManager;
   transformPipeline: Transform;
   parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>;
-  compilerOptions: Record<string, unknown>;
   getCompiler: () => Promise<XmdxCompiler>;
   loadBinding: () => Promise<XmdxBinding>;
   loadProfiler: LoadProfiler | null;
@@ -210,66 +207,6 @@ export async function loadCachedModule(
   };
 }
 
-export async function loadCachedMdx(
-  id: string,
-  filename: string,
-  cachedMdx: CachedMdxResult,
-  loadStart: number,
-  deps: LoadHandlerDeps
-): Promise<PipelineResult> {
-  const startTime = performance.now();
-  const frontmatter = deps.parseFrontmatterCached(cachedMdx.frontmatterJson, filename);
-  const headings = cachedMdx.headings || [];
-
-  const jsxCode = wrapMdxModule(
-    cachedMdx.code,
-    {
-      frontmatter,
-      headings,
-      registry: deps.registry,
-    },
-    filename
-  );
-
-  const result: CompileResult = {
-    code: jsxCode,
-    map: null,
-    frontmatter_json: cachedMdx.frontmatterJson,
-    headings,
-    imports: [],
-  };
-
-  deps.state.totalProcessingTimeMs += performance.now() - startTime;
-  deps.processedFiles.add(filename);
-
-  const sourceForHooks =
-    getSourceForHooks(filename, cachedMdx, deps.originalSourceCache, deps.processedSourceCache) ||
-    (await readFile(filename, 'utf8'));
-
-  const final = await runPipelineAndEsbuild(
-    {
-      id,
-      filename,
-      code: result.code,
-      source: sourceForHooks,
-      frontmatter,
-      headings,
-    },
-    deps
-  );
-
-  if (deps.loadProfiler) {
-    const elapsed = performance.now() - loadStart;
-    deps.loadProfiler.cacheHits++;
-    deps.loadProfiler.recordFile(filename, elapsed);
-  }
-
-  return {
-    code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
-  };
-}
-
 export async function loadCacheMiss(
   id: string,
   filename: string,
@@ -303,48 +240,8 @@ export async function loadCacheMiss(
   let result: CompileResult;
   let frontmatter: Record<string, unknown> = {};
   let headings: Array<{ depth: number; slug: string; text: string }> = [];
-  const isMdx = filename.endsWith('.mdx');
 
-  if (isMdx) {
-    const binding = await deps.loadBinding();
-    const mdxBatchResult = binding.compileMdxBatch(
-      [{ id: filename, source: processedSource }],
-      { continueOnError: false, config: deps.compilerOptions }
-    );
-
-    const mdxResult = mdxBatchResult.results[0];
-    if (mdxResult?.error) {
-      throw new Error(`MDX compilation failed: ${mdxResult.error}`);
-    }
-    if (!mdxResult?.result) {
-      throw new Error(`MDX compilation returned no result for ${filename}`);
-    }
-
-    if (mdxResult.result.frontmatterJson) {
-      try {
-        frontmatter = JSON.parse(mdxResult.result.frontmatterJson) as Record<string, unknown>;
-      } catch {
-        frontmatter = {};
-      }
-    }
-    headings = mdxResult.result.headings || [];
-
-    result = {
-      code: wrapMdxModule(
-        mdxResult.result.code,
-        {
-          frontmatter,
-          headings,
-          registry: deps.registry,
-        },
-        filename
-      ),
-      map: null,
-      frontmatter_json: mdxResult.result.frontmatterJson ?? '',
-      headings,
-      imports: [],
-    };
-  } else if (IS_MDAST) {
+  if (IS_MDAST) {
     const binding = await deps.loadBinding();
     const userImports = extractImportStatements(processedSource);
     const contentSource = stripFrontmatter(processedSource);
@@ -365,6 +262,7 @@ export async function loadCacheMiss(
       imports: [],
     };
   } else {
+    // Compile .md and .mdx through the same Rust compiler path.
     const fileOptions = deriveFileOptions(filename, deps.resolvedConfig?.root);
     result = currentCompiler.compile(processedSource, filename, fileOptions);
     if (result.frontmatter_json) {
@@ -475,15 +373,8 @@ export async function handleLoad(
     }
 
     const cachedModule = deps.moduleCompilationCache.get(filename);
-    const cachedMdx = deps.mdxCompilationCache.get(filename);
-    const isMdx = filename.endsWith('.mdx');
-
-    if (cachedModule && !isMdx) {
+    if (cachedModule) {
       return loadCachedModule(id, filename, cachedModule, loadStart, deps);
-    }
-
-    if (cachedMdx && isMdx) {
-      return loadCachedMdx(id, filename, cachedMdx, loadStart, deps);
     }
 
     return loadCacheMiss(id, filename, loadStart, deps);

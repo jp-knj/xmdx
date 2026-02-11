@@ -13,7 +13,6 @@ import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
 import { runParallelEsbuild } from './esbuild-pool.js';
 import { DiskCache } from './disk-cache.js';
-import { wrapMdxModule } from './mdx-wrapper.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { XmdxBinding, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
@@ -24,7 +23,6 @@ import type { ExpressiveCodeManager } from './expressive-code-manager.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
 import type {
-  CachedMdxResult,
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
@@ -71,7 +69,6 @@ export interface BuildStartDeps {
   originalSourceCache: Map<string, string>;
   processedSourceCache: Map<string, string>;
   moduleCompilationCache: Map<string, CachedModuleResult>;
-  mdxCompilationCache: Map<string, CachedMdxResult>;
   esbuildCache: Map<string, EsbuildCacheEntry>;
   fallbackFiles: Set<string>;
   fallbackReasons: Map<string, string>;
@@ -188,7 +185,6 @@ export async function batchCompileFiles(
   mdxInputs: BatchInput[],
   compilerOptions: Record<string, unknown>,
   moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>,
   originalSourceCache: Map<string, string>,
@@ -218,7 +214,7 @@ export async function batchCompileFiles(
 
   let mdxStats: BatchStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
   if (mdxInputs.length > 0) {
-    const mdxBatchResult = binding.compileMdxBatch(mdxInputs, {
+    const mdxBatchResult = binding.compileBatchToModule(mdxInputs, {
       continueOnError: true,
       config: compilerOptions,
     });
@@ -226,7 +222,7 @@ export async function batchCompileFiles(
 
     for (const result of mdxBatchResult.results) {
       if (result.result) {
-        mdxCompilationCache.set(result.id, {
+        moduleCompilationCache.set(result.id, {
           ...result.result,
           originalSource: originalSourceCache.get(result.id),
           processedSource: processedSourceCache.get(result.id),
@@ -330,7 +326,6 @@ export function persistCaches(
   persistentCache: PersistentCache,
   esbuildCache: Map<string, EsbuildCacheEntry>,
   moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>
 ): void {
@@ -339,9 +334,6 @@ export function persistCaches(
   }
   for (const [k, v] of moduleCompilationCache) {
     persistentCache.moduleCompilation.set(k, v);
-  }
-  for (const [k, v] of mdxCompilationCache) {
-    persistentCache.mdxCompilation.set(k, v);
   }
   for (const file of fallbackFiles) {
     persistentCache.fallbackFiles.add(file);
@@ -355,7 +347,6 @@ function restorePersistentCaches(
   persistentCache: PersistentCache,
   esbuildCache: Map<string, EsbuildCacheEntry>,
   moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>
 ): void {
@@ -364,9 +355,6 @@ function restorePersistentCaches(
   }
   for (const [k, v] of persistentCache.moduleCompilation) {
     moduleCompilationCache.set(k, v);
-  }
-  for (const [k, v] of persistentCache.mdxCompilation) {
-    mdxCompilationCache.set(k, v);
   }
   for (const file of persistentCache.fallbackFiles) {
     fallbackFiles.add(file);
@@ -378,7 +366,6 @@ function restorePersistentCaches(
 
 async function preparePipelineInputs(
   moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>,
   originalSourceCache: Map<string, string>,
   processedSourceCache: Map<string, string>,
@@ -437,62 +424,7 @@ async function preparePipelineInputs(
     );
     jsxInputs.push(...chunkResults);
   }
-
-  const mdxEntries: Array<[string, CachedMdxResult]> = [];
-  for (const [filename, cached] of mdxCompilationCache) {
-    mdxEntries.push([filename, cached]);
-  }
-
-  for (let i = 0; i < mdxEntries.length; i += PIPELINE_CHUNK_SIZE) {
-    const chunk = mdxEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
-    const chunkResults = await Promise.all(
-      chunk.map(async ([filename, cached]) => {
-        const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
-        const headings = cached.headings || [];
-        const jsxCode = wrapMdxModule(
-          cached.code,
-          {
-            frontmatter,
-            headings,
-            registry,
-          },
-          filename
-        );
-        const sourceForHooks =
-          originalSourceCache.get(filename) ??
-          cached.originalSource ??
-          processedSourceCache.get(filename) ??
-          cached.processedSource ??
-          '';
-
-        const ctx: TransformContext = {
-          code: jsxCode,
-          source: sourceForHooks,
-          filename,
-          frontmatter,
-          headings,
-          registry,
-          config: {
-            expressiveCode,
-            starlightComponents: normalizedStarlightComponents,
-            shiki: shikiManager.forCode(jsxCode, resolvedShiki),
-          },
-        };
-        const transformed = await transformPipeline(ctx);
-        return {
-          id: filename,
-          virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
-          jsx: transformed.code,
-          contentHash: sourceHashes.get(filename),
-        };
-      })
-    );
-    jsxInputs.push(...chunkResults);
-  }
-
-  debugLog(
-    `Pipeline processed ${jsxInputs.length} files for esbuild batch (${mdModuleEntries.length} MD modules, ${mdxEntries.length} MDX)`
-  );
+  debugLog(`Pipeline processed ${jsxInputs.length} files for esbuild batch`);
 
   return jsxInputs;
 }
@@ -560,7 +492,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       deps.persistentCache,
       deps.esbuildCache,
       deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons
     );
@@ -647,7 +578,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       mdxInputs,
       deps.compilerOptions,
       deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons,
       deps.originalSourceCache,
@@ -660,7 +590,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     const totalTime = stats.md.processingTimeMs + stats.mdx.processingTimeMs;
     console.info(
       `[xmdx] Batch compiled ${totalSucceeded}/${totalFiles} files in ${totalTime.toFixed(0)}ms` +
-        (mdxInputs.length > 0 ? ` (${stats.mdx.succeeded} MDX via mdxjs-rs)` : '')
+        ` (MD: ${stats.md.succeeded}, MDX: ${stats.mdx.succeeded})`
     );
 
     const esbuildStartTime = performance.now();
@@ -670,7 +600,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
 
     const jsxInputs = await preparePipelineInputs(
       deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.parseFrontmatterCached,
       deps.originalSourceCache,
       deps.processedSourceCache,
@@ -709,7 +638,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       deps.persistentCache,
       deps.esbuildCache,
       deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons
     );

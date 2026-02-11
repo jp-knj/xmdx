@@ -37,7 +37,6 @@ import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
 import { ShikiManager } from './vite-plugin/shiki-manager.js';
 import { createLoadProfiler } from './vite-plugin/load-profiler.js';
 import type {
-  CachedMdxResult,
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
@@ -110,8 +109,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const sourceLookup = new Map<string, string>();
   const originalSourceCache = new Map<string, string>();   // Raw markdown before preprocess hooks
   const processedSourceCache = new Map<string, string>();  // Preprocessed markdown fed to compiler
-  const moduleCompilationCache = new Map<string, CachedModuleResult>();  // MD files compiled to modules via Rust
-  const mdxCompilationCache = new Map<string, CachedMdxResult>();        // MDX files compiled via mdxjs-rs
+  const moduleCompilationCache = new Map<string, CachedModuleResult>();  // MD/MDX files compiled to modules via Rust
   const esbuildCache = new Map<string, EsbuildCacheEntry>();  // Pre-compiled esbuild results
   const fallbackFiles = new Set<string>();
 
@@ -151,7 +149,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const persistentCache: PersistentCache = {
     esbuild: new Map<string, EsbuildCacheEntry>(),
     moduleCompilation: new Map<string, CachedModuleResult>(),
-    mdxCompilation: new Map<string, CachedMdxResult>(),
     fallbackFiles: new Set<string>(),
     fallbackReasons: new Map<string, string>(),
   };
@@ -295,7 +292,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         originalSourceCache,
         processedSourceCache,
         moduleCompilationCache,
-        mdxCompilationCache,
         esbuildCache,
         fallbackFiles,
         fallbackReasons,
@@ -387,7 +383,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         fallbackReasons,
         esbuildCache,
         moduleCompilationCache,
-        mdxCompilationCache,
         originalSourceCache,
         processedSourceCache,
         processedFiles,
@@ -400,7 +395,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         shikiManager,
         transformPipeline,
         parseFrontmatterCached,
-        compilerOptions,
         getCompiler,
         loadBinding: loadXmdxBinding,
         loadProfiler,
