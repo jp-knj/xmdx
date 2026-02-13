@@ -35,7 +35,7 @@ export async function loadXmdxBinding(): Promise<XmdxBinding> {
   if (!bindingPromise) {
     bindingPromise = (async () => {
       const require = createRequire(import.meta.url);
-      const pkgRoot = path.dirname(require.resolve('xmdx-napi/package.json'));
+      const pkgRoot = path.dirname(require.resolve('@xmdx/napi/package.json'));
 
       const guessBinaryName = () => {
         const triplet = `${process.platform}-${process.arch}`;
@@ -61,7 +61,7 @@ export async function loadXmdxBinding(): Promise<XmdxBinding> {
         if (nodeFile) {
           return path.resolve(pkgRoot, nodeFile);
         }
-        throw new Error('xmdx-napi native binary not found');
+        throw new Error('@xmdx/napi native binary not found');
       };
 
       const binaryPath = findBinaryPath();

@@ -7,6 +7,8 @@
 
 import { Worker } from 'node:worker_threads';
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 
 interface WorkerInput {
   entries: Array<{ entryName: string; id: string; jsx: string }>;
@@ -23,8 +25,15 @@ interface WorkerOutput {
  */
 const WORKER_CODE = `
 const { parentPort } = require('node:worker_threads');
-const { build: esbuildBuild } = require('esbuild');
 const path = require('node:path');
+
+// Provide __filename and __dirname for esbuild compatibility in eval mode.
+// When Worker is created with eval: true, CommonJS globals are not available,
+// but esbuild may reference them internally.
+const __filename = require.main?.filename || path.join(process.cwd(), 'worker.js');
+const __dirname = path.dirname(__filename);
+
+const { build: esbuildBuild } = require('esbuild');
 
 async function processChunk(input) {
   const entryMap = new Map();
@@ -99,6 +108,18 @@ parentPort.on('message', async (input) => {
 export async function runParallelEsbuild(
   jsxInputs: Array<{ id: string; jsx: string }>
 ): Promise<Map<string, { code: string; map?: string }>> {
+  // Debug: dump generated JSX when XMDX_DEBUG_JSX=1
+  const debugJsx = process.env.XMDX_DEBUG_JSX === '1';
+  if (debugJsx) {
+    const debugDir = '/tmp/xmdx-debug';
+    fs.mkdirSync(debugDir, { recursive: true });
+    for (const input of jsxInputs) {
+      const safeName = input.id.replace(/[^a-zA-Z0-9]/g, '_');
+      fs.writeFileSync(path.join(debugDir, `${safeName}.jsx`), input.jsx);
+    }
+    console.log(`[xmdx] Debug: Dumped ${jsxInputs.length} JSX files to /tmp/xmdx-debug`);
+  }
+
   // Use CPU count - 1, capped at 8 workers max
   const workerCount = Math.max(1, Math.min(os.cpus().length - 1, 8));
   const chunkSize = Math.ceil(jsxInputs.length / workerCount);

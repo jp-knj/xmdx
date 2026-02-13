@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "build:napi": "pnpm --filter xmdx-napi build",
+    "build:napi": "pnpm --filter @xmdx/napi build",
     "test": "pnpm -r test"
   },
   "devDependencies": {

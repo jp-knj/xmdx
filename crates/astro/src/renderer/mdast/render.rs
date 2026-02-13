@@ -234,7 +234,9 @@ fn render_jsx(
     }
 
     // 7. Push as component block
-    if ctx.is_in_list() || ctx.is_in_table() {
+    // Inline JSX elements inside paragraphs, lists, or tables should be
+    // rendered inline to avoid fragmenting the HTML structure.
+    if ctx.is_in_list() || ctx.is_in_table() || ctx.is_in_paragraph() {
         ctx.push_component_inline(tag_name, &props, &slot_children);
     } else {
         ctx.push_component(tag_name, props, slot_children);

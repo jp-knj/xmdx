@@ -4,7 +4,7 @@
  * @module node
  */
 
-import { createCompiler, type XmdxCompiler } from 'xmdx-napi';
+import { createCompiler, type XmdxCompiler } from '@xmdx/napi';
 import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
 
 let compiler: XmdxCompiler | null = null;

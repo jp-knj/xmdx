@@ -131,7 +131,7 @@ fn convert_render_block(block: xmdx_astro::renderer::mdast::RenderBlock) -> Rend
 /// # Example (JavaScript)
 ///
 /// ```javascript
-/// const { parseBlocks } = require('xmdx-napi');
+/// const { parseBlocks } = require('@xmdx/napi');
 ///
 /// const input = `:::note[Important]
 /// This is **bold** text.
@@ -210,7 +210,7 @@ pub fn parse_blocks(input: String, opts: Option<BlockOptions>) -> napi::Result<P
 /// # Example (JavaScript)
 ///
 /// ```javascript
-/// const { compileBatch } = require('xmdx-napi');
+/// const { compileBatch } = require('@xmdx/napi');
 ///
 /// const inputs = [
 ///   { id: 'file1.mdx', source: '# Hello\nWorld' },
@@ -341,7 +341,7 @@ pub fn compile_batch(
 /// # Example (JavaScript)
 ///
 /// ```javascript
-/// const { compileBatchToModule } = require('xmdx-napi');
+/// const { compileBatchToModule } = require('@xmdx/napi');
 ///
 /// const inputs = [
 ///   { id: 'file1.md', source: '# Hello\nWorld' },
@@ -486,7 +486,7 @@ pub fn compile_batch_to_module(
 /// # Example (JavaScript)
 ///
 /// ```javascript
-/// const { compileMdxBatch } = require('xmdx-napi');
+/// const { compileMdxBatch } = require('@xmdx/napi');
 ///
 /// const inputs = [
 ///   { id: 'file1.mdx', source: '# Hello\n\n<CustomComponent />' },
