@@ -1,0 +1,73 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/astro-xmdx/**'
+      - 'crates/**'
+      - 'benchmarks/**'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Number of benchmark runs'
+        default: '10'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install hyperfine
+        run: |
+          wget https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          sudo dpkg -i hyperfine_1.18.0_amd64.deb
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build NAPI bindings
+        run: pnpm --filter @xmdx/napi build
+
+      - name: Build astro-xmdx
+        run: pnpm --filter astro-xmdx build
+
+      - name: Setup benchmark
+        working-directory: benchmarks
+        run: ./scripts/setup.sh
+
+      - name: Run benchmark
+        working-directory: benchmarks
+        run: ./scripts/run-benchmark.sh ${{ inputs.runs || '10' }}
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const md = fs.readFileSync('benchmarks/results/results.md', 'utf8');
+            const body = `## Benchmark Results (withastro/docs)\n\n${md}`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
