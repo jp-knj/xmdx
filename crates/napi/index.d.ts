@@ -128,7 +128,7 @@ export interface BlockOptions {
  * # Example (JavaScript)
  *
  * ```javascript
- * const { compileBatch } = require('xmdx-napi');
+ * const { compileBatch } = require('@xmdx/napi');
  *
  * const inputs = [
  *   { id: 'file1.mdx', source: '# Hello
@@ -162,7 +162,7 @@ export declare function compileBatch(inputs: Array<BatchInput>, options?: BatchO
  * # Example (JavaScript)
  *
  * ```javascript
- * const { compileBatchToModule } = require('xmdx-napi');
+ * const { compileBatchToModule } = require('@xmdx/napi');
  *
  * const inputs = [
  *   { id: 'file1.md', source: '# Hello
@@ -226,7 +226,7 @@ export interface CompileIrResult {
  * # Example (JavaScript)
  *
  * ```javascript
- * const { compileMdxBatch } = require('xmdx-napi');
+ * const { compileMdxBatch } = require('@xmdx/napi');
  *
  * const inputs = [
  *   { id: 'file1.mdx', source: '# Hello
@@ -450,7 +450,7 @@ export interface ModuleBatchResult {
  * # Example (JavaScript)
  *
  * ```javascript
- * const { parseBlocks } = require('xmdx-napi');
+ * const { parseBlocks } = require('@xmdx/napi');
  *
  * const input = `:::note[Important]
  * This is **bold** text.

@@ -323,7 +323,23 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
             }
         }
 
-        if let Some(opening) = parse_opening_directive(line) {
+        let opening = parse_opening_directive(line).or_else(|| {
+            // In list context, directive lines are often indented one extra space
+            // beyond the list content indent (e.g. 4 spaces after "1. ").
+            // Try parsing again after removing the list indent prefix so these
+            // lines are not misclassified as indented code blocks.
+            if directive_stack.is_empty()
+                && in_list_context
+                && let Some(indent) = list_indent.as_ref()
+                && !indent.is_empty()
+                && line.starts_with(indent)
+            {
+                return parse_opening_directive(&line[indent.len()..]);
+            }
+            None
+        });
+
+        if let Some(opening) = opening {
             count += 1;
 
             // Apply indent if in list context (regardless of blank line)
@@ -805,6 +821,34 @@ mod tests {
         assert!(
             !out.contains("     <Aside"),
             "Should NOT use 5-space sub-item indent, got:\n{}",
+            out
+        );
+    }
+
+    #[test]
+    fn rewrite_directive_with_four_space_indent_in_numbered_list() {
+        // In real-world Steps content, directives are often indented with 4 spaces.
+        // This should still be treated as list content, not an indented code block.
+        let input = "1. First step\n\n    :::tip[Keyboard shortcut]\n    Press Cmd+J.\n    :::\n\n2. Second step";
+        let (out, count) = rewrite_directives_to_asides(input);
+        assert_eq!(count, 1);
+
+        // Should be rewritten and aligned to the list content indent (3 spaces for "1. ")
+        assert!(
+            out.contains(
+                "   <Aside data-mf-source=\"directive\" type=\"tip\" title=\"Keyboard shortcut\">"
+            ),
+            "Expected rewritten indented Aside, got:\n{}",
+            out
+        );
+        assert!(
+            !out.contains(":::tip[Keyboard shortcut]"),
+            "Directive marker should be rewritten, got:\n{}",
+            out
+        );
+        assert!(
+            !out.contains("\n    <Aside"),
+            "Aside should align to list indent, not keep 4-space indent, got:\n{}",
             out
         );
     }

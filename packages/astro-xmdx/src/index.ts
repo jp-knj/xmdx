@@ -161,11 +161,12 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
             }) => void)
           | undefined;
 
-        // Register the JSX renderer for MDX components
-        // Use URL resolution to work regardless of how the package is installed
+        // Register the JSX renderer for MDX components.
+        // Use a file URL to the built server module to work when this package
+        // is consumed via an alias (e.g. @astrojs/mdx -> astro-xmdx).
         addRenderer({
           name: 'astro:jsx',
-          serverEntrypoint: new URL('./server.ts', import.meta.url).href,
+          serverEntrypoint: new URL('./server.js', import.meta.url).href,
         });
 
         // Register .mdx as a page extension (if available)
@@ -200,16 +201,24 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
           (i: any) => i.name === '@astrojs/starlight'
         );
 
-        // Auto-apply Starlight preset when Starlight is detected and no explicit config
-        if (hasStarlight && resolvedOptions.starlightComponents === undefined && !resolvedOptions.mdx?.allowImports) {
-          resolvedOptions.mdx = {
-            ...resolvedOptions.mdx,
-            allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
-            ignoreCodeFences: true,
-          };
-          resolvedOptions.starlightComponents = true;
-          // Note: Do NOT auto-enable expressiveCode here - Starlight handles its own code blocks
-          // and the astro-expressive-code/components module may not be installed
+        // Auto-apply Starlight defaults when Starlight is detected and user has not
+        // explicitly configured these options in xmdx().
+        if (hasStarlight) {
+          if (resolvedOptions.starlightComponents === undefined) {
+            resolvedOptions.starlightComponents = true;
+          }
+          if (!resolvedOptions.mdx?.allowImports || resolvedOptions.mdx.allowImports.length === 0) {
+            resolvedOptions.mdx = {
+              ...resolvedOptions.mdx,
+              allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
+              ignoreCodeFences: true,
+            };
+          }
+          if (resolvedOptions.expressiveCode === undefined) {
+            // Starlight installs astro-expressive-code, so default to Code component
+            // rewriting for MD/MDX fences to preserve EC layout + copy button UX.
+            resolvedOptions.expressiveCode = true;
+          }
         }
 
         updateConfig({
