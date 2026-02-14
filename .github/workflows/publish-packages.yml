@@ -1,0 +1,68 @@
+name: Publish TypeScript Packages
+
+on:
+  push:
+    branches: [main, next]
+    paths:
+      - 'packages/**'
+      - '.github/workflows/publish-packages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine npm tag
+        id: npm-tag
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/next" ]]; then
+            echo "tag=next" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build packages
+        run: |
+          cd packages/xmdx && pnpm build && cd -
+          cd packages/astro-xmdx && pnpm build && cd -
+          cd packages/astro-loader && pnpm build && cd -
+
+      - name: Publish packages
+        run: |
+          TAG="${{ steps.npm-tag.outputs.tag }}"
+          for pkg in packages/xmdx packages/astro-xmdx packages/astro-loader; do
+            cd "$pkg"
+            PKG_NAME=$(node -p "require('./package.json').name")
+            PKG_VERSION=$(node -p "require('./package.json').version")
+
+            # Try to publish; if version exists, just add the tag
+            # Use pnpm publish to properly resolve workspace:* references
+            if ! pnpm publish --access public --provenance --tag "$TAG" --no-git-checks 2>&1; then
+              echo "Publish failed, attempting to add tag to existing version..."
+              npm dist-tag add "${PKG_NAME}@${PKG_VERSION}" "$TAG" || true
+            fi
+            cd -
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

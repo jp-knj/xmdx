@@ -190,12 +190,83 @@ pub fn html_entities_to_jsx(s: &str) -> String {
 
 /// Preprocesses JSX expression curly braces in attribute contexts.
 /// Converts `=&#123;` → `={` and `&#125;>` → `}>` etc.
+///
+/// This function is context-aware: replacements only happen inside tags (`<...>`),
+/// not in text content. This prevents breaking encoded braces in code blocks like
+/// `<pre><code>import &#123; foo &#125; from "bar";</code></pre>`.
 fn preprocess_jsx_expression_braces(s: &str) -> String {
-    s.replace("=&#123;", "={")
-        // Replace longer pattern first to avoid partial matches
-        .replace("&#125;/>", "}/>")
-        .replace("&#125;>", "}>")
-        .replace("&#125; ", "} ")
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == b'<' {
+            // Tag start detected - process until tag end
+            let tag_start = i;
+            i += 1;
+
+            // Find tag end (>) considering quoted strings and JSX expressions
+            let mut in_quote = false;
+            let mut quote_char = b'"';
+            let mut brace_depth = 0;
+
+            while i < len {
+                let b = bytes[i];
+                if in_quote {
+                    if b == b'\\' && i + 1 < len {
+                        i += 2; // Skip escaped character
+                        continue;
+                    }
+                    if b == quote_char {
+                        in_quote = false;
+                    }
+                    i += 1;
+                } else if brace_depth > 0 {
+                    if b == b'{' {
+                        brace_depth += 1;
+                    } else if b == b'}' {
+                        brace_depth -= 1;
+                    } else if b == b'"' || b == b'\'' {
+                        in_quote = true;
+                        quote_char = b;
+                    }
+                    i += 1;
+                } else if b == b'"' || b == b'\'' {
+                    in_quote = true;
+                    quote_char = b;
+                    i += 1;
+                } else if b == b'{' {
+                    brace_depth = 1;
+                    i += 1;
+                } else if b == b'>' {
+                    i += 1;
+                    break; // Tag end
+                } else {
+                    i += 1;
+                }
+            }
+
+            // Extract tag content and apply replacements
+            let tag_content = &s[tag_start..i];
+            let processed = tag_content
+                .replace("=&#123;", "={")
+                .replace("&#125;/>", "}/>")
+                .replace("&#125;>", "}>")
+                .replace("&#125; ", "} ");
+            result.push_str(&processed);
+        } else {
+            // Text content - find next '<' and copy the slice as-is
+            let text_start = i;
+            while i < len && bytes[i] != b'<' {
+                i += 1;
+            }
+            // Copy text content directly (preserves UTF-8)
+            result.push_str(&s[text_start..i]);
+        }
+    }
+
+    result
 }
 
 /// Finds the position of `>` that closes a tag, handling quoted attributes and JSX expressions.
@@ -1853,5 +1924,82 @@ mod tests {
             "Should not contain Fragment tag, got: {}",
             html
         );
+    }
+
+    #[test]
+    fn test_html_entities_to_jsx_preserves_encoded_braces_in_code() {
+        // Code block with import statement - &#125; should NOT be decoded in text content
+        let input = "<Card><pre><code>import &#123; defineConfig &#125; from \"tinacms\";</code></pre></Card>";
+        let result = html_entities_to_jsx(input);
+        // Inside <pre>, entities should be preserved
+        assert!(
+            result.contains("&#123;"),
+            "Opening brace entity should be preserved in code, got: {}",
+            result
+        );
+        assert!(
+            result.contains("&#125;"),
+            "Closing brace entity should be preserved in code, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("} from"),
+            "Should not decode &#125; in code context, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_html_entities_to_jsx_decodes_braces_in_jsx_attributes() {
+        // JSX expression attribute - &#125; should be decoded
+        let input = "<Card title=&#123;foo&#125; />";
+        let result = html_entities_to_jsx(input);
+        assert_eq!(result, "<Card title={foo} />");
+    }
+
+    #[test]
+    fn test_html_entities_to_jsx_decodes_braces_with_space_before_next_attr() {
+        // JSX expression followed by another attribute
+        let input = "<Card title=&#123;foo&#125; bar=\"baz\">";
+        let result = html_entities_to_jsx(input);
+        assert_eq!(result, "<Card title={foo} bar=\"baz\">");
+    }
+
+    #[test]
+    fn test_html_entities_to_jsx_mixed_attribute_and_code() {
+        // Mix of JSX attribute and code content
+        let input = "<Card title=&#123;foo&#125;><pre><code>&#123; bar &#125;</code></pre></Card>";
+        let result = html_entities_to_jsx(input);
+        // Attribute should be decoded
+        assert!(
+            result.contains("title={foo}"),
+            "Attribute should be decoded, got: {}",
+            result
+        );
+        // Code content should preserve entities (inside <pre>)
+        assert!(
+            result.contains("&#123; bar &#125;"),
+            "Code content should preserve entities, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_html_entities_to_jsx_text_content_outside_pre() {
+        // Text content OUTSIDE <pre> with &#125; followed by space
+        // This is plain text, not JSX attribute, so should be converted to JSX expression
+        let input = "<p>foo &#123; bar &#125; baz</p>";
+        let result = html_entities_to_jsx(input);
+        // Outside <pre>, curly brace entities become JSX expressions
+        assert!(
+            result.contains("{\"{\"}"),
+            "&#123; should become JSX expression, got: {}",
+            result
+        ); // &#123; → {"{"}
+        assert!(
+            result.contains("{\"}\"}"),
+            "&#125; should become JSX expression, got: {}",
+            result
+        ); // &#125; → {"}"}
     }
 }

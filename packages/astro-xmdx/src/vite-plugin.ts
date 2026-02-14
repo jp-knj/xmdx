@@ -62,7 +62,9 @@ export function resolveLibraries(options: XmdxPluginOptions): {
   // Legacy API: derive libraries from starlightComponents option
   const libraries: ComponentLibrary[] = [astroLibrary];
 
-  if (options.starlightComponents) {
+  // Add Starlight library when starlightComponents is set OR expressiveCode is enabled.
+  // ExpressiveCode in Starlight projects uses @astrojs/starlight/components for Code.
+  if (options.starlightComponents || options.expressiveCode) {
     libraries.push(starlightLibrary);
   }
 
@@ -177,8 +179,15 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
   const include = userOptions.include ?? shouldCompile;
   const starlightComponents = userOptions.starlightComponents ?? false;
+
+  // Resolve libraries and create registry early (needed for expressiveCode resolution)
+  const { registry } = resolveLibraries(userOptions);
+
+  // Resolve ExpressiveCode config with registry to use correct module paths
+  // (e.g., @astrojs/starlight/components when Starlight is configured)
   const expressiveCode = resolveExpressiveCodeConfig(
-    userOptions.expressiveCode ?? false
+    userOptions.expressiveCode ?? false,
+    registry
   );
 
   // Build compiler options with default code_sample_components
@@ -194,9 +203,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     // Starlight's EC integration processes these at runtime
     rewriteCodeBlocks: !!expressiveCode,
   };
-
-  // Resolve libraries and create registry
-  const { registry } = resolveLibraries(userOptions);
 
   // Track whether Starlight is configured for gating default directive handling
   const hasStarlightConfigured = Boolean(userOptions.starlightComponents) ||
@@ -255,16 +261,16 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       // Ensure native binding is treated as external to avoid Vite SSR runner involvement
       const optimizeDeps = (config as Record<string, any>).optimizeDeps ?? {};
       const exclude: string[] = optimizeDeps.exclude ?? [];
-      if (!exclude.includes('xmdx-napi')) {
-        exclude.push('xmdx-napi');
+      if (!exclude.includes('@xmdx/napi')) {
+        exclude.push('@xmdx/napi');
       }
       optimizeDeps.exclude = exclude;
       (config as Record<string, any>).optimizeDeps = optimizeDeps;
 
       const ssr = (config as Record<string, any>).ssr ?? {};
       const ssrExternal: string[] = ssr.external ?? [];
-      if (!ssrExternal.includes('xmdx-napi')) {
-        ssrExternal.push('xmdx-napi');
+      if (!ssrExternal.includes('@xmdx/napi')) {
+        ssrExternal.push('@xmdx/napi');
       }
       ssr.external = ssrExternal;
       (config as Record<string, any>).ssr = ssr;
