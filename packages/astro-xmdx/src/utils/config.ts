@@ -22,10 +22,14 @@ export interface ExpressiveCodeConfig {
 export interface ExpressiveCodeUserConfig {
   /** Whether enabled */
   enabled?: boolean;
-  /** Component name */
+  /** Component name (internal key) */
   component?: string;
-  /** Module path */
+  /** Module path (internal key) */
   module?: string;
+  /** Component name (public API key) */
+  componentName?: string;
+  /** Module path (public API key) */
+  importSource?: string;
 }
 
 /**
@@ -50,10 +54,22 @@ export function resolveExpressiveCodeConfig(
   let defaultModuleId = expressiveCodeLibrary.defaultModulePath;
 
   if (registry) {
-    const ecComponents = registry.getComponentsByModule(expressiveCodeLibrary.defaultModulePath);
-    if (ecComponents.length > 0 && ecComponents[0]) {
-      defaultComponent = ecComponents[0].name;
-      defaultModuleId = ecComponents[0].modulePath;
+    // Prefer Starlight's Code component when available. In Starlight projects,
+    // this keeps imports stable (`@astrojs/starlight/components`) and avoids
+    // requiring consumers to resolve `astro-expressive-code/components` directly.
+    const starlightCode = registry
+      .getComponentsByModule(starlightLibrary.defaultModulePath)
+      .find((c) => c.name === 'Code');
+
+    if (starlightCode) {
+      defaultComponent = starlightCode.name;
+      defaultModuleId = starlightCode.modulePath;
+    } else {
+      const ecComponents = registry.getComponentsByModule(expressiveCodeLibrary.defaultModulePath);
+      if (ecComponents.length > 0 && ecComponents[0]) {
+        defaultComponent = ecComponents[0].name;
+        defaultModuleId = ecComponents[0].modulePath;
+      }
     }
   }
 
@@ -64,13 +80,15 @@ export function resolveExpressiveCodeConfig(
     };
   }
   if (typeof config === 'object') {
+    const configuredComponent = config.component ?? config.componentName;
+    const configuredModule = config.module ?? config.importSource;
     const component =
-      typeof config.component === 'string' && config.component.length > 0
-        ? config.component
+      typeof configuredComponent === 'string' && configuredComponent.length > 0
+        ? configuredComponent
         : defaultComponent;
     const moduleId =
-      typeof config.module === 'string' && config.module.length > 0
-        ? config.module
+      typeof configuredModule === 'string' && configuredModule.length > 0
+        ? configuredModule
         : defaultModuleId;
     return { component, moduleId };
   }
