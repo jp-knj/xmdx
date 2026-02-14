@@ -1,8 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import IndexContent from '../mdx/index.mdx';
+import IndexContent, { frontmatter } from '../mdx/index.mdx';
 ---
 
-<Layout title="Home">
+<Layout title={frontmatter.title}>
   <IndexContent />
 </Layout>

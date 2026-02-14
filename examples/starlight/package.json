@@ -10,6 +10,7 @@
   "dependencies": {
     "astro": "^5.0.0",
     "@astrojs/starlight": "^0.34.0",
+    "astro-expressive-code": "^0.41.6",
     "astro-xmdx": "workspace:*"
   }
 }

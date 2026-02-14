@@ -1,8 +1,8 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import PostContent from '../../mdx/blog/first-post.mdx';
+import PostContent, { frontmatter } from '../../mdx/blog/first-post.mdx';
 ---
 
-<Layout title="First Post">
+<Layout title={frontmatter.title}>
   <PostContent />
 </Layout>

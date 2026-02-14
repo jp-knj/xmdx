@@ -1,8 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import AboutContent from '../mdx/about.mdx';
+import AboutContent, { frontmatter } from '../mdx/about.mdx';
 ---
 
-<Layout title="About">
+<Layout title={frontmatter.title}>
   <AboutContent />
 </Layout>

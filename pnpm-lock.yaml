@@ -38,6 +38,9 @@ importers:
       astro:
         specifier: ^5.0.0
         version: 5.17.2(@types/node@22.19.11)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.7.2)
+      astro-expressive-code:
+        specifier: ^0.41.6
+        version: 0.41.6(astro@5.17.2(@types/node@22.19.11)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.7.2))
       astro-xmdx:
         specifier: workspace:*
         version: link:../../packages/astro-xmdx

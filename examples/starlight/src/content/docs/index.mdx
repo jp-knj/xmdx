@@ -3,12 +3,58 @@ title: Welcome to xmdx
 description: A Starlight site powered by xmdx
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Welcome to the xmdx Starlight example. This site demonstrates the `starlightPreset()` integration.
+
+## Directives
 
 :::note
 xmdx replaces the default MDX compiler with a high-performance Rust-based pipeline.
 :::
 
-:::tip
-Use `starlightPreset()` for automatic Starlight component support including asides, tabs, and code blocks.
+:::tip[Performance]
+The Rust-based compiler is significantly faster than the default JavaScript-based MDX pipeline.
 :::
+
+:::caution[Integration Order]
+Make sure to add `xmdx()` **after** `starlight()` in the integrations array.
+:::
+
+:::danger
+Do not remove the `starlightPreset()` from your config or Starlight components will stop rendering.
+:::
+
+## Tabs
+
+<Tabs>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add astro-xmdx
+    ```
+  </TabItem>
+  <TabItem label="npm">
+    ```bash
+    npm install astro-xmdx
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn add astro-xmdx
+    ```
+  </TabItem>
+</Tabs>
+
+## Code Block
+
+```js title="astro.config.mjs"
+import xmdx from 'astro-xmdx';
+import { starlightPreset } from 'astro-xmdx/presets';
+
+export default defineConfig({
+  integrations: [
+    starlight({ title: 'My Docs' }),
+    xmdx({ presets: [starlightPreset()] }),
+  ],
+});
+```

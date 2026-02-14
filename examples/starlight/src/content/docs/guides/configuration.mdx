@@ -3,6 +3,8 @@ title: Configuration
 description: Configure xmdx for your Starlight project
 ---
 
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
 ## Presets
 
 xmdx provides presets for common setups.
@@ -39,4 +41,7 @@ Imports not listed in `allowImports` will cause a fallback to `@mdx-js/mdx`, whi
 
 ## Related
 
-- [Getting Started](/guides/getting-started/)
+<CardGrid>
+  <LinkCard title="Getting Started" href="/guides/getting-started/" description="Learn how to install and set up xmdx with Starlight." />
+  <LinkCard title="Starlight Docs" href="https://starlight.astro.build" description="Official Starlight documentation." />
+</CardGrid>

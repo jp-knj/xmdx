@@ -19,7 +19,7 @@ export default defineConfig({
       ],
     }),
     xmdx({
-      presets: [starlightPreset({ expressiveCode: false })],
+      presets: [starlightPreset()],
     }),
   ],
 });
