@@ -1,0 +1,91 @@
+name: E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/astro-xmdx/**'
+      - 'crates/**'
+      - 'examples/**'
+      - 'e2e/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  examples:
+    name: Examples Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build NAPI bindings
+        run: pnpm --filter xmdx-napi build
+
+      - name: Build examples/basic
+        working-directory: examples/basic
+        run: pnpm build
+
+      - name: Verify examples/basic
+        run: e2e/scripts/verify-build.sh examples/basic/dist
+
+      - name: Build examples/starlight
+        working-directory: examples/starlight
+        run: pnpm build
+
+      - name: Verify examples/starlight
+        run: e2e/scripts/verify-build.sh examples/starlight/dist
+
+  e2e-docs:
+    name: E2E withastro/docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build NAPI bindings
+        run: pnpm --filter xmdx-napi build
+
+      - name: Build astro-xmdx
+        run: pnpm --filter astro-xmdx build
+
+      - name: Setup withastro/docs
+        run: e2e/scripts/setup.sh
+
+      - name: Build withastro/docs
+        working-directory: e2e/withastro-docs
+        run: pnpm build
+
+      - name: Verify build output
+        run: MIN_HTML_FILES=100 e2e/scripts/verify-build.sh e2e/withastro-docs/dist

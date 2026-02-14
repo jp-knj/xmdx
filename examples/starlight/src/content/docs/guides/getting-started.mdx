@@ -1,0 +1,40 @@
+---
+title: Getting Started
+description: Learn how to set up xmdx with Starlight
+---
+
+## Installation
+
+Install the required packages:
+
+```bash
+pnpm add astro-xmdx
+```
+
+## Configuration
+
+Add xmdx to your Astro config:
+
+```js
+import xmdx from 'astro-xmdx';
+import { starlightPreset } from 'astro-xmdx/presets';
+
+export default defineConfig({
+  integrations: [
+    starlight({ title: 'My Docs' }),
+    xmdx({ presets: [starlightPreset()] }),
+  ],
+});
+```
+
+:::caution
+Make sure to add `xmdx()` **after** `starlight()` in the integrations array.
+:::
+
+## Verify
+
+Run the dev server to confirm everything works:
+
+```bash
+pnpm dev
+```

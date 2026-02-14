@@ -1,4 +1,5 @@
 packages:
-  - 'packages/*'
-  - 'crates/napi'
-  - 'benchmarks/withastro-docs'
+  - "packages/*"
+  - "crates/napi"
+  - "benchmarks/withastro-docs"
+  - "examples/*"

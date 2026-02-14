@@ -1,0 +1,42 @@
+---
+title: Configuration
+description: Configure xmdx for your Starlight project
+---
+
+## Presets
+
+xmdx provides presets for common setups.
+
+:::tip
+The `starlightPreset()` is the recommended preset for Starlight projects. It enables Starlight components and ExpressiveCode automatically.
+:::
+
+## Options
+
+The `starlightPreset()` accepts the following options:
+
+- `expressiveCode` — Enable ExpressiveCode integration (default: `true`)
+- `stripStarlightImports` — Strip Starlight imports handled by the registry (default: `true`)
+- `allowImports` — Additional import patterns to allow
+
+## Custom Imports
+
+If your content imports custom components, add them to `allowImports`:
+
+```js
+xmdx({
+  presets: [
+    starlightPreset({
+      allowImports: ['~/components/*'],
+    }),
+  ],
+});
+```
+
+:::danger
+Imports not listed in `allowImports` will cause a fallback to `@mdx-js/mdx`, which is slower. Add all required patterns to avoid this.
+:::
+
+## Related
+
+- [Getting Started](/guides/getting-started/)
