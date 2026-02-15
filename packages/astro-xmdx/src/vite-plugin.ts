@@ -161,8 +161,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const processedFiles = new Set<string>();
   const loadState = { totalProcessingTimeMs: 0 };
 
-  // Disk cache for cross-build persistence (enabled by XMDX_DISK_CACHE=1 or options.cache)
-  const diskCacheEnabled = process.env.XMDX_DISK_CACHE === '1' || userOptions.cache === true;
+  // Disk cache for cross-build persistence (enabled by default, opt-out via XMDX_DISK_CACHE=0 or options.cache=false)
+  const diskCacheEnabled =
+    userOptions.cache !== false && process.env.XMDX_DISK_CACHE !== '0';
 
   const providedBinding = userOptions.binding ?? null;
 

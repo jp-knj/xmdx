@@ -33,6 +33,30 @@ import { debugLog, debugTime, debugTimeEnd } from './load-profiler.js';
 
 const require = createRequire(import.meta.url);
 
+/**
+ * Runs async tasks with bounded concurrency using a worker-pool pattern.
+ * Unlike chunked Promise.all, this keeps all worker slots busy without
+ * waiting at chunk boundaries.
+ */
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]!);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  );
+  return results;
+}
+
 interface BatchInput {
   id: string;
   source: string;
@@ -390,105 +414,94 @@ async function preparePipelineInputs(
   transformPipeline: Transform,
   sourceHashes: Map<string, string>
 ): Promise<Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }>> {
-  const jsxInputs: Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }> = [];
   const normalizedStarlightComponents = normalizeStarlightComponents(starlightComponents ?? false);
-  const PIPELINE_CHUNK_SIZE = 50;
+  const PIPELINE_CONCURRENCY = 50;
 
   const mdModuleEntries: Array<[string, CachedModuleResult]> = [];
   for (const [filename, cached] of moduleCompilationCache) {
     mdModuleEntries.push([filename, cached]);
   }
 
-  for (let i = 0; i < mdModuleEntries.length; i += PIPELINE_CHUNK_SIZE) {
-    const chunk = mdModuleEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
-    const chunkResults = await Promise.all(
-      chunk.map(async ([filename, cached]) => {
-        const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
-        const headings = cached.headings || [];
-        const jsxCode = cached.code;
-        const sourceForHooks =
-          originalSourceCache.get(filename) ??
-          cached.originalSource ??
-          processedSourceCache.get(filename) ??
-          cached.processedSource ??
-          '';
+  const mdResults = await mapConcurrent(mdModuleEntries, PIPELINE_CONCURRENCY, async ([filename, cached]) => {
+    const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
+    const headings = cached.headings || [];
+    const jsxCode = cached.code;
+    const sourceForHooks =
+      originalSourceCache.get(filename) ??
+      cached.originalSource ??
+      processedSourceCache.get(filename) ??
+      cached.processedSource ??
+      '';
 
-        const ctx: TransformContext = {
-          code: jsxCode,
-          source: sourceForHooks,
-          filename,
-          frontmatter,
-          headings,
-          registry,
-          config: {
-            expressiveCode,
-            starlightComponents: normalizedStarlightComponents,
-            shiki: shikiManager.forCode(jsxCode, resolvedShiki),
-          },
-        };
-        const transformed = await transformPipeline(ctx);
-        return {
-          id: filename,
-          virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
-          jsx: transformed.code,
-          contentHash: sourceHashes.get(filename),
-        };
-      })
-    );
-    jsxInputs.push(...chunkResults);
-  }
+    const ctx: TransformContext = {
+      code: jsxCode,
+      source: sourceForHooks,
+      filename,
+      frontmatter,
+      headings,
+      registry,
+      config: {
+        expressiveCode,
+        starlightComponents: normalizedStarlightComponents,
+        shiki: shikiManager.forCode(jsxCode, resolvedShiki),
+      },
+    };
+    const transformed = await transformPipeline(ctx);
+    return {
+      id: filename,
+      virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
+      jsx: transformed.code,
+      contentHash: sourceHashes.get(filename),
+    };
+  });
 
   const mdxEntries: Array<[string, CachedMdxResult]> = [];
   for (const [filename, cached] of mdxCompilationCache) {
     mdxEntries.push([filename, cached]);
   }
 
-  for (let i = 0; i < mdxEntries.length; i += PIPELINE_CHUNK_SIZE) {
-    const chunk = mdxEntries.slice(i, i + PIPELINE_CHUNK_SIZE);
-    const chunkResults = await Promise.all(
-      chunk.map(async ([filename, cached]) => {
-        const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
-        const headings = cached.headings || [];
-        const jsxCode = wrapMdxModule(
-          cached.code,
-          {
-            frontmatter,
-            headings,
-            registry,
-          },
-          filename
-        );
-        const sourceForHooks =
-          originalSourceCache.get(filename) ??
-          cached.originalSource ??
-          processedSourceCache.get(filename) ??
-          cached.processedSource ??
-          '';
-
-        const ctx: TransformContext = {
-          code: jsxCode,
-          source: sourceForHooks,
-          filename,
-          frontmatter,
-          headings,
-          registry,
-          config: {
-            expressiveCode,
-            starlightComponents: normalizedStarlightComponents,
-            shiki: shikiManager.forCode(jsxCode, resolvedShiki),
-          },
-        };
-        const transformed = await transformPipeline(ctx);
-        return {
-          id: filename,
-          virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
-          jsx: transformed.code,
-          contentHash: sourceHashes.get(filename),
-        };
-      })
+  const mdxResults = await mapConcurrent(mdxEntries, PIPELINE_CONCURRENCY, async ([filename, cached]) => {
+    const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
+    const headings = cached.headings || [];
+    const jsxCode = wrapMdxModule(
+      cached.code,
+      {
+        frontmatter,
+        headings,
+        registry,
+      },
+      filename
     );
-    jsxInputs.push(...chunkResults);
-  }
+    const sourceForHooks =
+      originalSourceCache.get(filename) ??
+      cached.originalSource ??
+      processedSourceCache.get(filename) ??
+      cached.processedSource ??
+      '';
+
+    const ctx: TransformContext = {
+      code: jsxCode,
+      source: sourceForHooks,
+      filename,
+      frontmatter,
+      headings,
+      registry,
+      config: {
+        expressiveCode,
+        starlightComponents: normalizedStarlightComponents,
+        shiki: shikiManager.forCode(jsxCode, resolvedShiki),
+      },
+    };
+    const transformed = await transformPipeline(ctx);
+    return {
+      id: filename,
+      virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
+      jsx: transformed.code,
+      contentHash: sourceHashes.get(filename),
+    };
+  });
+
+  const jsxInputs = [...mdResults, ...mdxResults];
 
   debugLog(
     `Pipeline processed ${jsxInputs.length} files for esbuild batch (${mdModuleEntries.length} MD modules, ${mdxEntries.length} MDX)`

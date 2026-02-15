@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { codeToHtml, createCssVariablesTheme } from 'shiki';
+import { createHighlighter, createCssVariablesTheme } from 'shiki';
 import { SHIKI_THEME } from '../constants.js';
 import type { ShikiHighlighter } from '../transforms/shiki.js';
 
@@ -20,8 +20,10 @@ function hashCode(lang: string, code: string): string {
 }
 
 /**
- * Creates a Shiki highlighter with CSS variables theme.
- * The highlighter is configured to use Xmdx's CSS variable theme for styling.
+ * Creates a persistent Shiki highlighter with CSS variables theme.
+ * Uses createHighlighter() for a long-lived instance that avoids
+ * re-initializing WASM on every call. Languages are loaded on demand
+ * via loadLanguage() and cached for subsequent highlights.
  * Includes content-addressable caching for duplicate code blocks.
  *
  * @returns A function that highlights code and returns HTML
@@ -30,6 +32,11 @@ export async function createShikiHighlighter(): Promise<ShikiHighlighter> {
   const theme = createCssVariablesTheme({
     name: SHIKI_THEME.name,
     variablePrefix: SHIKI_THEME.variablePrefix,
+  });
+
+  const highlighter = await createHighlighter({
+    themes: [theme],
+    langs: [],
   });
 
   // Content-addressable cache: hash(lang + code) -> highlighted HTML
@@ -46,10 +53,19 @@ export async function createShikiHighlighter(): Promise<ShikiHighlighter> {
       return cached;
     }
 
-    // Highlight and cache result
-    const html = await codeToHtml(code, {
+    // Lazy-load language if not already loaded
+    try {
+      const loaded = highlighter.getLoadedLanguages();
+      if (!loaded.includes(effectiveLang)) {
+        await highlighter.loadLanguage(effectiveLang as any);
+      }
+    } catch {
+      // Unknown language — continue with best-effort highlighting
+    }
+
+    const html = highlighter.codeToHtml(code, {
       lang: effectiveLang,
-      theme,
+      theme: SHIKI_THEME.name,
     });
 
     const result = html.replace(/<pre class="([^"]*)"/, (_match, classes: string) => {
