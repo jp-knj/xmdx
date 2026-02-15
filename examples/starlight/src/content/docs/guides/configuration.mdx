@@ -1,0 +1,81 @@
+---
+title: Configuration
+description: Configure astro-xmdx with Starlight using the preset.
+draft: false
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `astro-xmdx` integration works with Starlight through a dedicated preset that handles MDX processing and Expressive Code configuration.
+
+## Full Configuration Example
+
+```js title="astro.config.mjs" {2-3,8-12}
+import { defineConfig } from 'astro/config';
+import xmdx from 'astro-xmdx';
+import { starlightPreset } from 'astro-xmdx/presets';
+import starlight from '@astrojs/starlight';
+
+export default defineConfig({
+  integrations: [
+    xmdx({
+      presets: [starlightPreset()],
+    }),
+    starlight({
+      title: 'My Docs',
+      sidebar: [
+        { label: 'Guides', autogenerate: { directory: 'guides' } },
+      ],
+    }),
+  ],
+});
+```
+
+<Aside type="caution">
+The `xmdx` integration must be listed **before** `starlight` in the integrations array. This ensures MDX files are processed correctly.
+</Aside>
+
+## What the Preset Does
+
+The `starlightPreset()` configures:
+
+- **Expressive Code** syntax highlighting compatible with Starlight themes
+- **Remark plugins** for enhanced Markdown processing
+- **Rehype plugins** for HTML transformations
+
+## Custom Preset Options
+
+<Tabs>
+  <TabItem label="Default">
+    ```js
+    xmdx({
+      presets: [starlightPreset()],
+    })
+    ```
+  </TabItem>
+  <TabItem label="With options">
+    ```js
+    xmdx({
+      presets: [
+        starlightPreset({
+          // Expressive Code theme overrides
+          themes: ['github-dark', 'github-light'],
+        }),
+      ],
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+## Integration Order
+
+When using multiple integrations, order matters:
+
+```js
+integrations: [
+  xmdx({ ... }),     // 1. Process MDX first
+  starlight({ ... }) // 2. Then apply Starlight
+]
+```
+
+Incorrect order may cause MDX features or syntax highlighting to not work as expected.

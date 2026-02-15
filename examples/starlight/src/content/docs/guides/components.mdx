@@ -1,0 +1,174 @@
+---
+title: Components
+description: Starlight built-in components showcase.
+draft: false
+---
+
+import { Aside, Badge, Card, CardGrid, FileTree, Icon, LinkCard, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Starlight provides many built-in components for documentation.
+
+## Aside
+
+Callouts for important information:
+
+<Aside>
+  Default aside without a type.
+</Aside>
+
+<Aside type="note">
+  A **note** aside for supplementary information.
+</Aside>
+
+<Aside type="tip">
+  A **tip** aside for helpful suggestions.
+</Aside>
+
+<Aside type="caution">
+  A **caution** aside for potential issues.
+</Aside>
+
+<Aside type="danger">
+  A **danger** aside for critical warnings.
+</Aside>
+
+<Aside type="tip" title="Custom Title">
+  Asides can have custom titles.
+</Aside>
+
+## Badge
+
+Inline status indicators:
+
+- <Badge text="New" variant="note" />
+- <Badge text="Deprecated" variant="caution" />
+- <Badge text="Stable" variant="tip" />
+- <Badge text="Experimental" variant="danger" />
+- <Badge text="Default" />
+
+Badges with different sizes:
+
+- <Badge text="Small" size="small" />
+- <Badge text="Medium" size="medium" />
+- <Badge text="Large" size="large" />
+
+## Cards
+
+### Card
+
+<Card title="Card Title" icon="rocket">
+  Cards display content in a box with an optional icon.
+</Card>
+
+### CardGrid
+
+<CardGrid>
+  <Card title="Feature A" icon="star">
+    First feature description.
+  </Card>
+  <Card title="Feature B" icon="puzzle">
+    Second feature description.
+  </Card>
+</CardGrid>
+
+### LinkCard
+
+<CardGrid>
+  <LinkCard title="Documentation" href="/guides/getting-started" description="Get started with the basics." />
+  <LinkCard title="Configuration" href="/guides/configuration" description="Learn configuration options." />
+</CardGrid>
+
+## FileTree
+
+Display directory structures:
+
+<FileTree>
+- src/
+  - content/
+    - docs/
+      - index.mdx
+      - guides/
+        - getting-started.mdx
+        - **configuration.mdx** highlighted file
+  - components/
+- astro.config.mjs
+- package.json
+</FileTree>
+
+## Icon
+
+Starlight includes many icons:
+
+<p>
+  <Icon name="rocket" /> Rocket
+  <Icon name="star" /> Star
+  <Icon name="pencil" /> Pencil
+  <Icon name="setting" /> Setting
+  <Icon name="external" /> External
+</p>
+
+Icons with different sizes:
+
+<p>
+  <Icon name="rocket" size="1rem" />
+  <Icon name="rocket" size="1.5rem" />
+  <Icon name="rocket" size="2rem" />
+</p>
+
+## Steps
+
+Numbered instructions:
+
+<Steps>
+1. **Install dependencies**
+
+   Run `npm install` to install all packages.
+
+2. **Configure the project**
+
+   Edit `astro.config.mjs` with your settings.
+
+3. **Start development**
+
+   Run `npm run dev` to start the dev server.
+
+4. **Build for production**
+
+   Run `npm run build` when ready to deploy.
+</Steps>
+
+## Tabs
+
+Tabbed content for alternatives:
+
+<Tabs>
+  <TabItem label="npm">
+    ```bash
+    npm install astro
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add astro
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn add astro
+    ```
+  </TabItem>
+</Tabs>
+
+Tabs with icons:
+
+<Tabs>
+  <TabItem label="macOS" icon="apple">
+    Instructions for macOS users.
+  </TabItem>
+  <TabItem label="Windows" icon="laptop">
+    Instructions for Windows users.
+  </TabItem>
+  <TabItem label="Linux" icon="linux">
+    Instructions for Linux users.
+  </TabItem>
+</Tabs>

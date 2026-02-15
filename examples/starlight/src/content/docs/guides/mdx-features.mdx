@@ -1,0 +1,167 @@
+---
+title: MDX Features
+description: MDX capabilities including JSX expressions, dynamic content, and component composition.
+draft: false
+---
+
+import { Aside, Card, CardGrid, Badge } from '@astrojs/starlight/components';
+
+MDX extends Markdown with JSX, enabling dynamic content and component usage within documentation.
+
+## Variables and Expressions
+
+Define and use JavaScript values directly in your content:
+
+export const version = '2.1.0';
+export const releaseDate = new Date('2024-12-01');
+export const nodeVersion = 18;
+export const features = ['Syntax Highlighting', 'Hot Reload', 'TypeScript'];
+
+| Property | Value |
+|----------|-------|
+| Version | {version} |
+| Release | {releaseDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} |
+| Node.js | {`>= ${nodeVersion}`} |
+| Features | {features.length} |
+
+Expressions work anywhere: this package has **{features.length} core features** and requires Node.js **{nodeVersion}+**.
+
+## Dynamic Lists
+
+Generate lists from data using `.map()`:
+
+export const dependencies = [
+  { name: 'astro', version: '^4.0.0', type: 'peer' },
+  { name: 'vite', version: '^5.0.0', type: 'peer' },
+  { name: 'unified', version: '^11.0.0', type: 'runtime' },
+];
+
+### Dependencies
+
+<ul>
+  {dependencies.map(dep => (
+    <li key={dep.name}>
+      <code>{dep.name}</code> {dep.version} <Badge text={dep.type} variant={dep.type === 'peer' ? 'caution' : 'success'} />
+    </li>
+  ))}
+</ul>
+
+## Conditional Rendering
+
+Show content based on conditions:
+
+export const isStable = true;
+export const hasBetaFeatures = true;
+
+{isStable && (
+  <Aside type="tip" title="Stable Release">
+    This version is production-ready. See the changelog for details.
+  </Aside>
+)}
+
+{hasBetaFeatures && (
+  <Aside type="caution" title="Beta Features">
+    Some features are experimental. Enable them with `experimental: true` in config.
+  </Aside>
+)}
+
+## Component Composition
+
+Build layouts with Starlight components:
+
+export const tools = [
+  { name: 'astro-xmdx', desc: 'MDX processing with Expressive Code', icon: 'rocket' },
+  { name: 'Starlight', desc: 'Documentation theme for Astro', icon: 'star' },
+  { name: 'Vite', desc: 'Next-gen frontend tooling', icon: 'lightning' },
+];
+
+<CardGrid>
+  {tools.map(tool => (
+    <Card title={tool.name} icon={tool.icon} key={tool.name}>
+      {tool.desc}
+    </Card>
+  ))}
+</CardGrid>
+
+## Inline Styles
+
+Apply dynamic styles with JSX:
+
+This text has <span style={{ color: 'var(--sl-color-green-high)' }}>green</span>, <span style={{ color: 'var(--sl-color-orange-high)' }}>orange</span>, and <span style={{ color: 'var(--sl-color-purple-high)' }}>purple</span> highlights using CSS variables.
+
+export const statusColors = {
+  success: 'var(--sl-color-green-high)',
+  warning: 'var(--sl-color-orange-high)',
+  error: 'var(--sl-color-red-high)',
+};
+
+Status indicators: <span style={{ color: statusColors.success }}>PASS</span> | <span style={{ color: statusColors.warning }}>WARN</span> | <span style={{ color: statusColors.error }}>FAIL</span>
+
+## Importing Components
+
+Import custom or external components at the top of your MDX file:
+
+```mdx
+---
+title: My Page
+---
+
+import { CustomAlert } from '../../components/CustomAlert.astro';
+import { Chart } from '../../components/Chart.tsx';
+
+<CustomAlert type="info">
+  This uses a custom Astro component.
+</CustomAlert>
+
+<Chart data={salesData} />
+```
+
+<Aside type="note">
+Components must be in the `src/components` directory or imported from packages.
+</Aside>
+
+## Markdown in Components
+
+Standard Markdown works inside JSX components:
+
+<Card title="Markdown Content" icon="document">
+  **Bold**, *italic*, and `inline code` render correctly.
+
+  - List items work
+  - With full Markdown syntax
+
+  > Even blockquotes are supported.
+</Card>
+
+## Component Props
+
+Pass data to components via props:
+
+<Aside type="tip" title="Custom Title">
+  The `title` prop overrides the default aside title.
+</Aside>
+
+<Aside type="caution" title="Important">
+  Use `type` to set the style: `note`, `tip`, `caution`, or `danger`.
+</Aside>
+
+<Aside type="danger" title="Breaking Change">
+  This pattern was removed in v2.0. See migration guide.
+</Aside>
+
+## Frontmatter
+
+MDX files use YAML frontmatter for metadata:
+
+```yaml
+---
+title: Page Title        # Required: shown in nav and browser tab
+description: Summary     # Optional: used for SEO and link previews
+draft: false             # Optional: hide from production builds
+sidebar:
+  order: 1               # Optional: control sidebar position
+  badge: New             # Optional: show badge in sidebar
+---
+```
+
+Frontmatter values are used by Starlight for navigation, SEO, and page rendering.

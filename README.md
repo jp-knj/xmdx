@@ -21,7 +21,7 @@ A high-performance streaming Markdown/MDX engine built with Rust, designed for m
 
 ## Quick Start
 
-### Standalone
+### xmdx (Standalone)
 
 ```bash
 npm install xmdx
@@ -32,6 +32,25 @@ import { compile } from 'xmdx';
 
 const html = await compile('# Hello, world!');
 ```
+
+### astro-xmdx (Astro Integration)
+
+```bash
+npm install astro-xmdx
+```
+
+```js
+import { defineConfig } from 'astro/config';
+import xmdx from 'astro-xmdx';
+
+export default defineConfig({
+  integrations: [xmdx()],
+});
+```
+
+## Examples
+
+- [`examples/starlight`](./examples/starlight): Starlight docs site using `astro-xmdx` with `starlightPreset()`.
 
 ## Supported Platforms
 

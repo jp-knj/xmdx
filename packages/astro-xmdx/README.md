@@ -2,6 +2,10 @@
 
 Astro integration for xmdx, a high-performance MDX compiler.
 
+## Runnable Examples
+
+- Starlight: [`examples/starlight`](../../examples/starlight)
+
 ## Installation
 
 ```bash
