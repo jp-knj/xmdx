@@ -7,7 +7,7 @@ A high-performance streaming Markdown/MDX engine built with Rust, designed for m
 - **Rust-powered performance** - Native speed with NAPI bindings for Node.js
 - **Streaming architecture** - Process large files efficiently
 - **WASM support** - Run in browsers and edge runtimes
-- **Astro integration** - First-class support for Astro projects
+- **Astro integration** - First-class support for Starlight projects
 - **MDX compatible** - Full JSX component support
 
 ## Packages
