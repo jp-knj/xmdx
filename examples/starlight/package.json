@@ -1,0 +1,16 @@
+{
+  "name": "@examples/starlight",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.34.8",
+    "astro": "^5.17.2",
+    "astro-xmdx": "workspace:*",
+    "xmdx": "workspace:*"
+  }
+}

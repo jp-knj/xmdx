@@ -1,0 +1,26 @@
+---
+title: xmdx + Starlight
+description: Starlight docs powered by astro-xmdx.
+draft: false
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<Aside type="tip">
+  This site uses `astro-xmdx` with `starlightPreset()` for Starlight-friendly defaults.
+</Aside>
+
+## Getting Started
+
+<CardGrid>
+  <LinkCard title="Getting Started" href="/guides/getting-started" description="Run the Starlight example." />
+  <LinkCard title="Configuration" href="/guides/configuration" description="Configure astro-xmdx with Starlight." />
+</CardGrid>
+
+## Feature Showcases
+
+<CardGrid>
+  <LinkCard title="Code Examples" href="/guides/code-examples" description="Syntax highlighting, line numbers, diffs, and code frames." />
+  <LinkCard title="Components" href="/guides/components" description="Aside, Badge, Card, FileTree, Steps, Tabs, and more." />
+  <LinkCard title="MDX Features" href="/guides/mdx-features" description="JSX expressions, exports, and dynamic content." />
+</CardGrid>
