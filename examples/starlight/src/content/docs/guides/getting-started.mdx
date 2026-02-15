@@ -1,0 +1,73 @@
+---
+title: Getting Started
+description: Run the Starlight example with astro-xmdx.
+draft: false
+---
+
+import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+This example demonstrates `astro-xmdx` integrated with Starlight. Follow these steps to run the development server and explore the features.
+
+## Prerequisites
+
+- Node.js 18+ installed
+- pnpm (recommended) or npm
+- Git for cloning the repository
+
+## Quick Start
+
+<Steps>
+1. **Clone the repository** and install dependencies from the workspace root.
+
+   ```bash frame="terminal"
+   git clone https://github.com/jp-knj/xmdx.git
+   cd xmdx
+   pnpm install
+   ```
+
+2. **Start the development server** for this example.
+
+   <Tabs>
+     <TabItem label="From workspace root">
+       ```bash frame="terminal"
+       pnpm --filter @examples/starlight dev
+       ```
+     </TabItem>
+     <TabItem label="From example folder">
+       ```bash frame="terminal"
+       cd examples/starlight
+       pnpm dev
+       ```
+     </TabItem>
+   </Tabs>
+
+3. **Open the documentation site** at `http://localhost:4321`.
+
+4. **Edit MDX files** in `src/content/docs/` and see changes instantly with hot reload.
+</Steps>
+
+## Project Structure
+
+```text
+examples/starlight/
+├── astro.config.mjs    # Astro + Starlight + xmdx config
+├── src/
+│   ├── content/
+│   │   └── docs/       # MDX documentation pages
+│   │       ├── index.mdx
+│   │       └── guides/
+│   └── components/     # Custom components (optional)
+└── package.json
+```
+
+## Build for Production
+
+```bash frame="terminal"
+pnpm --filter @examples/starlight build
+```
+
+Output is generated in `dist/` and can be deployed to any static hosting.
+
+<Aside type="tip">
+Run `pnpm --filter @examples/starlight preview` to test the production build locally.
+</Aside>
