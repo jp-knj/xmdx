@@ -1,0 +1,39 @@
+{
+  "name": "@xmdx/napi-linux-arm64-gnu",
+  "version": "0.0.4",
+  "cpu": [
+    "arm64"
+  ],
+  "main": "xmdx.linux-arm64-gnu.node",
+  "files": [
+    "xmdx.linux-arm64-gnu.node"
+  ],
+  "description": "High-performance streaming Markdown to HTML parser built with Rust for Astro (Node.js NAPI bindings)",
+  "keywords": [
+    "markdown",
+    "parser",
+    "rust",
+    "napi",
+    "streaming",
+    "performance",
+    "html"
+  ],
+  "author": "jp-knj",
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jp-knj/xmdx"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

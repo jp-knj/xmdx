@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "globby": "16.0.0",
-    "xmdx-napi": "workspace:*"
+    "@xmdx/napi": "workspace:*"
   },
   "devDependencies": {
     "tsdown": "0.15.0",

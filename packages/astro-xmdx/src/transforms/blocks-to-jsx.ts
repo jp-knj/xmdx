@@ -15,7 +15,7 @@ export interface BlocksRegistry {
   getSlotNormalization(component: string): { strategy: 'wrap_in_ol' | 'wrap_in_ul' } | undefined;
   getComponent(name: string): { modulePath: string; exportType: string } | undefined;
 }
-import { htmlEntitiesToJsx, hasPascalCaseTag } from 'xmdx-napi';
+import { htmlEntitiesToJsx, hasPascalCaseTag } from '@xmdx/napi';
 
 /**
  * Prop value from the Rust compiler.
