@@ -46,14 +46,5 @@
   },
   "engines": {
     "node": ">= 10"
-  },
-  "optionalDependencies": {
-    "@xmdx/napi-darwin-x64": "0.0.4",
-    "@xmdx/napi-darwin-arm64": "0.0.4",
-    "@xmdx/napi-win32-x64-msvc": "0.0.4",
-    "@xmdx/napi-linux-x64-gnu": "0.0.4",
-    "@xmdx/napi-linux-arm64-gnu": "0.0.4",
-    "@xmdx/napi-linux-arm64-musl": "0.0.4",
-    "@xmdx/napi-linux-x64-musl": "0.0.4"
   }
 }
