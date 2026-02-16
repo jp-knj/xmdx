@@ -1,0 +1,265 @@
+---
+title: Code Examples
+description: Expressive Code features with syntax highlighting, line highlighting, word marking, and code frames.
+draft: false
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Starlight uses [Expressive Code](https://expressive-code.com/) for syntax highlighting and code block features. This guide covers all available features.
+
+## Syntax Highlighting
+
+Supports 100+ languages out of the box:
+
+```javascript
+// JavaScript - async/await pattern
+async function fetchUser(id) {
+  const response = await fetch(`/api/users/${id}`);
+  return response.json();
+}
+```
+
+```typescript
+// TypeScript - with generics and type inference
+interface Repository<T> {
+  findById(id: string): Promise<T | null>;
+  save(entity: T): Promise<T>;
+}
+```
+
+```python
+# Python - decorator pattern
+from functools import wraps
+
+def retry(max_attempts: int = 3):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise e
+        return wrapper
+    return decorator
+```
+
+```go
+// Go - error handling pattern
+func ReadConfig(path string) (*Config, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, fmt.Errorf("reading config: %w", err)
+    }
+    var cfg Config
+    if err := json.Unmarshal(data, &cfg); err != nil {
+        return nil, fmt.Errorf("parsing config: %w", err)
+    }
+    return &cfg, nil
+}
+```
+
+## Line Highlighting
+
+Use `{lineNumbers}` to highlight specific lines:
+
+```ts {3-5}
+function validateUser(user: User): ValidationResult {
+  const errors: string[] = [];
+  if (!user.email.includes('@')) {
+    errors.push('Invalid email format');
+  }
+  return { valid: errors.length === 0, errors };
+}
+```
+
+Combine ranges and individual lines:
+
+```js {1,4-6,9}
+import { createServer } from 'http';
+
+const server = createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok' }));
+});
+
+server.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+```
+
+## Word Marking
+
+Use `mark` to highlight specific words or patterns:
+
+```ts mark={['async', 'await']}
+async function processItems(items: Item[]) {
+  const results = await Promise.all(
+    items.map(async (item) => {
+      return await transform(item);
+    })
+  );
+  return results;
+}
+```
+
+Mark multiple different terms:
+
+```js mark={['useState', 'useEffect']}
+import { useState, useEffect } from 'react';
+
+function Timer() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setSeconds(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <span>{seconds}s</span>;
+}
+```
+
+## Code Titles
+
+Add file paths with `title`:
+
+```ts title="src/lib/auth.ts"
+export async function verifyToken(token: string): Promise<User | null> {
+  try {
+    const payload = jwt.verify(token, SECRET_KEY);
+    return await findUserById(payload.sub);
+  } catch {
+    return null;
+  }
+}
+```
+
+```json title="package.json"
+{
+  "name": "my-app",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build"
+  }
+}
+```
+
+## Diff Highlighting
+
+Show code changes with `ins` and `del`:
+
+```ts title="src/api/client.ts" del={3-5} ins={6-9}
+async function fetchData(url: string) {
+  const response = await fetch(url);
+  const data = await response.json();
+  return data;
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+```
+
+<Aside type="tip">
+Use `ins` for additions (green) and `del` for removals (red). Great for showing refactoring or migration steps.
+</Aside>
+
+## Terminal Frames
+
+Use `frame="terminal"` for shell commands:
+
+```bash frame="terminal" title="Install dependencies"
+pnpm add astro-xmdx
+pnpm add -D @types/node
+```
+
+```bash frame="terminal" title="Create new project"
+npm create astro@latest my-docs -- --template starlight
+cd my-docs
+npm run dev
+```
+
+## Line Numbers
+
+Enable with `showLineNumbers`:
+
+```typescript showLineNumbers title="src/types/index.ts"
+export interface Config {
+  apiUrl: string;
+  timeout: number;
+  retries: number;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+export type UserRole = 'admin' | 'editor' | 'viewer';
+```
+
+Start from a specific line with `startLineNumber`:
+
+```ts showLineNumbers startLineNumber=42 title="src/utils.ts (lines 42-48)"
+export function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+}
+```
+
+## Wrap Long Lines
+
+Use `wrap` for long lines that would otherwise scroll:
+
+```json wrap title=".prettierrc"
+{ "semi": true, "singleQuote": true, "tabWidth": 2, "trailingComma": "es5", "printWidth": 80, "bracketSpacing": true, "arrowParens": "avoid" }
+```
+
+```bash wrap frame="terminal"
+docker run -d --name postgres -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=myapp -p 5432:5432 -v pgdata:/var/lib/postgresql/data postgres:16-alpine
+```
+
+## Combined Features
+
+All features work together:
+
+```tsx title="src/components/UserCard.tsx" {5-8} mark={['useState']} showLineNumbers
+import { useState } from 'react';
+import type { User } from '../types';
+
+export function UserCard({ user }: { user: User }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div onClick={() => setExpanded(!expanded)}>
+      <h3>{user.name}</h3>
+      {expanded && <p>{user.email}</p>}
+    </div>
+  );
+}
+```
+
+```yaml title="docker-compose.yml" {6-10} showLineNumbers
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      - DATABASE_URL=postgres://localhost:5432/app
+      - REDIS_URL=redis://localhost:6379
+      - NODE_ENV=production
+    depends_on:
+      - db
+      - redis
+```

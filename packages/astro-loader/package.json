@@ -2,6 +2,11 @@
   "name": "@xmdx/astro-loader",
   "version": "0.0.1",
   "description": "Astro Content Collections loader backed by the xmdx Rust engine",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jp-knj/xmdx",
+    "directory": "packages/astro-loader"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,6 +23,10 @@
     "loader",
     "xmdx"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "peerDependencies": {
     "astro": "5.16.4"
   },

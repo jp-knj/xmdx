@@ -173,6 +173,132 @@ function normalizeHtmlForJsx(html: string): string {
 }
 
 /**
+ * Finds the position of `>` that closes a tag, respecting quoted attribute values
+ * and JSX expression braces.
+ * Returns -1 if not found.
+ */
+function findTagEnd(input: string, start: number): number {
+  let i = start;
+  let inQuote = false;
+  let quoteChar = '"';
+  let braceDepth = 0;
+
+  while (i < input.length) {
+    const ch = input[i];
+    if (inQuote) {
+      if (ch === '\\' && i + 1 < input.length) {
+        i += 2; // Skip escaped character
+        continue;
+      }
+      if (ch === quoteChar) {
+        inQuote = false;
+      }
+      i++;
+    } else if (braceDepth > 0) {
+      // Inside JSX expression - track nested braces and strings
+      if (ch === '{') {
+        braceDepth++;
+      } else if (ch === '}') {
+        braceDepth--;
+      } else if (ch === '"' || ch === "'") {
+        inQuote = true;
+        quoteChar = ch;
+      }
+      i++;
+    } else {
+      if (ch === '"' || ch === "'") {
+        inQuote = true;
+        quoteChar = ch;
+        i++;
+      } else if (ch === '{') {
+        braceDepth = 1;
+        i++;
+      } else if (ch === '>') {
+        return i;
+      } else {
+        i++;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Checks if a tag ending at position `tagEnd` is self-closing (ends with `/>`)
+ * respecting quoted attribute values and JSX expression braces.
+ * Returns true if the `/` before `>` is outside of quotes and braces.
+ */
+function isSelfClosingTag(input: string, start: number, tagEnd: number): boolean {
+  // We need to check if the character before tagEnd is `/` AND that it's outside quotes/braces
+  if (tagEnd < 1 || input[tagEnd - 1] !== '/') {
+    return false;
+  }
+
+  // Walk from start to tagEnd-1 to verify the `/` is outside quotes and braces
+  let i = start;
+  let inQuote = false;
+  let quoteChar = '"';
+  let braceDepth = 0;
+
+  while (i < tagEnd - 1) {
+    const ch = input[i];
+    if (inQuote) {
+      if (ch === '\\' && i + 1 < input.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === quoteChar) {
+        inQuote = false;
+      }
+      i++;
+    } else if (braceDepth > 0) {
+      // Inside JSX expression - track nested braces and strings
+      if (ch === '{') {
+        braceDepth++;
+      } else if (ch === '}') {
+        braceDepth--;
+      } else if (ch === '"' || ch === "'") {
+        inQuote = true;
+        quoteChar = ch;
+      }
+      i++;
+    } else {
+      if (ch === '"' || ch === "'") {
+        inQuote = true;
+        quoteChar = ch;
+      } else if (ch === '{') {
+        braceDepth = 1;
+      }
+      i++;
+    }
+  }
+
+  // The `/` at tagEnd-1 is outside quotes/braces if we ended outside both
+  return !inQuote && braceDepth === 0;
+}
+
+/**
+ * Find the next exact <Fragment opening tag (not <FragmentFoo, etc.)
+ * Returns -1 if not found.
+ */
+function findNextFragmentOpen(input: string, start: number): number {
+  let pos = start;
+  while (pos < input.length) {
+    const idx = input.indexOf('<Fragment', pos);
+    if (idx === -1) return -1;
+
+    // Check the character after '<Fragment' to ensure it's an exact match
+    const afterTag = input[idx + 9]; // '<Fragment'.length = 9
+    if (afterTag === undefined || afterTag === ' ' || afterTag === '>' || afterTag === '/') {
+      return idx;
+    }
+    // Not an exact match (e.g., <FragmentFoo), continue searching
+    pos = idx + 1;
+  }
+  return -1;
+}
+
+/**
  * Strips `<p>` wrappers from Fragment elements with slot attributes.
  *
  * markdown-rs sometimes wraps `<Fragment slot="...">` in paragraph tags,
@@ -181,10 +307,12 @@ function normalizeHtmlForJsx(html: string): string {
  *
  * Before: `<p><Fragment slot="foo">content</Fragment></p>`
  * After:  `<Fragment slot="foo">content</Fragment>`
+ *
+ * Handles edge cases:
+ * - Self-closing: `<p><Fragment slot="x" /></p>`
+ * - Nested Fragments: counts depth to find matching closing tag
  */
 function stripParagraphFragmentWrappers(input: string): string {
-  // Pattern: <p><Fragment slot="...">...</Fragment></p>
-  // We need to handle nested content, so we can't use a simple regex
   let result = '';
   let cursor = 0;
 
@@ -197,17 +325,72 @@ function stripParagraphFragmentWrappers(input: string): string {
 
     // Push everything before this match
     result += input.slice(cursor, matchStart);
-
-    // Find the matching </Fragment></p>
     const fragmentStart = matchStart + 3; // Skip "<p>"
-    const fragmentEndTag = input.indexOf('</Fragment>', fragmentStart);
 
-    if (fragmentEndTag !== -1) {
-      const fragmentEnd = fragmentEndTag + '</Fragment>'.length;
+    // Find the end of the opening Fragment tag (respecting quoted attributes)
+    const tagEnd = findTagEnd(input, fragmentStart);
+    if (tagEnd === -1) {
+      // Malformed, just push "<p>" and continue
+      result += '<p>';
+      cursor = matchStart + 3;
+      continue;
+    }
+
+    // Check for self-closing Fragment: <Fragment slot="x" />
+    // Must check that /> is outside of quoted attributes
+    if (isSelfClosingTag(input, fragmentStart, tagEnd)) {
+      const afterClose = input.slice(tagEnd + 1);
+      if (afterClose.startsWith('</p>')) {
+        // Self-closing: <p><Fragment slot="x" /></p> -> <Fragment slot="x" />
+        result += input.slice(fragmentStart, tagEnd + 1);
+        cursor = tagEnd + 1 + 4; // Skip "/></p>"
+        continue;
+      }
+      // Self-closing but no </p> follows, preserve the <p>
+      result += '<p>';
+      cursor = matchStart + 3;
+      continue;
+    }
+
+    // Non-self-closing: count depth to find matching </Fragment>
+    let depth = 1;
+    let searchPos = tagEnd + 1;
+    let fragmentEndPos = -1;
+
+    while (searchPos < input.length && depth > 0) {
+      const nextOpen = findNextFragmentOpen(input, searchPos);
+      const nextClose = input.indexOf('</Fragment>', searchPos);
+
+      if (nextClose === -1) {
+        // No closing tag found, malformed
+        break;
+      }
+
+      // Check if there's an opening tag before the closing tag
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        // Find end of this opening tag (respecting quoted attributes)
+        const openTagEnd = findTagEnd(input, nextOpen);
+        if (openTagEnd !== -1 && !isSelfClosingTag(input, nextOpen, openTagEnd)) {
+          // Non-self-closing nested Fragment, increase depth
+          depth++;
+        }
+        searchPos = openTagEnd !== -1 ? openTagEnd + 1 : nextOpen + 9;
+      } else {
+        // Closing tag comes first (or no more opening tags)
+        depth--;
+        if (depth === 0) {
+          fragmentEndPos = nextClose;
+        }
+        searchPos = nextClose + '</Fragment>'.length;
+      }
+    }
+
+    if (fragmentEndPos !== -1) {
+      const fragmentEnd = fragmentEndPos + '</Fragment>'.length;
       const afterFragment = input.slice(fragmentEnd);
 
       if (afterFragment.startsWith('</p>')) {
-        // Extract just the Fragment element (without <p> wrapper)
+        // Found matching pattern: <p><Fragment slot="...">...</Fragment></p>
         result += input.slice(fragmentStart, fragmentEnd);
         cursor = fragmentEnd + 4; // Skip "</p>"
         continue;
