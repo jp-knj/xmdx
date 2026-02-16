@@ -5,7 +5,7 @@
 
 use crate::directives::rewrite_directives_to_asides;
 use crate::{FrontmatterExtraction, extract_frontmatter, slug::Slugger};
-use mdxjs::{JsxRuntime, Options, compile};
+use mdxjs::{JsxRuntime, MdxParseOptions, Options, compile};
 
 /// Output from MDX compilation.
 #[derive(Debug, Clone)]
@@ -120,12 +120,16 @@ pub fn compile_mdx(
         jsx_runtime: Some(JsxRuntime::Automatic),
         jsx_import_source: opts.jsx_import_source,
         jsx: opts.jsx,
+        parse: MdxParseOptions::gfm(),
         ..Default::default()
     };
 
     // Compile MDX to JavaScript
     let js_code = compile(&content, &mdx_options)
         .map_err(|e| MdxCompileError::CompileError(e.to_string()))?;
+
+    // Post-process: wrap task list checkbox inputs in <label><span> for Checklist component CSS
+    let js_code = rewrite_task_list_items(&js_code);
 
     // Post-process: convert JSX code blocks to HTML format for ExpressiveCode compatibility
     // Only rewrite when ExpressiveCode is enabled, otherwise code blocks become escaped text
@@ -140,6 +144,309 @@ pub fn compile_mdx(
         frontmatter_json,
         headings,
     })
+}
+
+/// Rewrites task list items to wrap checkbox inputs in `<label>` and text in `<span>`.
+///
+/// mdxjs-rs produces task list items like:
+/// ```text
+/// _jsxs(_components.li, { className: "task-list-item", children: [
+///     _jsx(_components.input, { type: "checkbox", disabled: true }), " ", "Text"
+/// ]})
+/// ```
+///
+/// This rewrites them to:
+/// ```text
+/// _jsx(_components.li, { className: "task-list-item", children:
+///     _jsx("label", { children: [
+///         _jsx(_components.input, { type: "checkbox", disabled: true }),
+///         _jsx("span", { children: [" ", "Text"] })
+///     ]})
+/// })
+/// ```
+///
+/// For loose lists (where items are wrapped in `<p>`), it replaces the `<p>` wrapper
+/// with the `<label>` wrapper and adds `<span>` around the text content.
+fn rewrite_task_list_items(code: &str) -> String {
+    // Marker that identifies task list item children arrays
+    let marker = "\"task-list-item\"";
+    if !code.contains(marker) {
+        return code.to_string();
+    }
+
+    let mut result = String::with_capacity(code.len() + 256);
+    let mut remaining = code;
+
+    while let Some(marker_pos) = remaining.find(marker) {
+        // Output everything up to and including the marker
+        let end_of_marker = marker_pos + marker.len();
+        result.push_str(&remaining[..end_of_marker]);
+        remaining = &remaining[end_of_marker..];
+
+        // Now find the `children:` key that follows. We expect pattern like:
+        //   , children: [...]  (tight list)
+        //   , children: ["\n", _jsxs(_components.p, { children: [...] }), "\n"]  (loose list)
+        if let Some(children_offset) = remaining.find("children:") {
+            // Output everything up to "children:"
+            result.push_str(&remaining[..children_offset]);
+            remaining = &remaining[children_offset + "children:".len()..];
+
+            // Skip whitespace after "children:"
+            let trimmed = remaining.trim_start();
+            let ws_len = remaining.len() - trimmed.len();
+            result.push_str("children:");
+            result.push_str(&remaining[..ws_len]);
+            remaining = trimmed;
+
+            if remaining.starts_with('[') {
+                // Parse the children array to find its contents
+                if let Some((array_content, after_array)) = extract_bracket_content(remaining) {
+                    // Check if this is a loose list (contains _jsxs(_components.p or _jsxs("p"))
+                    if array_content.contains("_jsxs(_components.p,")
+                        || array_content.contains("_jsxs(\"p\",")
+                    {
+                        // Loose list: replace the <p> wrapper with <label> + <span>
+                        result.push_str(&rewrite_loose_task_list_children(&array_content));
+                    } else {
+                        // Tight list: wrap directly with <label> + <span>
+                        result.push_str(&rewrite_tight_task_list_children(&array_content));
+                    }
+                    remaining = after_array;
+                } else {
+                    // Couldn't parse, output as-is
+                    result.push_str(remaining);
+                    remaining = "";
+                }
+            }
+            // else: children is not an array (single element), skip rewriting
+        }
+    }
+
+    result.push_str(remaining);
+    result
+}
+
+/// Extracts the content of a bracket-delimited section `[...]`.
+/// Returns (inner_content, rest_after_closing_bracket).
+fn extract_bracket_content(input: &str) -> Option<(&str, &str)> {
+    if !input.starts_with('[') {
+        return None;
+    }
+
+    let bytes = input.as_bytes();
+    let mut depth = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    // inner is [1..i], after is [i+1..]
+                    return Some((&input[1..i], &input[i + 1..]));
+                }
+            }
+            b'"' => {
+                // Skip string literal
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1; // skip escaped char
+                    } else if bytes[i] == b'"' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == b'\'' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'`' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == b'`' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Finds the end of a balanced `_jsx(...)` or `_jsxs(...)` call starting at the given position.
+/// `input` should start with `_jsx` or `_jsxs`. Returns the index past the closing `)`.
+fn find_jsx_call_end(input: &str) -> Option<usize> {
+    // Find the opening paren
+    let paren_start = input.find('(')?;
+    let bytes = input.as_bytes();
+    let mut depth = 0;
+    let mut i = paren_start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == b'"' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == b'\'' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'`' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == b'`' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Rewrites children of a tight task list item.
+///
+/// Input: the content inside `[...]` of the children array, e.g.:
+/// ```text
+/// _jsx(_components.input, { type: "checkbox", disabled: true }), " ", "Text"
+/// ```
+///
+/// Output: a new expression wrapping in label + span:
+/// ```text
+/// _jsx("label", { children: [_jsx(_components.input, ...), _jsx("span", { children: [" ", "Text"] })] })
+/// ```
+fn rewrite_tight_task_list_children(content: &str) -> String {
+    // Find the _jsx(_components.input, ...) call
+    let input_patterns = ["_jsx(_components.input,", "_jsx(\"input\","];
+    let mut input_call = None;
+    let mut input_end = 0;
+
+    for pattern in &input_patterns {
+        if let Some(pos) = content.find(pattern) {
+            // Find the end of this _jsx(...) call
+            if let Some(end) = find_jsx_call_end(&content[pos..]) {
+                input_call = Some(&content[pos..pos + end]);
+                input_end = pos + end;
+                break;
+            }
+        }
+    }
+
+    let Some(input_jsx) = input_call else {
+        // No input found, return original bracketed
+        return format!("[{}]", content);
+    };
+
+    // Everything after the input call is the text content (skip leading comma/whitespace)
+    let after_input = content[input_end..].trim_start();
+    let after_input = after_input.strip_prefix(',').unwrap_or(after_input);
+
+    // Build the span children from remaining content
+    let span_children = after_input.trim();
+
+    format!(
+        "_jsx(\"label\", {{ children: [{}, _jsx(\"span\", {{ children: [{}] }})] }})",
+        input_jsx, span_children
+    )
+}
+
+/// Rewrites children of a loose task list item (where items are wrapped in `<p>`).
+///
+/// Input: content inside `[...]`, e.g.:
+/// ```text
+/// "\n", _jsxs(_components.p, { children: [_jsx(_components.input, ...), " ", "Text"] }), "\n"
+/// ```
+///
+/// Replaces the `_jsxs(_components.p, ...)` with `_jsx("label", ...)` containing span-wrapped text.
+fn rewrite_loose_task_list_children(content: &str) -> String {
+    // Find the _jsxs(_components.p, ...) or _jsxs("p", ...) call
+    let p_patterns = ["_jsxs(_components.p,", "_jsxs(\"p\","];
+    let mut p_start = None;
+    let mut p_end = 0;
+
+    for pattern in &p_patterns {
+        if let Some(pos) = content.find(pattern) {
+            if let Some(end) = find_jsx_call_end(&content[pos..]) {
+                p_start = Some(pos);
+                p_end = pos + end;
+                break;
+            }
+        }
+    }
+
+    let Some(p_pos) = p_start else {
+        return format!("[{}]", content);
+    };
+
+    // Extract the p call content
+    let p_call = &content[p_pos..p_end];
+
+    // Find the children array inside the p call
+    let children_key = "children:";
+    let Some(children_offset) = p_call.find(children_key) else {
+        return format!("[{}]", content);
+    };
+
+    let after_children = p_call[children_offset + children_key.len()..].trim_start();
+    if !after_children.starts_with('[') {
+        return format!("[{}]", content);
+    }
+
+    let Some((p_children_content, _)) = extract_bracket_content(after_children) else {
+        return format!("[{}]", content);
+    };
+
+    // Now rewrite the p children the same way as tight list
+    let label_call = rewrite_tight_task_list_children(p_children_content);
+
+    // Replace the _jsxs(p, ...) with the label call in the original content
+    let mut result = String::with_capacity(content.len() + 128);
+    result.push('[');
+    result.push_str(&content[..p_pos]);
+    result.push_str(&label_call);
+    result.push_str(&content[p_end..]);
+    result.push(']');
+    result
 }
 
 /// Rewrites JSX code block calls to HTML format for ExpressiveCode compatibility.
@@ -1457,6 +1764,93 @@ This should NOT be converted to an Aside.
         assert!(
             !output.code.contains("data-mf-source"),
             "Should NOT convert directive inside code block, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_task_list() {
+        // Task lists (GFM extension) should produce checkbox inputs, not raw "[ ]" text
+        let source = r#"
+- [ ] Unchecked item
+- [x] Checked item
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // Should NOT contain raw bracket text
+        assert!(
+            !output.code.contains("[ ] Unchecked"),
+            "Should not contain raw '[ ]' text, got: {}",
+            output.code
+        );
+        assert!(
+            !output.code.contains("[x] Checked"),
+            "Should not contain raw '[x]' text, got: {}",
+            output.code
+        );
+
+        // Should contain task list class and checkbox input
+        assert!(
+            output.code.contains("task-list-item"),
+            "Expected 'task-list-item' class in output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("checkbox"),
+            "Expected checkbox input in output, got: {}",
+            output.code
+        );
+
+        // Should wrap checkbox in <label> and text in <span>
+        assert!(
+            output.code.contains("\"label\""),
+            "Expected label wrapper in output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("\"span\""),
+            "Expected span wrapper in output, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_task_list_loose() {
+        // Loose task lists (blank lines between items) should also get label/span wrapping
+        let source = r#"
+- [ ] Unchecked item
+
+- [x] Checked item
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        assert!(
+            output.code.contains("task-list-item"),
+            "Expected 'task-list-item' class in output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("\"label\""),
+            "Expected label wrapper in loose list output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("\"span\""),
+            "Expected span wrapper in loose list output, got: {}",
+            output.code
+        );
+        // The <p> wrapper should be replaced by <label>
+        assert!(
+            !output.code.contains("_jsxs(_components.p,"),
+            "Should not contain <p> wrapper in task list items, got: {}",
             output.code
         );
     }
