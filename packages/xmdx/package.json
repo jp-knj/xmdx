@@ -1,10 +1,10 @@
 {
   "name": "xmdx",
-  "version": "0.0.2",
+  "version": "0.0.3-next.2",
   "description": "High-performance streaming Markdown to HTML parser built with Rust",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsdown src/node.ts src/browser.ts src/registry/index.ts --format esm --out-dir dist && tsc --emitDeclarationOnly --declaration --outDir dist",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "typecheck": "tsc --noEmit"
@@ -12,51 +12,43 @@
   "exports": {
     ".": {
       "node": {
-        "types": "./src/node.ts",
-        "import": "./src/node.ts",
-        "default": "./src/node.ts"
+        "types": "./dist/node.d.ts",
+        "import": "./dist/node.js"
       },
       "browser": {
-        "types": "./src/browser.ts",
-        "import": "./src/browser.ts",
-        "default": "./src/browser.ts"
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js"
       },
       "edge-light": {
-        "types": "./src/browser.ts",
-        "import": "./src/browser.ts",
-        "default": "./src/browser.ts"
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js"
       },
       "workerd": {
-        "types": "./src/browser.ts",
-        "import": "./src/browser.ts",
-        "default": "./src/browser.ts"
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js"
       },
       "default": {
-        "types": "./src/browser.ts",
-        "import": "./src/browser.ts",
-        "default": "./src/browser.ts"
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js"
       }
     },
     "./browser": {
-      "types": "./src/browser.ts",
-      "import": "./src/browser.ts",
-      "default": "./src/browser.ts"
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     },
     "./registry": {
-      "types": "./src/registry/index.ts",
-      "import": "./src/registry/index.ts",
-      "default": "./src/registry/index.ts"
+      "types": "./dist/registry/index.d.ts",
+      "import": "./dist/registry/index.js"
     },
     "./wasm": {
       "types": "./wasm/xmdx_wasm.d.ts",
-      "import": "./wasm/xmdx_wasm.js",
-      "default": "./wasm/xmdx_wasm.js"
+      "import": "./wasm/xmdx_wasm.js"
     }
   },
-  "main": "./src/node.ts",
-  "types": "./src/types.ts",
+  "main": "./dist/node.js",
+  "types": "./dist/node.d.ts",
   "files": [
-    "src",
+    "dist",
     "wasm"
   ],
   "keywords": [
@@ -71,14 +63,19 @@
   ],
   "author": "jp-knj",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/jp-knj/xmdx"
   },
   "dependencies": {
-    "xmdx-napi": "workspace:*"
+    "@xmdx/napi": "workspace:*"
   },
   "devDependencies": {
+    "tsdown": "^0.15.0",
     "typescript": "^5.7.0"
   }
 }

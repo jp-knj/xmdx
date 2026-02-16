@@ -289,6 +289,16 @@ impl<'a> Context<'a> {
             .any(|scope| matches!(scope, Scope::Table | Scope::TableRow | Scope::TableCell))
     }
 
+    /// Returns true if currently in a paragraph scope.
+    ///
+    /// Inline JSX elements inside paragraphs should be rendered inline
+    /// to avoid fragmenting the paragraph HTML structure.
+    pub fn is_in_paragraph(&self) -> bool {
+        self.stack
+            .iter()
+            .any(|scope| matches!(scope, Scope::Paragraph))
+    }
+
     /// Enters a new scope by pushing it onto the stack.
     pub fn enter(&mut self, scope: Scope) {
         self.stack.push(scope);

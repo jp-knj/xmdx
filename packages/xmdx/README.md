@@ -43,6 +43,13 @@ import { compile } from 'xmdx/wasm';
 const html = compile('# Direct WASM usage');
 ```
 
+## Astro Integration
+
+Use `xmdx` directly when you need framework-agnostic compilation APIs.
+For Astro projects, use [`astro-xmdx`](../astro-xmdx) as the integration layer.
+
+- Runnable Starlight example: [`examples/starlight`](../../examples/starlight)
+
 ## API
 
 ### `compile(source: string, options?: CompileOptions): Promise<string>`

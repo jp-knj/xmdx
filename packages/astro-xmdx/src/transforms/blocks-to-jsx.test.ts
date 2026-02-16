@@ -586,5 +586,141 @@ describe('blocksToJsx', () => {
       // Fragment without slot= should NOT be stripped
       expect(result).toContain('<p><Fragment>Content without slot</Fragment></p>');
     });
+
+    it('should handle self-closing Fragment correctly', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="empty" /></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Self-closing Fragment with slot should have <p> stripped
+      expect(result).not.toContain('<p><Fragment slot="empty" /></p>');
+      expect(result).toContain('<Fragment slot="empty" />');
+    });
+
+    it('should handle nested Fragments correctly', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="outer"><Fragment>inner content</Fragment></Fragment></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should strip outer <p></p> but preserve the nested structure
+      expect(result).not.toContain('<p><Fragment slot="outer">');
+      expect(result).toContain('<Fragment slot="outer"><Fragment>inner content</Fragment></Fragment>');
+    });
+
+    it('should preserve p tags when Fragment is not immediately followed by </p>', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="partial">content</Fragment> extra text</p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should preserve <p> wrapper since there's extra content after </Fragment>
+      expect(result).toContain('<p><Fragment slot="partial">content</Fragment> extra text</p>');
+    });
+
+    it('should handle deeply nested Fragments', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="deep"><Fragment><Fragment>nested</Fragment></Fragment></Fragment></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should strip outer <p></p> but preserve nested structure
+      expect(result).not.toContain('<p><Fragment slot="deep">');
+      expect(result).toContain('<Fragment slot="deep"><Fragment><Fragment>nested</Fragment></Fragment></Fragment>');
+    });
+
+    it('should not treat FragmentFoo as nested Fragment', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="x"><FragmentChild>inner</FragmentChild></Fragment></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should strip <p></p> wrapper correctly despite <FragmentChild>
+      expect(result).not.toContain('<p><Fragment slot="x">');
+      expect(result).toContain('<Fragment slot="x"><FragmentChild>inner</FragmentChild></Fragment>');
+    });
+
+    it('should handle Fragment with > in quoted attribute', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="x" title="foo>bar">content</Fragment></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should strip <p></p> wrapper even when attribute contains >
+      expect(result).not.toContain('<p><Fragment slot="x"');
+      expect(result).toContain('<Fragment slot="x" title="foo>bar">content</Fragment>');
+    });
+
+    it('should handle Fragment with /> in quoted attribute', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="x" title="foo/>bar">content</Fragment></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Should NOT treat this as self-closing (the /> is inside quotes)
+      // Should strip <p></p> wrapper correctly
+      expect(result).not.toContain('<p><Fragment slot="x"');
+      expect(result).toContain('<Fragment slot="x" title="foo/>bar">content</Fragment>');
+    });
+
+    it('should handle self-closing Fragment correctly even with > in other attributes', () => {
+      const blocks: Block[] = [
+        {
+          type: 'component',
+          name: 'Container',
+          props: {},
+          slotChildren: [{ type: 'html', content: '<p><Fragment slot="x" title="a>b" /></p>' }],
+        },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      // Real self-closing tag should be handled correctly
+      expect(result).not.toContain('<p><Fragment slot="x"');
+      expect(result).toContain('<Fragment slot="x" title="a>b" />');
+    });
   });
 });

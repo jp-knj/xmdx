@@ -70,6 +70,18 @@ describe('resolveExpressiveCodeConfig', () => {
     });
   });
 
+  it('should support public API keys componentName/importSource', () => {
+    const result = resolveExpressiveCodeConfig({
+      componentName: 'PublicCode',
+      importSource: 'public-module',
+    });
+
+    expect(result).toEqual({
+      component: 'PublicCode',
+      moduleId: 'public-module',
+    });
+  });
+
   it('should ignore empty string component', () => {
     const result = resolveExpressiveCodeConfig({
       component: '',
@@ -205,6 +217,26 @@ describe('resolveExpressiveCodeConfig with registry', () => {
     expect(result).toEqual({
       component: EXPRESSIVE_CODE_COMPONENT,
       moduleId: EXPRESSIVE_CODE_MODULE,
+    });
+  });
+
+  it('should fall back to Starlight Code component when expressive-code module is absent', () => {
+    const starlightOnlyRegistry = createRegistry([starlightLibrary]);
+    const result = resolveExpressiveCodeConfig(true, starlightOnlyRegistry);
+
+    expect(result).toEqual({
+      component: 'Code',
+      moduleId: '@astrojs/starlight/components',
+    });
+  });
+
+  it('should prefer Starlight Code component when both libraries are registered', () => {
+    const combinedRegistry = createRegistry([expressiveCodeLibrary, starlightLibrary]);
+    const result = resolveExpressiveCodeConfig(true, combinedRegistry);
+
+    expect(result).toEqual({
+      component: 'Code',
+      moduleId: '@astrojs/starlight/components',
     });
   });
 });

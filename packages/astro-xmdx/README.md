@@ -1,6 +1,10 @@
 # astro-xmdx
 
-Astro integration for xmdx - a high-performance MDX compiler.
+Astro integration for xmdx, a high-performance MDX compiler.
+
+## Runnable Examples
+
+- Starlight: [`examples/starlight`](../../examples/starlight)
 
 ## Installation
 
@@ -12,7 +16,7 @@ pnpm add astro-xmdx
 yarn add astro-xmdx
 ```
 
-## Setup
+## Basic Setup
 
 ```js
 // astro.config.mjs
@@ -26,37 +30,51 @@ export default defineConfig({
 
 ## Presets
 
+Use presets to quickly configure common stacks.
+
 ### Starlight
 
-Optimized for Starlight documentation sites:
-
 ```js
+import { defineConfig } from 'astro/config';
 import xmdx from 'astro-xmdx';
-import { starlight } from 'astro-xmdx/presets';
+import { starlightPreset } from 'astro-xmdx/presets';
 
 export default defineConfig({
   integrations: [
     xmdx({
-      preset: starlight(),
+      presets: [starlightPreset()],
     }),
   ],
 });
 ```
 
-### ExpressiveCode
-
-For code blocks with syntax highlighting:
+### Expressive Code
 
 ```js
+import { defineConfig } from 'astro/config';
 import xmdx from 'astro-xmdx';
-import { expressiveCode } from 'astro-xmdx/presets';
+import { expressiveCodePreset } from 'astro-xmdx/presets';
 
 export default defineConfig({
   integrations: [
     xmdx({
-      preset: expressiveCode({
-        themes: ['github-dark', 'github-light'],
-      }),
+      presets: [expressiveCodePreset()],
+    }),
+  ],
+});
+```
+
+### Multiple Presets
+
+```js
+import { defineConfig } from 'astro/config';
+import xmdx from 'astro-xmdx';
+import { astroPreset, starlightPreset } from 'astro-xmdx/presets';
+
+export default defineConfig({
+  integrations: [
+    xmdx({
+      presets: [astroPreset(), starlightPreset()],
     }),
   ],
 });
@@ -65,48 +83,68 @@ export default defineConfig({
 ## Configuration
 
 ```js
-xmdx({
-  // File extensions to process
-  extensions: ['.mdx', '.md'],
+import { defineConfig } from 'astro/config';
+import xmdx from 'astro-xmdx';
+import { starlightPreset } from 'astro-xmdx/presets';
 
-  // Apply a preset
-  preset: starlight(),
-
-  // Remark plugins
-  remarkPlugins: [remarkGfm],
-
-  // Rehype plugins
-  rehypePlugins: [rehypeSlug],
-
-  // Code highlighting options
-  shiki: {
-    themes: {
-      light: 'github-light',
-      dark: 'github-dark',
-    },
-  },
-})
+export default defineConfig({
+  integrations: [
+    xmdx({
+      include: (id) => id.endsWith('.md') || id.endsWith('.mdx'),
+      presets: [starlightPreset()],
+      expressiveCode: {
+        enabled: true,
+        componentName: 'Code',
+        importSource: '@astrojs/starlight/components',
+      },
+      mdx: {
+        allowImports: ['@astrojs/starlight/*', '~/components/*'],
+        ignoreCodeFences: true,
+      },
+      compiler: {
+        jsx: {
+          code_sample_components: ['Code'],
+        },
+      },
+    }),
+  ],
+});
 ```
+
+## Starlight Behavior
+
+When `@astrojs/starlight` is detected, `astro-xmdx` automatically applies safe defaults unless explicitly overridden:
+
+- enables Starlight component injection
+- allows common Starlight import patterns for MDX fallback handling
+- enables Expressive Code rewriting for fenced code blocks
+
+In Starlight setups, the `Code` component resolution prefers `@astrojs/starlight/components`.
 
 ## Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `extensions` | `string[]` | `['.mdx', '.md']` | File extensions to process |
-| `preset` | `Preset` | - | Configuration preset |
-| `remarkPlugins` | `Plugin[]` | `[]` | Remark plugins to apply |
-| `rehypePlugins` | `Plugin[]` | `[]` | Rehype plugins to apply |
-| `shiki` | `ShikiOptions` | - | Shiki syntax highlighting config |
+| Option | Type | Description |
+|--------|------|-------------|
+| `include` | `(id: string) => boolean` | File filter. Defaults to `.md` and `.mdx` files. |
+| `libraries` | `ComponentLibrary[]` | Component libraries to register. |
+| `presets` | `PresetConfig[]` | Presets merged in order (later presets win on conflicts). |
+| `starlightComponents` | `boolean \| { enabled: boolean; importSource?: string }` | Starlight component injection config. |
+| `expressiveCode` | `boolean \| { enabled: boolean; componentName?: string; importSource?: string }` | Expressive Code code-block rewrite config. |
+| `compiler` | `{ jsx?: { code_sample_components?: string[] } }` | Compiler options passed to xmdx. |
+| `plugins` | `XmdxPlugin[]` | Pipeline hooks (`preprocess`, `afterParse`, `beforeInject`, `beforeOutput`). |
+| `mdx` | `{ allowImports?: string[]; ignoreCodeFences?: boolean }` | Controls import fallback behavior for MDX files. |
 
 ## Exports
 
 | Export | Description |
 |--------|-------------|
-| `astro-xmdx` | Main Astro integration |
-| `astro-xmdx/presets` | Preset configurations |
-| `astro-xmdx/vite-plugin` | Standalone Vite plugin |
-| `astro-xmdx/pipeline` | Processing pipeline utilities |
-| `astro-xmdx/transforms` | AST transform utilities |
+| `astro-xmdx` | Main Astro integration. |
+| `astro-xmdx/server` | Server entrypoint export alias. |
+| `astro-xmdx/server.js` | Server entrypoint export. |
+| `astro-xmdx/presets` | Preset helpers (`starlightPreset`, `expressiveCodePreset`, `astroPreset`). |
+| `astro-xmdx/vite-plugin` | Standalone Vite plugin. |
+| `astro-xmdx/pipeline` | Pipeline utilities. |
+| `astro-xmdx/transforms` | Transform utilities. |
 
 ## License
 
