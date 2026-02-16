@@ -21,18 +21,6 @@ importers:
         specifier: ^3.6.2
         version: 3.8.1
 
-  examples/basic:
-    dependencies:
-      astro:
-        specifier: ^5.17.2
-        version: 5.17.2(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.7.2)
-      astro-xmdx:
-        specifier: workspace:*
-        version: link:../../packages/astro-xmdx
-      xmdx:
-        specifier: workspace:*
-        version: link:../../packages/xmdx
-
   examples/starlight:
     dependencies:
       '@astrojs/starlight':
@@ -125,9 +113,6 @@ importers:
         specifier: workspace:*
         version: link:../../crates/napi
     devDependencies:
-      tsdown:
-        specifier: ^0.15.0
-        version: 0.15.0(typescript@5.7.2)
       typescript:
         specifier: ^5.7.0
         version: 5.7.2
@@ -2065,7 +2050,6 @@ packages:
   glob@11.1.0:
     resolution: {integrity: sha512-vuNwKSaKiqm7g0THUBu2x7ckSs3XJLXE+2ssL7/MfTGPLLcrJQ/4Uq1CjPTtO5cCIiRxqvN6Twy1qOwhL0Xjcw==}
     engines: {node: 20 || >=22}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   globby@16.0.0:
