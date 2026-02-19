@@ -4,6 +4,7 @@ use super::context::Context;
 use super::types::{HeadingEntry, PropValue, RenderBlock, Scope};
 use markdown::mdast::Node;
 use std::collections::HashMap;
+use xmdx_core::slug::extract_custom_id;
 
 /// Extracts plain text from a list of AST nodes (for heading text).
 ///
@@ -282,23 +283,125 @@ fn render_link(link: &markdown::mdast::Link, ctx: &mut Context) {
     ctx.push_raw("</a>");
 }
 
+/// Walks the AST to find a `{#custom-id}` only in the last Text node.
+///
+/// This avoids false positives from InlineCode nodes like `` `{#bar}` ``,
+/// which should be treated as literal code, not custom heading IDs.
+fn find_custom_id_in_last_text_node<'a>(nodes: &'a [Node]) -> Option<&'a str> {
+    let last = nodes.last()?;
+    match last {
+        Node::Text(t) => {
+            let (_, id) = extract_custom_id(&t.value);
+            id
+        }
+        Node::Strong(s) => find_custom_id_in_last_text_node(&s.children),
+        Node::Emphasis(e) => find_custom_id_in_last_text_node(&e.children),
+        Node::Link(l) => find_custom_id_in_last_text_node(&l.children),
+        Node::Delete(d) => find_custom_id_in_last_text_node(&d.children),
+        _ => None, // InlineCode, Image, etc. — not custom ID
+    }
+}
+
 /// Renders a heading node with slug-based id and TOC entry.
+///
+/// Supports `{#custom-id}` syntax: if the heading text ends with `{#some-id}`,
+/// that ID is used as the slug instead of auto-generating one, and the `{#...}`
+/// suffix is stripped from both the heading text metadata and the rendered output.
 fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
-    let text = extract_text_from_nodes(&heading.children);
-    let slug = ctx.generate_slug(&text);
+    let raw_text = extract_text_from_nodes(&heading.children);
+    let custom_id = find_custom_id_in_last_text_node(&heading.children);
+    let clean_text = if custom_id.is_some() {
+        let (text, _) = extract_custom_id(&raw_text);
+        text
+    } else {
+        raw_text.as_str()
+    };
+
+    let slug = if let Some(id) = custom_id {
+        ctx.reserve_slug(id);
+        id.to_string()
+    } else {
+        ctx.generate_slug(clean_text)
+    };
 
     ctx.add_heading(HeadingEntry {
         depth: heading.depth,
         slug: slug.clone(),
-        text,
+        text: clean_text.to_string(),
     });
 
     let tag = format!("h{}", heading.depth);
     ctx.push_raw(&format!("<{} id=\"{}\">", tag, slug));
-    for child in &heading.children {
-        render_node(child, ctx);
+
+    // Render children, stripping {#id} from the last Text node if present
+    if custom_id.is_some() {
+        render_heading_children(&heading.children, ctx);
+    } else {
+        for child in &heading.children {
+            render_node(child, ctx);
+        }
     }
+
     ctx.push_raw(&format!("</{}>", tag));
+}
+
+/// Renders heading children, stripping the trailing `{#...}` from the deepest last Text descendant.
+fn render_heading_children(children: &[Node], ctx: &mut Context) {
+    if children.is_empty() {
+        return;
+    }
+
+    let last_idx = children.len() - 1;
+    for (i, child) in children.iter().enumerate() {
+        if i == last_idx {
+            render_node_stripping_custom_id(child, ctx);
+        } else {
+            render_node(child, ctx);
+        }
+    }
+}
+
+/// Renders a node, stripping a trailing `{#...}` from its deepest last Text descendant.
+fn render_node_stripping_custom_id(node: &Node, ctx: &mut Context) {
+    match node {
+        Node::Text(text) => {
+            if let Some(pos) = text.value.rfind("{#") {
+                let trimmed = text.value[..pos].trim_end();
+                ctx.push_text(trimmed);
+            } else {
+                ctx.push_text(&text.value);
+            }
+        }
+        Node::Strong(strong) => {
+            ctx.push_raw("<strong>");
+            render_heading_children(&strong.children, ctx);
+            ctx.push_raw("</strong>");
+        }
+        Node::Emphasis(em) => {
+            ctx.push_raw("<em>");
+            render_heading_children(&em.children, ctx);
+            ctx.push_raw("</em>");
+        }
+        Node::Link(link) => {
+            ctx.push_raw(r#"<a href=""#);
+            ctx.push_attr_value(&link.url);
+            ctx.push_raw(r#"""#);
+            if let Some(title) = &link.title {
+                ctx.push_raw(r#" title=""#);
+                ctx.push_attr_value(title);
+                ctx.push_raw(r#"""#);
+            }
+            ctx.push_raw(">");
+            render_heading_children(&link.children, ctx);
+            ctx.push_raw("</a>");
+        }
+        Node::Delete(del) => {
+            ctx.push_raw("<del>");
+            render_heading_children(&del.children, ctx);
+            ctx.push_raw("</del>");
+        }
+        _ => render_node(node, ctx),
+    }
 }
 
 /// Renders a code block, either inline (in lists/tables) or as a structured block.

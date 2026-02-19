@@ -4,6 +4,7 @@
 //! which compiles MDX (Markdown with JSX) to JavaScript using markdown-rs and SWC.
 
 use crate::directives::rewrite_directives_to_asides;
+use crate::slug::extract_custom_id;
 use crate::{FrontmatterExtraction, extract_frontmatter, slug::Slugger};
 use mdxjs::{JsxRuntime, Options, compile};
 
@@ -113,6 +114,10 @@ pub fn compile_mdx(
 
     // Extract headings from the source before compilation
     let headings = extract_headings_from_source(&content);
+
+    // Strip {#custom-id} from headings before passing to mdxjs-rs
+    // (MDX treats {…} as JSX expressions, so they must be removed)
+    let content = strip_custom_ids_from_headings(&content);
 
     // Configure mdxjs-rs options
     let mdx_options = Options {
@@ -588,6 +593,65 @@ fn escape_html_for_js(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
+/// Strips `{#custom-id}` suffixes from heading lines in the source.
+///
+/// MDX treats `{...}` as JSX expressions, so we need to remove `{#id}` from
+/// heading lines before passing to mdxjs-rs. The IDs have already been extracted
+/// by `extract_headings_from_source`.
+fn strip_custom_ids_from_headings(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut fence_state: Option<(char, usize)> = None;
+
+    for line in source.lines() {
+        // Track fenced code blocks
+        let trimmed = line.trim();
+        if let Some((marker, len)) = parse_fence_marker(trimmed) {
+            if let Some((open_marker, open_len)) = fence_state {
+                if marker == open_marker && len >= open_len {
+                    fence_state = None;
+                }
+            } else {
+                fence_state = Some((marker, len));
+            }
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        if fence_state.is_some() || is_indented_code_block(line) || !trimmed.starts_with('#') {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        // Check if this is a heading line with a custom id
+        // Use parse_atx_heading which strips trailing ATX hashes before checking,
+        // so `## Title {#my-id} ##` is correctly detected.
+        let has_custom_id = parse_atx_heading(trimmed)
+            .map_or(false, |h| h.custom_id.is_some());
+        if has_custom_id {
+            // Remove the {#id} suffix from the line
+            // Find the {# in the original line (preserving leading whitespace)
+            if let Some(pos) = line.rfind("{#") {
+                let before = line[..pos].trim_end();
+                result.push_str(before);
+            } else {
+                result.push_str(line);
+            }
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+
+    // Remove the trailing newline if the original source didn't end with one
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
+}
+
 /// Checks if a line is an indented code block (4+ spaces or tab at start).
 /// Per CommonMark spec, such lines are code blocks, not headings.
 pub fn is_indented_code_block(line: &str) -> bool {
@@ -648,7 +712,12 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
 
         // Match ATX headings (# to ######)
         if let Some(heading_match) = parse_atx_heading(trimmed) {
-            let slug = slugger.next_slug(&heading_match.text);
+            let slug = if let Some(ref custom_id) = heading_match.custom_id {
+                slugger.reserve(custom_id);
+                custom_id.clone()
+            } else {
+                slugger.next_slug(&heading_match.text)
+            };
             headings.push(MdxHeading {
                 depth: heading_match.depth,
                 slug,
@@ -679,6 +748,7 @@ fn parse_fence_marker(line: &str) -> Option<(char, usize)> {
 struct AtxHeading {
     depth: u8,
     text: String,
+    custom_id: Option<String>,
 }
 
 /// Strips inline markdown formatting from text, leaving only plain text.
@@ -866,6 +936,7 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
             return Some(AtxHeading {
                 depth,
                 text: String::new(),
+                custom_id: None,
             });
         }
         _ => {
@@ -886,9 +957,13 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
     //   "# Heading#" → "Heading#" (no space before #, keep it)
     let text = strip_trailing_hashes(text);
 
+    // Extract {#custom-id} before stripping inline markdown
+    let (text, custom_id) = extract_custom_id(text);
+
     Some(AtxHeading {
         depth,
         text: strip_inline_markdown(text),
+        custom_id: custom_id.map(|s| s.to_string()),
     })
 }
 
@@ -1709,6 +1784,162 @@ Warning
             !has_fragmented_list,
             "List inside Steps should NOT be fragmented. Output:\n{}",
             output.code
+        );
+    }
+
+    #[test]
+    fn test_custom_id_reserves_slug_for_dedup() {
+        let source = "# Intro {#intro}\n\n## Intro\n";
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].slug, "intro");
+        assert_eq!(headings[1].slug, "intro-1");
+    }
+
+    #[test]
+    fn test_custom_id_heading_extraction() {
+        let source = r#"
+# Title
+
+## 共通データ型バリデーター {#common-data-type-validators}
+
+### Another Section
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 3);
+        assert_eq!(headings[0].text, "Title");
+        assert_eq!(headings[0].slug, "title");
+        assert_eq!(headings[1].text, "共通データ型バリデーター");
+        assert_eq!(headings[1].slug, "common-data-type-validators");
+        assert_eq!(headings[2].text, "Another Section");
+        assert_eq!(headings[2].slug, "another-section");
+    }
+
+    #[test]
+    fn test_custom_id_not_in_code_block() {
+        let source = r#"
+# Title
+
+```
+## Heading {#not-extracted}
+```
+
+## Real {#real-id}
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].slug, "title");
+        assert_eq!(headings[1].slug, "real-id");
+        assert_eq!(headings[1].text, "Real");
+    }
+
+    #[test]
+    fn test_parse_atx_heading_custom_id() {
+        let heading = parse_atx_heading("## My Heading {#my-heading}").unwrap();
+        assert_eq!(heading.depth, 2);
+        assert_eq!(heading.text, "My Heading");
+        assert_eq!(heading.custom_id.as_deref(), Some("my-heading"));
+    }
+
+    #[test]
+    fn test_parse_atx_heading_no_custom_id() {
+        let heading = parse_atx_heading("## My Heading").unwrap();
+        assert_eq!(heading.text, "My Heading");
+        assert_eq!(heading.custom_id, None);
+    }
+
+    #[test]
+    fn test_strip_custom_ids_from_headings() {
+        let source = "# Title\n\n## Section {#my-section}\n\nContent\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert_eq!(stripped, "# Title\n\n## Section\n\nContent\n");
+    }
+
+    #[test]
+    fn test_strip_custom_ids_preserves_code_blocks() {
+        let source = "# Title\n\n```\n## Heading {#not-stripped}\n```\n\n## Real {#real-id}\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(stripped.contains("## Heading {#not-stripped}"));
+        assert!(!stripped.contains("{#real-id}"));
+        assert!(stripped.contains("## Real"));
+    }
+
+    #[test]
+    fn test_strip_custom_ids_preserves_indented_code_blocks() {
+        let source = "# Title\n\n    # Heading {#foo}\n\nContent\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(
+            stripped.contains("    # Heading {#foo}"),
+            "Indented code block line should not be stripped, got: {}",
+            stripped
+        );
+    }
+
+    #[test]
+    fn test_strip_custom_ids_trailing_atx_hashes() {
+        // `## Title {#my-id} ##` — trailing ATX hashes after the custom ID
+        let source = "## Title {#my-id} ##\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(
+            !stripped.contains("{#my-id}"),
+            "Custom ID should be stripped even with trailing ATX hashes, got: {}",
+            stripped
+        );
+        assert!(
+            stripped.contains("## Title"),
+            "Heading prefix and title should remain, got: {}",
+            stripped
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_with_custom_id_trailing_hashes() {
+        // Integration test: trailing ATX hashes with custom ID should compile successfully
+        let source = "---\ntitle: Test\n---\n\n## Title {#my-id} ##\n\nContent here.\n";
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Compilation should succeed with trailing ATX hashes and custom ID: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        assert_eq!(output.headings.len(), 1);
+        assert_eq!(output.headings[0].slug, "my-id");
+        assert_eq!(output.headings[0].text, "Title");
+        assert!(
+            !output.code.contains("{#my-id}"),
+            "Custom ID syntax should be stripped from compiled output"
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_with_custom_id() {
+        let source = r#"---
+title: Test
+---
+
+# Hello
+
+## 共通データ型 {#common-data-type-validators}
+
+Content here.
+"#;
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        assert_eq!(output.headings.len(), 2);
+        assert_eq!(output.headings[0].slug, "hello");
+        assert_eq!(output.headings[1].slug, "common-data-type-validators");
+        assert_eq!(output.headings[1].text, "共通データ型");
+        // The {#...} should not appear in the compiled JS (would cause JSX parse error)
+        assert!(
+            !output.code.contains("{#common-data-type-validators}"),
+            "Custom ID syntax should be stripped from compiled output"
         );
     }
 }
