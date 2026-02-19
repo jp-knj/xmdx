@@ -17,6 +17,81 @@ import { rewriteFallbackDirectives, injectFallbackImports } from './directive-re
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { ExpressiveCodeManager } from './expressive-code-manager.js';
 
+type HastNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+type HastElement = HastNode & {
+  type: 'element';
+  tagName: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+};
+
+type HastText = HastNode & {
+  type: 'text';
+  value?: string;
+};
+
+function isElement(node: HastNode | undefined): node is HastElement {
+  return node?.type === 'element' && typeof node.tagName === 'string';
+}
+
+function isText(node: HastNode | undefined): node is HastText {
+  return node?.type === 'text';
+}
+
+function extractText(node: HastNode): string {
+  if (isText(node)) {
+    return typeof node.value === 'string' ? node.value : '';
+  }
+  if (!isElement(node) || !Array.isArray(node.children)) {
+    return '';
+  }
+  return node.children.map(extractText).join('');
+}
+
+export function slugifyHeading(text: string): string {
+  const slug = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} _-]/gu, '')
+    .replace(/ /g, '-');
+  return slug || 'heading';
+}
+
+export function rehypeHeadingIds() {
+  return (tree: HastNode) => {
+    const usedSlugs = new Map<string, number>();
+
+    const assignHeadingId = (node: HastNode) => {
+      if (isElement(node) && /^h[1-6]$/.test(node.tagName)) {
+        const properties = (node.properties ??= {});
+        const existingId = properties.id;
+        if (typeof existingId !== 'string' || existingId.length === 0) {
+          const baseSlug = slugifyHeading(extractText(node));
+          const count = usedSlugs.get(baseSlug) ?? 0;
+          const slug = count === 0 ? baseSlug : `${baseSlug}-${count}`;
+          usedSlugs.set(baseSlug, count + 1);
+          properties.id = slug;
+        } else {
+          const count = usedSlugs.get(existingId) ?? 0;
+          usedSlugs.set(existingId, count + 1);
+        }
+      }
+
+      const children = Array.isArray(node.children) ? (node.children as HastNode[]) : null;
+      if (children) {
+        for (const child of children) {
+          assignHeadingId(child);
+        }
+      }
+    };
+
+    assignHeadingId(tree);
+  };
+}
+
 /**
  * Options for ExpressiveCode pre-rendering in fallback compilation.
  */
@@ -66,6 +141,7 @@ export async function compileFallbackModule(
   const compiled = await compileMdx(sourceWithoutFrontmatter, {
     jsxImportSource: 'astro',
     remarkPlugins: [remarkGfm, remarkDirective],
+    rehypePlugins: [rehypeHeadingIds],
     // Don't use providerImportSource as it requires @mdx-js/react
     // which may not be installed
   });
