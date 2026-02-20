@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/napi-linux-arm64-musl",
-  "version": "0.0.4",
+  "version": "0.0.3-next.1",
   "cpu": [
     "arm64"
   ],
