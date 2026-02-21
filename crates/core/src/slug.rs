@@ -204,7 +204,8 @@ mod tests {
 
     #[test]
     fn extract_custom_id_unicode_text() {
-        let (text, id) = extract_custom_id("共通データ型バリデーター {#common-data-type-validators}");
+        let (text, id) =
+            extract_custom_id("共通データ型バリデーター {#common-data-type-validators}");
         assert_eq!(text, "共通データ型バリデーター");
         assert_eq!(id, Some("common-data-type-validators"));
     }
