@@ -451,6 +451,11 @@ impl<'a> Context<'a> {
         self.slugger.next_slug(text)
     }
 
+    /// Reserves a slug so future auto-generated slugs won't collide with it.
+    pub fn reserve_slug(&mut self, slug: &str) {
+        self.slugger.reserve(slug);
+    }
+
     /// Adds a heading entry to the list of headings.
     pub fn add_heading(&mut self, entry: HeadingEntry) {
         self.headings.push(entry);

@@ -1368,4 +1368,137 @@ export const authClient = createAuthClient();
             other => panic!("Expected HTML block, got: {:?}", other),
         }
     }
+
+    #[test]
+    fn test_custom_id_reserves_slug_for_dedup() {
+        let input = "## Intro {#intro}\n\n## Intro\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+        let blocks = to_blocks(input, &options).unwrap();
+
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            all_html.contains(r#"id="intro""#),
+            "First heading should have id=\"intro\", got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains(r#"id="intro-1""#),
+            "Second heading should have id=\"intro-1\", got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_inline_code_custom_id_not_detected() {
+        // `{#bar}` inside InlineCode should NOT be treated as a custom heading ID
+        let input = "## foo `{#bar}`\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+        let blocks = to_blocks(input, &options).unwrap();
+
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Should NOT use "bar" as the heading ID
+        assert!(
+            !all_html.contains(r#"id="bar""#),
+            "Should not detect custom ID inside InlineCode, got: {}",
+            all_html
+        );
+        // Should auto-generate a slug from the text content
+        assert!(
+            all_html.contains(r#"id="foo-bar""#),
+            "Should auto-generate slug, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_inline_code_then_custom_id_still_works() {
+        // `foo` followed by {#bar} as plain text — custom ID should still be detected
+        let input = "## `foo` {#bar}\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+        let blocks = to_blocks(input, &options).unwrap();
+
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            all_html.contains(r#"id="bar""#),
+            "Custom ID after InlineCode should still work, got: {}",
+            all_html
+        );
+        assert!(
+            !all_html.contains("{#bar}"),
+            "Custom ID syntax should be stripped from output, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_nested_inline_custom_id_stripped() {
+        let input = "## **Bold text {#bold-id}**\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+        let blocks = to_blocks(input, &options).unwrap();
+
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            !all_html.contains("{#bold-id}"),
+            "Custom ID should be stripped from nested inline node, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains(r#"id="bold-id""#),
+            "Heading should have id attribute bold-id, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("<strong>Bold text</strong>"),
+            "Bold text should be rendered without custom ID, got: {}",
+            all_html
+        );
+    }
 }

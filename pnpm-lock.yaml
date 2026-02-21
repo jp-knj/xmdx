@@ -113,6 +113,9 @@ importers:
         specifier: workspace:*
         version: link:../../crates/napi
     devDependencies:
+      tsdown:
+        specifier: ^0.15.0
+        version: 0.15.0(typescript@5.7.2)
       typescript:
         specifier: ^5.7.0
         version: 5.7.2

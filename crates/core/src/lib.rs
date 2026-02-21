@@ -25,7 +25,7 @@ pub use parse::{
     AstTransform, ParseOptions, ParserPipeline, TextTransform, parse_mdast,
     parse_mdast_with_options,
 };
-pub use slug::{Slugger, slugify};
+pub use slug::{Slugger, extract_custom_id, slugify};
 
 pub use code_fence::{FencePhase, FenceState, LineParseOutcome, advance_fence_state};
 pub use directives::{

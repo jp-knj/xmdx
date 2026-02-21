@@ -4,6 +4,7 @@
  */
 
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import type { XmdxBinding } from './types.js';
 
 let bindingPromise: Promise<XmdxBinding> | undefined;
@@ -28,23 +29,45 @@ const logBindingSource = (source: string): void => {
 
 /**
  * Loads the native Xmdx binding.
- * Uses @xmdx/napi package resolver for platform-correct native loading.
+ * Uses require() directly on the .node binary to bypass Vite SSR runner.
  */
 export async function loadXmdxBinding(): Promise<XmdxBinding> {
   if (!bindingPromise) {
     bindingPromise = (async () => {
       const require = createRequire(import.meta.url);
-      try {
-        // Delegate platform/arch detection to NAPI-RS generated loader.
-        const binding = require('@xmdx/napi') as XmdxBinding;
-        logBindingSource('@xmdx/napi');
-        return binding;
-      } catch (err) {
-        const e = err instanceof Error ? err : new Error(String(err));
-        throw new Error(
-          `[xmdx] failed to load @xmdx/napi on ${process.platform}-${process.arch}: ${e.message}`
+      const pkgRoot = path.dirname(require.resolve('@xmdx/napi/package.json'));
+
+      const guessBinaryName = () => {
+        const triplet = `${process.platform}-${process.arch}`;
+        return [
+          `xmdx.${triplet}.node`,
+          `xmdx-${triplet}.node`,
+          `xmdx.${process.platform}-${process.arch}.node`,
+        ];
+      };
+
+      const findBinaryPath = (): string => {
+        const candidates = guessBinaryName().map((name) =>
+          path.resolve(pkgRoot, name)
         );
-      }
+        for (const candidate of candidates) {
+          if (require('node:fs').existsSync(candidate)) {
+            return candidate;
+          }
+        }
+        // Fallback: first .node in package root
+        const entries = require('node:fs').readdirSync(pkgRoot);
+        const nodeFile = entries.find((f: string) => f.endsWith('.node'));
+        if (nodeFile) {
+          return path.resolve(pkgRoot, nodeFile);
+        }
+        throw new Error('@xmdx/napi native binary not found');
+      };
+
+      const binaryPath = findBinaryPath();
+      const binding = require(binaryPath) as XmdxBinding;
+      logBindingSource(binaryPath);
+      return binding;
     })();
   }
   return bindingPromise;
