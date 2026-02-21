@@ -1,6 +1,6 @@
 {
   "name": "xmdx",
-  "version": "0.0.3-next.3",
+  "version": "0.0.3-next.4",
   "description": "High-performance streaming Markdown to HTML parser built with Rust",
   "type": "module",
   "scripts": {

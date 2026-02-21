@@ -910,7 +910,7 @@ fn strip_custom_ids_from_headings(source: &str) -> String {
         // Check if this is a heading line with a custom id
         // Use parse_atx_heading which strips trailing ATX hashes before checking,
         // so `## Title {#my-id} ##` is correctly detected.
-        let has_custom_id = parse_atx_heading(trimmed).map_or(false, |h| h.custom_id.is_some());
+        let has_custom_id = parse_atx_heading(trimmed).is_some_and(|h| h.custom_id.is_some());
         if has_custom_id {
             // Remove the {#id} suffix from the line
             // Find the {# in the original line (preserving leading whitespace)

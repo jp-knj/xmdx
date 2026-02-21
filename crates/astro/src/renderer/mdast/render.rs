@@ -287,7 +287,7 @@ fn render_link(link: &markdown::mdast::Link, ctx: &mut Context) {
 ///
 /// This avoids false positives from InlineCode nodes like `` `{#bar}` ``,
 /// which should be treated as literal code, not custom heading IDs.
-fn find_custom_id_in_last_text_node<'a>(nodes: &'a [Node]) -> Option<&'a str> {
+fn find_custom_id_in_last_text_node(nodes: &[Node]) -> Option<&str> {
     let last = nodes.last()?;
     match last {
         Node::Text(t) => {

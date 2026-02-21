@@ -27,6 +27,126 @@ const logBindingSource = (source: string): void => {
   }
 };
 
+export type LinuxLibc = 'gnu' | 'musl' | null;
+
+export function detectLinuxLibc(requireFn: NodeRequire): LinuxLibc {
+  try {
+    const fs = requireFn('node:fs') as typeof import('node:fs');
+    if (fs.readFileSync('/usr/bin/ldd', 'utf8').includes('musl')) {
+      return 'musl';
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const report =
+      typeof process.report?.getReport === 'function'
+        ? process.report.getReport() as {
+          header?: { glibcVersionRuntime?: unknown };
+          sharedObjects?: string[];
+        }
+        : null;
+
+    if (report?.header?.glibcVersionRuntime) {
+      return 'gnu';
+    }
+
+    if (Array.isArray(report?.sharedObjects)) {
+      const hasMusl = report.sharedObjects.some((file: string) =>
+        file.includes('libc.musl-') || file.includes('ld-musl-')
+      );
+      if (hasMusl) {
+        return 'musl';
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const childProcess = requireFn('node:child_process') as typeof import('node:child_process');
+    const lddVersion = childProcess.execSync('ldd --version', {
+      encoding: 'utf8',
+    });
+    if (lddVersion.includes('musl')) {
+      return 'musl';
+    }
+    if (lddVersion.toLowerCase().includes('glibc') || lddVersion.includes('GNU C Library')) {
+      return 'gnu';
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+export function getNativeBinaryCandidates(
+  platform = process.platform,
+  arch = process.arch,
+  libc: LinuxLibc = null,
+): string[] {
+  const names: string[] = [];
+  const push = (name: string) => {
+    if (!names.includes(name)) names.push(name);
+  };
+
+  const triplet = `${platform}-${arch}`;
+
+  if (platform === 'linux' && (arch === 'x64' || arch === 'arm64')) {
+    if (libc === 'gnu') {
+      push(`xmdx.linux-${arch}-gnu.node`);
+      push(`xmdx-linux-${arch}-gnu.node`);
+    } else if (libc === 'musl') {
+      push(`xmdx.linux-${arch}-musl.node`);
+      push(`xmdx-linux-${arch}-musl.node`);
+    }
+
+    push(`xmdx.linux-${arch}-gnu.node`);
+    push(`xmdx-linux-${arch}-gnu.node`);
+    push(`xmdx.linux-${arch}-musl.node`);
+    push(`xmdx-linux-${arch}-musl.node`);
+  }
+
+  push(`xmdx.${triplet}.node`);
+  push(`xmdx-${triplet}.node`);
+  push(`xmdx.${platform}-${arch}.node`);
+
+  return names;
+}
+
+export function selectCompatibleNodeFile(
+  entries: string[],
+  platform = process.platform,
+  arch = process.arch,
+  libc: LinuxLibc = null,
+): string | null {
+  const nodeEntries = entries.filter((entry) => entry.endsWith('.node'));
+  if (nodeEntries.length === 0) return null;
+
+  const directMatch = getNativeBinaryCandidates(platform, arch, libc)
+    .find((name) => nodeEntries.includes(name));
+  if (directMatch) return directMatch;
+
+  const triplet = `${platform}-${arch}`;
+  const compatible = nodeEntries.filter((name) => name.includes(triplet));
+  if (compatible.length === 0) return null;
+
+  if (platform === 'linux' && (arch === 'x64' || arch === 'arm64')) {
+    const linuxOrder = libc === 'musl'
+      ? [`linux-${arch}-musl`, `linux-${arch}-gnu`]
+      : [`linux-${arch}-gnu`, `linux-${arch}-musl`];
+
+    for (const token of linuxOrder) {
+      const match = compatible.find((name) => name.includes(token));
+      if (match) return match;
+    }
+  }
+
+  return compatible[0] ?? null;
+}
+
 /**
  * Loads the native Xmdx binding.
  * Uses require() directly on the .node binary to bypass Vite SSR runner.
@@ -37,31 +157,30 @@ export async function loadXmdxBinding(): Promise<XmdxBinding> {
       const require = createRequire(import.meta.url);
       const pkgRoot = path.dirname(require.resolve('@xmdx/napi/package.json'));
 
-      const guessBinaryName = () => {
-        const triplet = `${process.platform}-${process.arch}`;
-        return [
-          `xmdx.${triplet}.node`,
-          `xmdx-${triplet}.node`,
-          `xmdx.${process.platform}-${process.arch}.node`,
-        ];
-      };
-
       const findBinaryPath = (): string => {
-        const candidates = guessBinaryName().map((name) =>
-          path.resolve(pkgRoot, name)
-        );
+        const libc = process.platform === 'linux' ? detectLinuxLibc(require) : null;
+        const candidates = getNativeBinaryCandidates(process.platform, process.arch, libc)
+          .map((name) => path.resolve(pkgRoot, name));
+
+        const fs = require('node:fs') as typeof import('node:fs');
+
         for (const candidate of candidates) {
-          if (require('node:fs').existsSync(candidate)) {
+          if (fs.existsSync(candidate)) {
             return candidate;
           }
         }
-        // Fallback: first .node in package root
-        const entries = require('node:fs').readdirSync(pkgRoot);
-        const nodeFile = entries.find((f: string) => f.endsWith('.node'));
-        if (nodeFile) {
-          return path.resolve(pkgRoot, nodeFile);
+
+        // Last resort fallback: only allow platform/arch-compatible .node files.
+        const entries = fs.readdirSync(pkgRoot);
+        const compatibleNodeFile = selectCompatibleNodeFile(entries, process.platform, process.arch, libc);
+        if (compatibleNodeFile) {
+          return path.resolve(pkgRoot, compatibleNodeFile);
         }
-        throw new Error('@xmdx/napi native binary not found');
+
+        throw new Error(
+          `@xmdx/napi native binary not found for ${process.platform}-${process.arch}` +
+          `${libc ? ` (${libc})` : ''}. Tried: ${candidates.join(', ')}`
+        );
       };
 
       const binaryPath = findBinaryPath();

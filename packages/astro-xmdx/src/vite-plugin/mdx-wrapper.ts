@@ -100,13 +100,14 @@ export function wrapMdxModule(
   // 1. Direct function: `export default function MDXContent(props) { ... }`
   // 2. Function reference: `function _createMdxContent(props) { ... } export default _createMdxContent;`
   const normalizedMdxCode = normalizeMdxExport(mdxCode);
+  const mdxWithIds = injectHeadingIds(normalizedMdxCode, headings);
 
   return `import { createComponent, renderJSX } from 'astro/runtime/server/index.js';
 import { Fragment } from 'astro/jsx-runtime';
 ${componentImports}
 
 // MDX compiled content
-${normalizedMdxCode}
+${mdxWithIds}
 
 // Astro exports
 export const frontmatter = ${frontmatterJson};
@@ -349,6 +350,33 @@ function generateComponentImports(components: UsedComponent[], registry: Registr
   }
 
   return imports.join('\n');
+}
+
+/**
+ * Injects `id` props into heading JSX calls in mdxjs-rs compiled output.
+ *
+ * mdxjs-rs generates `_jsx(_components.h2, { children: "..." })` without `id` attributes.
+ * This function adds the corresponding slug from the extracted headings array so that
+ * the rendered HTML has proper fragment anchors (e.g., `<h2 id="getting-started">`).
+ */
+function injectHeadingIds(
+  code: string,
+  headings: Array<{ depth: number; slug: string; text: string }>
+): string {
+  if (headings.length === 0) return code;
+
+  let headingIndex = 0;
+  return code.replace(
+    /_jsxs?\(_components\.h[1-6],\s*\{/g,
+    (match) => {
+      if (headingIndex < headings.length) {
+        const slug = headings[headingIndex]!.slug;
+        headingIndex++;
+        return `${match}\n                id: ${JSON.stringify(slug)},`;
+      }
+      return match;
+    }
+  );
 }
 
 /**
