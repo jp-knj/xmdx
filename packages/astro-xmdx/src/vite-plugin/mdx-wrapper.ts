@@ -39,7 +39,7 @@ function computeRegistryHash(registry: Registry): string {
 /**
  * Options for wrapping MDX module output.
  */
-export interface WrapMdxOptions {
+interface WrapMdxOptions {
   /** Frontmatter extracted from the MDX file */
   frontmatter: Record<string, unknown>;
   /** Headings extracted from the MDX file */

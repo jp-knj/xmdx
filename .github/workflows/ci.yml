@@ -67,3 +67,16 @@ jobs:
       - name: Run JS tests
         working-directory: crates/napi
         run: bun test
+
+  knip:
+    name: Check unused code & dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm knip

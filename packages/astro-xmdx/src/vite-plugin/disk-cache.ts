@@ -12,7 +12,7 @@ import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 
 /** Cache entry for a compiled file */
-export interface CacheEntry {
+interface CacheEntry {
   /** Content hash of the source file */
   hash: string;
   /** Compiled esbuild output */

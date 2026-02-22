@@ -59,7 +59,7 @@ export interface CompileResult {
 /**
  * Export specification from Rust compiler.
  */
-export interface ExportSpec {
+interface ExportSpec {
   source: string;
   isDefault: boolean;
 }
@@ -147,7 +147,7 @@ export interface MdxBatchCompileResult {
  * Result from parsing blocks.
  */
 /** A render block from the Rust compiler. */
-export interface RenderBlockData {
+interface RenderBlockData {
   type: 'html' | 'component' | 'code';
   content?: string;
   name?: string;

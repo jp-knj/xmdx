@@ -8,7 +8,7 @@ import type { ComponentLibrary, ComponentDefinition } from 'xmdx/registry';
 /**
  * Result of finding the Starlight integration in an Astro config.
  */
-export interface StarlightDetectionResult {
+interface StarlightDetectionResult {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   integration: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

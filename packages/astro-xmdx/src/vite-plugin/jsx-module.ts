@@ -238,7 +238,7 @@ export function rehypeTasklistEnhancer() {
 /**
  * Options for ExpressiveCode pre-rendering in fallback compilation.
  */
-export interface FallbackExpressiveCodeOptions {
+interface FallbackExpressiveCodeOptions {
   config: ExpressiveCodeConfig;
   manager: ExpressiveCodeManager;
 }

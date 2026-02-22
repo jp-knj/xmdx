@@ -8,7 +8,7 @@ import path from 'node:path';
 /**
  * Default file extensions that should be compiled
  */
-export const DEFAULT_EXTENSIONS = new Set(['.md', '.mdx']);
+const DEFAULT_EXTENSIONS = new Set(['.md', '.mdx']);
 
 /**
  * Removes query string from a file ID/path
@@ -60,7 +60,7 @@ export function deriveAstroUrl(filePath: string, rootDir?: string): string | und
 /**
  * File options derived from a module ID.
  */
-export interface FileOptions {
+interface FileOptions {
   /** Absolute file path */
   file: string;
   /** Derived URL (if in pages directory) */

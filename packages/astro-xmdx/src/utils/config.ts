@@ -19,7 +19,7 @@ export interface ExpressiveCodeConfig {
 /**
  * ExpressiveCode user configuration input.
  */
-export interface ExpressiveCodeUserConfig {
+interface ExpressiveCodeUserConfig {
   /** Whether enabled */
   enabled?: boolean;
   /** Component name (internal key) */
@@ -98,7 +98,7 @@ export function resolveExpressiveCodeConfig(
 /**
  * Resolved Starlight configuration.
  */
-export interface StarlightConfig {
+interface StarlightConfig {
   /** Component names to inject */
   components: string[];
   /** Module to import from */

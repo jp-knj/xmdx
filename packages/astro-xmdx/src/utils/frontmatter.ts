@@ -9,7 +9,7 @@ import matter from 'gray-matter';
 /**
  * Result of parsing frontmatter from a file.
  */
-export interface ParsedFrontmatter {
+interface ParsedFrontmatter {
   /** Parsed frontmatter as an object */
   frontmatter: Record<string, unknown>;
   /** Content after frontmatter */
@@ -57,21 +57,3 @@ export function stripFrontmatter(source: string): string {
   }
 }
 
-/**
- * Get the byte length of frontmatter (including delimiters).
- * Returns 0 if no frontmatter found.
- */
-export function getFrontmatterLength(source: string): number {
-  try {
-    const result = matter(source);
-    // gray-matter doesn't expose the exact length, so calculate it
-    // The format is: ---\n{matter}\n---\n{content}
-    if (result.matter) {
-      // 3 (---) + 1 (\n) + matter.length + 1 (\n) + 3 (---) + 1 (\n) = 9 + matter.length
-      return 4 + result.matter.length + 5;
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
-}

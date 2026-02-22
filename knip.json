@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreBinaries": ["artifacts"],
+  "workspaces": {
+    "packages/astro-xmdx": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/xmdx": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/astro-loader": {
+      "project": ["src/**/*.ts"]
+    },
+    "crates/napi": {
+      "ignore": ["examples/**", "scripts/**"],
+      "ignoreDependencies": ["@xmdx/napi-*", "prettier"]
+    }
+  },
+  "ignoreWorkspaces": ["examples/*"],
+  "ignoreUnresolved": ["./xmdx.wasi.cjs"]
+}

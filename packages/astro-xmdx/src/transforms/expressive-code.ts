@@ -5,7 +5,7 @@
 
 import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ExpressiveCodeManager } from '../vite-plugin/expressive-code-manager.js';
+
 
 // PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
 const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;
@@ -52,7 +52,7 @@ export function decodeHtmlEntities(value: string): string {
 /**
  * Result of rewriting ExpressiveCode blocks.
  */
-export interface RewriteResult {
+interface RewriteResult {
   /** The transformed code */
   code: string;
   /** Whether any changes were made */
@@ -246,86 +246,3 @@ export function injectExpressiveCodeComponent(
   return insertAfterImports(code, importLine);
 }
 
-// PERF: Pre-compiled regex pattern for Code/ExpressiveCode components
-const CODE_COMPONENT_PATTERN =
-  /<(Code|ExpressiveCode)\s+code=\{([^}]+)\}(?:\s+lang="([^"]+)")?(?:\s+[^>]*)?\s*\/>/g;
-
-/**
- * Pre-renders ExpressiveCode components at build time.
- *
- * This transform replaces `<Code code={...} lang="..." />` components with
- * pre-rendered HTML using `<_Fragment set:html={...} />`. This avoids the
- * expensive per-file ExpressiveCode rendering during SSG, significantly
- * improving build performance.
- *
- * Before: <Code code={"console.log('hello')"} lang="js" />
- * After:  <_Fragment set:html={"<figure class=\"expressive-code\">...</figure>"} />
- *
- * @param code - The JSX code containing Code components
- * @param ecManager - The ExpressiveCode manager instance
- * @returns Transformed code with pre-rendered HTML
- */
-export async function renderExpressiveCodeBlocks(
-  code: string,
-  ecManager: ExpressiveCodeManager
-): Promise<RewriteResult> {
-  // Quick bail-out checks
-  if (!code || !ecManager.enabled || !code.includes('code={')) {
-    return { code, changed: false };
-  }
-
-  // Find all Code/ExpressiveCode component instances
-  CODE_COMPONENT_PATTERN.lastIndex = 0;
-  const matches: Array<{
-    fullMatch: string;
-    index: number;
-    codeProp: string;
-    lang?: string;
-  }> = [];
-
-  let match: RegExpExecArray | null;
-  while ((match = CODE_COMPONENT_PATTERN.exec(code)) !== null) {
-    matches.push({
-      fullMatch: match[0],
-      index: match.index,
-      codeProp: match[2]!,
-      lang: match[3],
-    });
-  }
-
-  if (matches.length === 0) {
-    return { code, changed: false };
-  }
-
-  // Render all code blocks in parallel
-  const rendered = await Promise.all(
-    matches.map(async ({ codeProp, lang }) => {
-      try {
-        // Parse the JSON-encoded code value
-        const codeValue = JSON.parse(codeProp) as string;
-        // Skip empty code blocks
-        if (!codeValue.trim()) return null;
-        // Render through ExpressiveCode
-        return await ecManager.render(codeValue, lang);
-      } catch {
-        // Parse error or render failure - skip this block
-        return null;
-      }
-    })
-  );
-
-  // Replace matches in reverse order to preserve indices
-  let result = code;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const html = rendered[i];
-    if (html) {
-      const { fullMatch, index } = matches[i]!;
-      // Replace Code component with pre-rendered HTML Fragment
-      const replacement = `<_Fragment set:html={${JSON.stringify(html)}} />`;
-      result = result.slice(0, index) + replacement + result.slice(index + fullMatch.length);
-    }
-  }
-
-  const changed = rendered.some((r) => r !== null);
-  return { code: result, changed };
-}

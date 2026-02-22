@@ -3,7 +3,7 @@
  * @module vite-plugin/load-profiler
  */
 
-export const DEBUG_TIMING = process.env.XMDX_DEBUG_TIMING === '1';
+const DEBUG_TIMING = process.env.XMDX_DEBUG_TIMING === '1';
 
 export function debugTime(label: string): void {
   if (DEBUG_TIMING) console.time(`[xmdx:timing] ${label}`);

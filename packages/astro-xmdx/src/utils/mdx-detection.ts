@@ -9,7 +9,7 @@ import type { MdxImportHandlingOptions } from '../types.js';
 /**
  * Detailed result from pattern detection.
  */
-export interface MdxPatternDetectionResult {
+interface MdxPatternDetectionResult {
   /** Whether problematic patterns were found */
   hasProblematicPatterns: boolean;
   /** Human-readable reason for fallback */
@@ -215,10 +215,3 @@ export function detectProblematicMdxPatterns(
  * @param options - MDX handling options
  * @param filepath - Optional file path to determine if MDX-specific checks apply
  */
-export function hasProblematicMdxPatterns(
-  source: string,
-  options?: MdxImportHandlingOptions,
-  filepath?: string
-): boolean {
-  return detectProblematicMdxPatterns(source, options, filepath).hasProblematicPatterns;
-}

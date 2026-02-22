@@ -7,7 +7,7 @@
  * Normalized starlightComponents configuration.
  * Strips the `enabled` property which is only used for initial boolean check.
  */
-export type NormalizedStarlightComponents = boolean | { components?: string[]; module?: string };
+type NormalizedStarlightComponents = boolean | { components?: string[]; module?: string };
 
 // PERF: Cache normalized results to avoid redundant object creation
 // Key: original value reference, Value: normalized result

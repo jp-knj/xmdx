@@ -30,7 +30,7 @@ interface LoadState {
   totalProcessingTimeMs: number;
 }
 
-export interface LoadHandlerDeps {
+interface LoadHandlerDeps {
   sourceLookup: Map<string, string>;
   fallbackFiles: Set<string>;
   fallbackReasons: Map<string, string>;
@@ -130,7 +130,7 @@ async function runPipelineAndEsbuild(
   };
 }
 
-export function loadFromEsbuildCache(
+function loadFromEsbuildCache(
   filename: string,
   cachedEsbuildResult: EsbuildCacheEntry,
   loadStart: number,
@@ -160,7 +160,7 @@ function getSourceForHooks(
   );
 }
 
-export async function loadCachedModule(
+async function loadCachedModule(
   id: string,
   filename: string,
   cachedModule: CachedModuleResult,
@@ -210,7 +210,7 @@ export async function loadCachedModule(
   };
 }
 
-export async function loadCachedMdx(
+async function loadCachedMdx(
   id: string,
   filename: string,
   cachedMdx: CachedMdxResult,
@@ -270,7 +270,7 @@ export async function loadCachedMdx(
   };
 }
 
-export async function loadCacheMiss(
+async function loadCacheMiss(
   id: string,
   filename: string,
   loadStart: number,
@@ -422,7 +422,7 @@ export async function loadCacheMiss(
   };
 }
 
-export async function loadWithFallback(
+async function loadWithFallback(
   id: string,
   filename: string,
   error: unknown,

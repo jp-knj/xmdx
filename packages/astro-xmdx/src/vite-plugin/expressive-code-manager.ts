@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 /**
  * ExpressiveCode rendering result with highlighted HTML.
  */
-export interface ExpressiveCodeRenderResult {
+interface ExpressiveCodeRenderResult {
   /** The rendered HTML string */
   html: string;
   /** CSS styles to inject */

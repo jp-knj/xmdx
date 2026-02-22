@@ -9,7 +9,7 @@ import type { HeadingEntry } from 'xmdx';
  * Minimal registry interface consumed by blocksToJsx.
  * Avoids coupling to the full Registry type.
  */
-export interface BlocksRegistry {
+interface BlocksRegistry {
   getSupportedDirectives(): string[];
   getDirectiveMapping(directive: string): { component: string; injectProps?: Record<string, { source: string; value?: string }> } | undefined;
   getSlotNormalization(component: string): { strategy: 'wrap_in_ol' | 'wrap_in_ul' } | undefined;
@@ -440,7 +440,7 @@ function normalizeSlotByStrategy(slot: string, strategy: 'wrap_in_ol' | 'wrap_in
  * Builder for constructing Astro module code.
  * Encapsulates the assembly of imports, exports, and content.
  */
-export class AstroModuleBuilder {
+class AstroModuleBuilder {
   private imports: string[] = [];
   private frontmatterData: Record<string, unknown> = {};
   private headingsData: HeadingEntry[] = [];

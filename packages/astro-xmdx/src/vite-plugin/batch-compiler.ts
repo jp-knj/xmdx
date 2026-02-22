@@ -87,7 +87,7 @@ interface BuildState {
   diskCache: DiskCache | null;
 }
 
-export interface BuildStartDeps {
+interface BuildStartDeps {
   resolvedConfig?: ResolvedConfig;
   state: BuildState;
   diskCacheEnabled: boolean;
@@ -115,7 +115,7 @@ export interface BuildStartDeps {
   warn: (message: string) => void;
 }
 
-export async function batchReadAndDetectFallbacks(
+async function batchReadAndDetectFallbacks(
   files: string[],
   hooks: PluginHooks,
   mdxOptions: MdxImportHandlingOptions | undefined,
@@ -206,7 +206,7 @@ export async function batchReadAndDetectFallbacks(
   return { inputs, sourceHashes, diskCacheHits };
 }
 
-export async function batchCompileFiles(
+async function batchCompileFiles(
   binding: XmdxBinding,
   mdInputs: BatchInput[],
   mdxInputs: BatchInput[],
@@ -265,7 +265,7 @@ export async function batchCompileFiles(
   return { md: mdStats, mdx: mdxStats };
 }
 
-export async function batchEsbuildTransform(
+async function batchEsbuildTransform(
   jsxInputs: Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }>,
   esbuildCache: Map<string, EsbuildCacheEntry>,
   warn: (message: string) => void
@@ -350,7 +350,7 @@ export async function batchEsbuildTransform(
   }
 }
 
-export function persistCaches(
+function persistCaches(
   persistentCache: PersistentCache,
   esbuildCache: Map<string, EsbuildCacheEntry>,
   moduleCompilationCache: Map<string, CachedModuleResult>,
