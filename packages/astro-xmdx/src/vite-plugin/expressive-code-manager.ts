@@ -53,9 +53,16 @@ export class ExpressiveCodeManager {
   private config: ExpressiveCodeConfig | null;
   private renderCache = new Map<string, string>();
   private collectedStyles = '';
+  /**
+   * When true, Starlight's own EC integration handles rendering.
+   * xmdx still rewrites `<pre><code>` → `<Code>` but skips pre-rendering
+   * to avoid theme/config mismatches and double-processing.
+   */
+  readonly starlightHandlesRendering: boolean;
 
-  constructor(config: ExpressiveCodeConfig | null) {
+  constructor(config: ExpressiveCodeConfig | null, starlightHandlesRendering = false) {
     this.config = config;
+    this.starlightHandlesRendering = starlightHandlesRendering;
   }
 
   /**
@@ -67,10 +74,14 @@ export class ExpressiveCodeManager {
 
   /**
    * Lazily initializes the ExpressiveCode engine.
-   * Returns null if ExpressiveCode is not configured.
+   * Returns null if ExpressiveCode is not configured or if Starlight handles rendering.
    */
   async init(): Promise<ExpressiveCodeEngine | null> {
     if (!this.config) return null;
+    // Skip engine initialization when Starlight handles rendering.
+    // Starlight's EC integration uses its own theme config and plugins;
+    // initializing our own engine would waste startup time and risk mismatches.
+    if (this.starlightHandlesRendering) return null;
     if (this.engine) return this.engine;
     if (this.initPromise) return this.initPromise;
 
@@ -117,6 +128,7 @@ export class ExpressiveCodeManager {
    * @returns Rendered HTML or null if engine not available
    */
   async render(code: string, lang?: string): Promise<string | null> {
+    if (this.starlightHandlesRendering) return null;
     const engine = await this.init();
     if (!engine) return null;
 

@@ -223,8 +223,11 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   // 2. ExpressiveCode is explicitly disabled (fallback highlighting)
   const shikiManager = new ShikiManager(ENABLE_SHIKI || !expressiveCode);
 
-  // ExpressiveCode pre-rendering manager for build-time code highlighting
-  const ecManager = new ExpressiveCodeManager(expressiveCode);
+  // ExpressiveCode pre-rendering manager for build-time code highlighting.
+  // When Starlight is configured, its EC integration handles rendering --
+  // skip our own engine to avoid double-processing and theme mismatches.
+  const starlightHandlesEC = hasStarlightConfigured;
+  const ecManager = new ExpressiveCodeManager(expressiveCode, starlightHandlesEC);
 
   // Lazy compiler initialization to avoid Vite module runner timing issues
   const getCompiler = async (): Promise<XmdxCompiler> => {
