@@ -128,6 +128,7 @@ export class ExpressiveCodeManager {
    * @returns Rendered HTML or null if engine not available
    */
   async render(code: string, lang?: string): Promise<string | null> {
+    if (this.starlightHandlesRendering) return null;
     const engine = await this.init();
     if (!engine) return null;
 
