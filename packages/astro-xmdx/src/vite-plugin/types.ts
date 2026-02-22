@@ -180,6 +180,11 @@ export interface XmdxPluginOptions {
   binding?: XmdxBinding;
   mdx?: MdxImportHandlingOptions;
   /**
+   * Set by the integration when Starlight is auto-detected at config time.
+   * Avoids re-deriving Starlight status from the libraries array in the vite plugin.
+   */
+  starlightDetected?: boolean;
+  /**
    * Enable disk caching for compilation results.
    * When enabled, compiled results are persisted to `.xmdx-cache/` for faster subsequent builds.
    * Can also be enabled via XMDX_DISK_CACHE=1 environment variable.

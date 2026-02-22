@@ -128,7 +128,6 @@ export class ExpressiveCodeManager {
    * @returns Rendered HTML or null if engine not available
    */
   async render(code: string, lang?: string): Promise<string | null> {
-    if (this.starlightHandlesRendering) return null;
     const engine = await this.init();
     if (!engine) return null;
 
@@ -158,17 +157,6 @@ export class ExpressiveCodeManager {
       console.warn(`[xmdx] ExpressiveCode render failed for ${lang ?? 'text'}:`, error);
       return null;
     }
-  }
-
-  /**
-   * Returns the already-resolved engine for code with pre tags,
-   * using a pre-resolved instance to avoid extra awaits in hot paths.
-   */
-  forCode(code: string, resolved: ExpressiveCodeEngine | null): ExpressiveCodeEngine | null {
-    if (!this.config || !resolved) return null;
-    // Quick check for code blocks
-    if (!code.includes('<Code') && !code.includes('code={')) return null;
-    return resolved;
   }
 
   /**

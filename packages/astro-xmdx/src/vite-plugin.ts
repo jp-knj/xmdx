@@ -205,10 +205,13 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     rewriteCodeBlocks: !!expressiveCode,
   };
 
-  // Track whether Starlight is configured for gating default directive handling
-  const hasStarlightConfigured = Boolean(userOptions.starlightComponents) ||
-    (Array.isArray(userOptions.libraries) &&
-     userOptions.libraries.some(lib => lib === starlightLibrary));
+  // Track whether Starlight is configured for gating default directive handling.
+  // Prefer the explicit flag set by the integration during auto-detection;
+  // fall back to the legacy derivation for preset-based users.
+  const hasStarlightConfigured = userOptions.starlightDetected ??
+    (Boolean(userOptions.starlightComponents) ||
+     (Array.isArray(userOptions.libraries) &&
+      userOptions.libraries.some(lib => lib === starlightLibrary)));
 
   // MDX import handling options
   const mdxOptions = userOptions.mdx;
