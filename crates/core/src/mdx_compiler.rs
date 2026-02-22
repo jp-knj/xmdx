@@ -966,21 +966,18 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     let mut slugger = Slugger::new();
 
     for line in source.lines() {
-        // Skip indented code blocks (4+ spaces or tab) before trimming
-        // Per CommonMark, these are code blocks and should not be parsed as headings
-        if is_indented_code_block(line) {
-            continue;
-        }
-
         let trimmed = line.trim();
 
-        // Track fenced code blocks with proper fence length matching
+        // Check for fence markers FIRST, even on indented lines.
+        // Fenced code blocks can be indented (e.g., inside JSX/HTML elements like <TabItem>),
+        // and we need to track them correctly to avoid misinterpreting headings.
         if let Some((marker, len)) = parse_fence_marker(trimmed) {
             if let Some((open_marker, open_len)) = fence_state {
                 // Inside a code block - check if this closes it
                 if marker == open_marker && len >= open_len {
                     fence_state = None;
                 }
+                // Note: if markers don't match, we stay inside the code block
             } else {
                 // Not in a code block - this opens one
                 fence_state = Some((marker, len));
@@ -988,7 +985,15 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
             continue;
         }
 
+        // Inside a fenced code block - skip all lines (headings inside code blocks don't count)
         if fence_state.is_some() {
+            continue;
+        }
+
+        // Skip indented code blocks (4+ spaces or tab) before parsing
+        // Per CommonMark, these are code blocks and should not be parsed as headings
+        // Note: This only applies to lines that are NOT fence markers (already handled above)
+        if is_indented_code_block(line) {
             continue;
         }
 
@@ -2310,5 +2315,32 @@ Content here.
             !output.code.contains("{#common-data-type-validators}"),
             "Custom ID syntax should be stripped from compiled output"
         );
+    }
+
+    #[test]
+    fn test_heading_after_indented_code_block_in_jsx() {
+        // Regression test: fenced code blocks indented inside JSX (e.g. <TabItem>)
+        // must be tracked correctly so headings after them are still extracted.
+        let source = r#"
+    ```ts title="src/middleware.ts"
+    import { defineMiddleware } from 'astro:middleware';
+    export const onRequest = defineMiddleware(async (context, next) => {
+      return next();
+    });
+  ```
+  </TabItem>
+</Tabs>
+
+### `locals`
+
+Some text.
+
+### `preferredLocale`
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2, "Expected 2 headings, got {}", headings.len());
+        assert_eq!(headings[0].text, "locals");
+        assert_eq!(headings[1].text, "preferredLocale");
     }
 }
