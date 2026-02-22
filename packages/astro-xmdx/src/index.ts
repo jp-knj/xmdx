@@ -291,7 +291,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
             const effectiveStarlightLibrary = componentOverrides.size > 0
               ? applyStarlightOverrides(starlightLibrary, componentOverrides)
               : starlightLibrary;
-            resolvedOptions.libraries = [astroLibrary, effectiveStarlightLibrary, expressiveCodeLibrary];
+            resolvedOptions.libraries = [astroLibrary, effectiveStarlightLibrary];
           }
         }
 
