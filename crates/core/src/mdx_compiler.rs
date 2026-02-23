@@ -4,6 +4,7 @@
 //! which compiles MDX (Markdown with JSX) to JavaScript using markdown-rs and SWC.
 
 use crate::directives::rewrite_directives_to_asides;
+use crate::slug::extract_custom_id;
 use crate::{FrontmatterExtraction, extract_frontmatter, slug::Slugger};
 use mdxjs::{JsxRuntime, MdxParseOptions, Options, compile};
 
@@ -114,6 +115,10 @@ pub fn compile_mdx(
     // Extract headings from the source before compilation
     let headings = extract_headings_from_source(&content);
 
+    // Strip {#custom-id} from headings before passing to mdxjs-rs
+    // (MDX treats {…} as JSX expressions, so they must be removed)
+    let content = strip_custom_ids_from_headings(&content);
+
     // Configure mdxjs-rs options
     let mdx_options = Options {
         filepath: Some(filepath.to_string()),
@@ -183,10 +188,37 @@ fn rewrite_task_list_items(code: &str) -> String {
         result.push_str(&remaining[..end_of_marker]);
         remaining = &remaining[end_of_marker..];
 
-        // Now find the `children:` key that follows. We expect pattern like:
-        //   , children: [...]  (tight list)
-        //   , children: ["\n", _jsxs(_components.p, { children: [...] }), "\n"]  (loose list)
-        if let Some(children_offset) = remaining.find("children:") {
+        // Now find the `children:` key that follows within the same props object.
+        // Scope the search: track brace depth and abort if we leave the props object.
+        let children_needle = b"children:";
+        let mut scoped_offset = None;
+        {
+            let bytes = remaining.as_bytes();
+            let mut depth = 0i32;
+            let mut i = 0;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'{' => depth += 1,
+                    b'}' => {
+                        if depth == 0 {
+                            break; // left the props object without finding children
+                        }
+                        depth -= 1;
+                    }
+                    b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
+                    _ if depth >= 0
+                        && i + children_needle.len() <= bytes.len()
+                        && &bytes[i..i + children_needle.len()] == children_needle =>
+                    {
+                        scoped_offset = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+        if let Some(children_offset) = scoped_offset {
             // Output everything up to "children:"
             result.push_str(&remaining[..children_offset]);
             remaining = &remaining[children_offset + "children:".len()..];
@@ -206,10 +238,10 @@ fn rewrite_task_list_items(code: &str) -> String {
                         || array_content.contains("_jsxs(\"p\",")
                     {
                         // Loose list: replace the <p> wrapper with <label> + <span>
-                        result.push_str(&rewrite_loose_task_list_children(&array_content));
+                        result.push_str(&rewrite_loose_task_list_children(array_content));
                     } else {
                         // Tight list: wrap directly with <label> + <span>
-                        result.push_str(&rewrite_tight_task_list_children(&array_content));
+                        result.push_str(&rewrite_tight_task_list_children(array_content));
                     }
                     remaining = after_array;
                 } else {
@@ -224,6 +256,22 @@ fn rewrite_task_list_items(code: &str) -> String {
 
     result.push_str(remaining);
     result
+}
+
+/// Advances `i` past a JS string literal (double-quoted, single-quoted, or template).
+/// `i` must point at the opening quote character. On return `i` points at the closing quote.
+#[inline]
+fn skip_js_string_literal(bytes: &[u8], i: &mut usize) {
+    let quote = bytes[*i];
+    *i += 1;
+    while *i < bytes.len() {
+        if bytes[*i] == b'\\' {
+            *i += 1; // skip escaped char
+        } else if bytes[*i] == quote {
+            return;
+        }
+        *i += 1;
+    }
 }
 
 /// Extracts the content of a bracket-delimited section `[...]`.
@@ -242,44 +290,10 @@ fn extract_bracket_content(input: &str) -> Option<(&str, &str)> {
             b']' => {
                 depth -= 1;
                 if depth == 0 {
-                    // inner is [1..i], after is [i+1..]
                     return Some((&input[1..i], &input[i + 1..]));
                 }
             }
-            b'"' => {
-                // Skip string literal
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1; // skip escaped char
-                    } else if bytes[i] == b'"' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'\'' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1;
-                    } else if bytes[i] == b'\'' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'`' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1;
-                    } else if bytes[i] == b'`' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
+            b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
             _ => {}
         }
         i += 1;
@@ -290,7 +304,6 @@ fn extract_bracket_content(input: &str) -> Option<(&str, &str)> {
 /// Finds the end of a balanced `_jsx(...)` or `_jsxs(...)` call starting at the given position.
 /// `input` should start with `_jsx` or `_jsxs`. Returns the index past the closing `)`.
 fn find_jsx_call_end(input: &str) -> Option<usize> {
-    // Find the opening paren
     let paren_start = input.find('(')?;
     let bytes = input.as_bytes();
     let mut depth = 0;
@@ -304,39 +317,7 @@ fn find_jsx_call_end(input: &str) -> Option<usize> {
                     return Some(i + 1);
                 }
             }
-            b'"' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1;
-                    } else if bytes[i] == b'"' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'\'' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1;
-                    } else if bytes[i] == b'\'' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'`' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' {
-                        i += 1;
-                    } else if bytes[i] == b'`' {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
+            b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
             _ => {}
         }
         i += 1;
@@ -405,12 +386,12 @@ fn rewrite_loose_task_list_children(content: &str) -> String {
     let mut p_end = 0;
 
     for pattern in &p_patterns {
-        if let Some(pos) = content.find(pattern) {
-            if let Some(end) = find_jsx_call_end(&content[pos..]) {
-                p_start = Some(pos);
-                p_end = pos + end;
-                break;
-            }
+        if let Some(pos) = content.find(pattern)
+            && let Some(end) = find_jsx_call_end(&content[pos..])
+        {
+            p_start = Some(pos);
+            p_end = pos + end;
+            break;
         }
     }
 
@@ -895,6 +876,64 @@ fn escape_html_for_js(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
+/// Strips `{#custom-id}` suffixes from heading lines in the source.
+///
+/// MDX treats `{...}` as JSX expressions, so we need to remove `{#id}` from
+/// heading lines before passing to mdxjs-rs. The IDs have already been extracted
+/// by `extract_headings_from_source`.
+fn strip_custom_ids_from_headings(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut fence_state: Option<(char, usize)> = None;
+
+    for line in source.lines() {
+        // Track fenced code blocks
+        let trimmed = line.trim();
+        if let Some((marker, len)) = parse_fence_marker(trimmed) {
+            if let Some((open_marker, open_len)) = fence_state {
+                if marker == open_marker && len >= open_len {
+                    fence_state = None;
+                }
+            } else {
+                fence_state = Some((marker, len));
+            }
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        if fence_state.is_some() || is_indented_code_block(line) || !trimmed.starts_with('#') {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        // Check if this is a heading line with a custom id
+        // Use parse_atx_heading which strips trailing ATX hashes before checking,
+        // so `## Title {#my-id} ##` is correctly detected.
+        let has_custom_id = parse_atx_heading(trimmed).is_some_and(|h| h.custom_id.is_some());
+        if has_custom_id {
+            // Remove the {#id} suffix from the line
+            // Find the {# in the original line (preserving leading whitespace)
+            if let Some(pos) = line.rfind("{#") {
+                let before = line[..pos].trim_end();
+                result.push_str(before);
+            } else {
+                result.push_str(line);
+            }
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+
+    // Remove the trailing newline if the original source didn't end with one
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
+}
+
 /// Checks if a line is an indented code block (4+ spaces or tab at start).
 /// Per CommonMark spec, such lines are code blocks, not headings.
 pub fn is_indented_code_block(line: &str) -> bool {
@@ -927,21 +966,18 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     let mut slugger = Slugger::new();
 
     for line in source.lines() {
-        // Skip indented code blocks (4+ spaces or tab) before trimming
-        // Per CommonMark, these are code blocks and should not be parsed as headings
-        if is_indented_code_block(line) {
-            continue;
-        }
-
         let trimmed = line.trim();
 
-        // Track fenced code blocks with proper fence length matching
+        // Check for fence markers FIRST, even on indented lines.
+        // Fenced code blocks can be indented (e.g., inside JSX/HTML elements like <TabItem>),
+        // and we need to track them correctly to avoid misinterpreting headings.
         if let Some((marker, len)) = parse_fence_marker(trimmed) {
             if let Some((open_marker, open_len)) = fence_state {
                 // Inside a code block - check if this closes it
                 if marker == open_marker && len >= open_len {
                     fence_state = None;
                 }
+                // Note: if markers don't match, we stay inside the code block
             } else {
                 // Not in a code block - this opens one
                 fence_state = Some((marker, len));
@@ -949,13 +985,26 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
             continue;
         }
 
+        // Inside a fenced code block - skip all lines (headings inside code blocks don't count)
         if fence_state.is_some() {
+            continue;
+        }
+
+        // Skip indented code blocks (4+ spaces or tab) before parsing
+        // Per CommonMark, these are code blocks and should not be parsed as headings
+        // Note: This only applies to lines that are NOT fence markers (already handled above)
+        if is_indented_code_block(line) {
             continue;
         }
 
         // Match ATX headings (# to ######)
         if let Some(heading_match) = parse_atx_heading(trimmed) {
-            let slug = slugger.next_slug(&heading_match.text);
+            let slug = if let Some(ref custom_id) = heading_match.custom_id {
+                slugger.reserve(custom_id);
+                custom_id.clone()
+            } else {
+                slugger.next_slug(&heading_match.text)
+            };
             headings.push(MdxHeading {
                 depth: heading_match.depth,
                 slug,
@@ -986,6 +1035,7 @@ fn parse_fence_marker(line: &str) -> Option<(char, usize)> {
 struct AtxHeading {
     depth: u8,
     text: String,
+    custom_id: Option<String>,
 }
 
 /// Strips inline markdown formatting from text, leaving only plain text.
@@ -993,6 +1043,107 @@ struct AtxHeading {
 /// Handles:
 /// - Bold: `**text**` or `__text__` → `text`
 /// - Italic: `*text*` or `_text_` → `text`
+/// Decodes common HTML entities in heading text.
+///
+/// Markdown sources may contain HTML entities like `&shy;`, `&amp;`, etc.
+/// These need to be decoded before slugifying so that:
+/// - `&shy;` (soft hyphen) is decoded to U+00AD, which slugify drops (non-alphanumeric)
+/// - `&amp;` is decoded to `&`, matching github-slugger behavior
+fn decode_html_entities(text: &str) -> String {
+    if !text.contains('&') {
+        return text.to_string();
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '&' {
+            // Collect entity name until ';' or non-entity character
+            let mut entity = String::new();
+            let mut found_semicolon = false;
+            let mut already_emitted = false;
+
+            for next in chars.by_ref() {
+                if next == ';' {
+                    found_semicolon = true;
+                    break;
+                }
+                if next.is_ascii_alphanumeric() || next == '#' {
+                    entity.push(next);
+                } else {
+                    // Not a valid entity, emit the collected chars
+                    result.push('&');
+                    result.push_str(&entity);
+                    result.push(next);
+                    already_emitted = true;
+                    break;
+                }
+                // Reasonable length limit for entity names
+                if entity.len() > 10 {
+                    result.push('&');
+                    result.push_str(&entity);
+                    already_emitted = true;
+                    break;
+                }
+            }
+
+            if already_emitted {
+                continue;
+            } else if found_semicolon {
+                match entity.as_str() {
+                    "shy" => result.push('\u{00AD}'),    // soft hyphen (dropped by slugify)
+                    "nbsp" => result.push(' '),           // non-breaking space → space
+                    "amp" => result.push('&'),
+                    "lt" => result.push('<'),
+                    "gt" => result.push('>'),
+                    "quot" => result.push('"'),
+                    "apos" => result.push('\''),
+                    "mdash" => result.push('\u{2014}'),
+                    "ndash" => result.push('\u{2013}'),
+                    "laquo" => result.push('\u{00AB}'),
+                    "raquo" => result.push('\u{00BB}'),
+                    "zwj" => result.push('\u{200D}'),     // zero-width joiner
+                    "zwnj" => result.push('\u{200C}'),    // zero-width non-joiner
+                    s if s.starts_with('#') => {
+                        // Numeric character reference: &#123; or &#x1F;
+                        let num_str = &s[1..];
+                        let code_point = if num_str.starts_with('x') || num_str.starts_with('X') {
+                            u32::from_str_radix(&num_str[1..], 16).ok()
+                        } else {
+                            num_str.parse::<u32>().ok()
+                        };
+                        if let Some(cp) = code_point {
+                            if let Some(c) = char::from_u32(cp) {
+                                result.push(c);
+                            }
+                        } else {
+                            // Invalid numeric ref, keep as-is
+                            result.push('&');
+                            result.push_str(&entity);
+                            result.push(';');
+                        }
+                    }
+                    _ => {
+                        // Unknown entity, keep as-is
+                        result.push('&');
+                        result.push_str(&entity);
+                        result.push(';');
+                    }
+                }
+            } else {
+                // No semicolon found before end of string — emit as-is
+                result.push('&');
+                result.push_str(&entity);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 /// - Bold+Italic: `***text***` → `text`
 /// - Inline code: `` `text` `` → `text`
 /// - Links: `[text](url)` → `text`
@@ -1173,6 +1324,7 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
             return Some(AtxHeading {
                 depth,
                 text: String::new(),
+                custom_id: None,
             });
         }
         _ => {
@@ -1193,9 +1345,13 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
     //   "# Heading#" → "Heading#" (no space before #, keep it)
     let text = strip_trailing_hashes(text);
 
+    // Extract {#custom-id} before stripping inline markdown
+    let (text, custom_id) = extract_custom_id(text);
+
     Some(AtxHeading {
         depth,
-        text: strip_inline_markdown(text),
+        text: decode_html_entities(&strip_inline_markdown(text)),
+        custom_id: custom_id.map(|s| s.to_string()),
     })
 }
 
@@ -2104,5 +2260,241 @@ Warning
             "List inside Steps should NOT be fragmented. Output:\n{}",
             output.code
         );
+    }
+
+    #[test]
+    fn test_custom_id_reserves_slug_for_dedup() {
+        let source = "# Intro {#intro}\n\n## Intro\n";
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].slug, "intro");
+        assert_eq!(headings[1].slug, "intro-1");
+    }
+
+    #[test]
+    fn test_custom_id_heading_extraction() {
+        let source = r#"
+# Title
+
+## 共通データ型バリデーター {#common-data-type-validators}
+
+### Another Section
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 3);
+        assert_eq!(headings[0].text, "Title");
+        assert_eq!(headings[0].slug, "title");
+        assert_eq!(headings[1].text, "共通データ型バリデーター");
+        assert_eq!(headings[1].slug, "common-data-type-validators");
+        assert_eq!(headings[2].text, "Another Section");
+        assert_eq!(headings[2].slug, "another-section");
+    }
+
+    #[test]
+    fn test_custom_id_not_in_code_block() {
+        let source = r#"
+# Title
+
+```
+## Heading {#not-extracted}
+```
+
+## Real {#real-id}
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].slug, "title");
+        assert_eq!(headings[1].slug, "real-id");
+        assert_eq!(headings[1].text, "Real");
+    }
+
+    #[test]
+    fn test_parse_atx_heading_custom_id() {
+        let heading = parse_atx_heading("## My Heading {#my-heading}").unwrap();
+        assert_eq!(heading.depth, 2);
+        assert_eq!(heading.text, "My Heading");
+        assert_eq!(heading.custom_id.as_deref(), Some("my-heading"));
+    }
+
+    #[test]
+    fn test_parse_atx_heading_no_custom_id() {
+        let heading = parse_atx_heading("## My Heading").unwrap();
+        assert_eq!(heading.text, "My Heading");
+        assert_eq!(heading.custom_id, None);
+    }
+
+    #[test]
+    fn test_strip_custom_ids_from_headings() {
+        let source = "# Title\n\n## Section {#my-section}\n\nContent\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert_eq!(stripped, "# Title\n\n## Section\n\nContent\n");
+    }
+
+    #[test]
+    fn test_strip_custom_ids_preserves_code_blocks() {
+        let source = "# Title\n\n```\n## Heading {#not-stripped}\n```\n\n## Real {#real-id}\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(stripped.contains("## Heading {#not-stripped}"));
+        assert!(!stripped.contains("{#real-id}"));
+        assert!(stripped.contains("## Real"));
+    }
+
+    #[test]
+    fn test_strip_custom_ids_preserves_indented_code_blocks() {
+        let source = "# Title\n\n    # Heading {#foo}\n\nContent\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(
+            stripped.contains("    # Heading {#foo}"),
+            "Indented code block line should not be stripped, got: {}",
+            stripped
+        );
+    }
+
+    #[test]
+    fn test_strip_custom_ids_trailing_atx_hashes() {
+        // `## Title {#my-id} ##` — trailing ATX hashes after the custom ID
+        let source = "## Title {#my-id} ##\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(
+            !stripped.contains("{#my-id}"),
+            "Custom ID should be stripped even with trailing ATX hashes, got: {}",
+            stripped
+        );
+        assert!(
+            stripped.contains("## Title"),
+            "Heading prefix and title should remain, got: {}",
+            stripped
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_with_custom_id_trailing_hashes() {
+        // Integration test: trailing ATX hashes with custom ID should compile successfully
+        let source = "---\ntitle: Test\n---\n\n## Title {#my-id} ##\n\nContent here.\n";
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(
+            result.is_ok(),
+            "Compilation should succeed with trailing ATX hashes and custom ID: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        assert_eq!(output.headings.len(), 1);
+        assert_eq!(output.headings[0].slug, "my-id");
+        assert_eq!(output.headings[0].text, "Title");
+        assert!(
+            !output.code.contains("{#my-id}"),
+            "Custom ID syntax should be stripped from compiled output"
+        );
+    }
+
+    #[test]
+    fn test_compile_mdx_with_custom_id() {
+        let source = r#"---
+title: Test
+---
+
+# Hello
+
+## 共通データ型 {#common-data-type-validators}
+
+Content here.
+"#;
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        assert_eq!(output.headings.len(), 2);
+        assert_eq!(output.headings[0].slug, "hello");
+        assert_eq!(output.headings[1].slug, "common-data-type-validators");
+        assert_eq!(output.headings[1].text, "共通データ型");
+        // The {#...} should not appear in the compiled JS (would cause JSX parse error)
+        assert!(
+            !output.code.contains("{#common-data-type-validators}"),
+            "Custom ID syntax should be stripped from compiled output"
+        );
+    }
+
+    #[test]
+    fn test_heading_after_indented_code_block_in_jsx() {
+        // Regression test: fenced code blocks indented inside JSX (e.g. <TabItem>)
+        // must be tracked correctly so headings after them are still extracted.
+        let source = r#"
+    ```ts title="src/middleware.ts"
+    import { defineMiddleware } from 'astro:middleware';
+    export const onRequest = defineMiddleware(async (context, next) => {
+      return next();
+    });
+  ```
+  </TabItem>
+</Tabs>
+
+### `locals`
+
+Some text.
+
+### `preferredLocale`
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2, "Expected 2 headings, got {}", headings.len());
+        assert_eq!(headings[0].text, "locals");
+        assert_eq!(headings[1].text, "preferredLocale");
+    }
+
+    #[test]
+    fn test_html_entity_decoding_in_headings() {
+        // HTML entities like &shy; should be decoded in heading text
+        // so that slugify produces correct results
+        let source = r#"
+## Erweitern der Entwicklungs&shy;werkzeugleiste
+
+Some text.
+
+## Aktualisierungs&shy;anleitungen
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        // &shy; decoded to U+00AD soft hyphen in text
+        assert_eq!(headings[0].text, "Erweitern der Entwicklungs\u{00AD}werkzeugleiste");
+        assert_eq!(headings[1].text, "Aktualisierungs\u{00AD}anleitungen");
+        // Slug should NOT contain "shy" — soft hyphen is stripped by slugify
+        assert_eq!(headings[0].slug, "erweitern-der-entwicklungswerkzeugleiste");
+        assert_eq!(headings[1].slug, "aktualisierungsanleitungen");
+    }
+
+    #[test]
+    fn test_hindi_heading_slugs() {
+        let source = r#"
+## स्लॉट्स
+
+Some text.
+
+## सर्वर-प्रथम
+"#;
+        let headings = extract_headings_from_source(source);
+
+        assert_eq!(headings.len(), 2);
+        // Combining marks (halant, nukta) must be preserved in slugs
+        assert_eq!(headings[0].slug, "स्लॉट्स");
+        assert_eq!(headings[1].slug, "सर्वर-प्रथम");
+    }
+
+    #[test]
+    fn test_decode_html_entities() {
+        assert_eq!(decode_html_entities("no entities"), "no entities");
+        assert_eq!(decode_html_entities("a&shy;b"), "a\u{00AD}b");
+        assert_eq!(decode_html_entities("a&amp;b"), "a&b");
+        assert_eq!(decode_html_entities("a&nbsp;b"), "a b");
+        assert_eq!(decode_html_entities("a&#60;b"), "a<b");
+        assert_eq!(decode_html_entities("a&#x3E;b"), "a>b");
+        // Unknown entity kept as-is
+        assert_eq!(decode_html_entities("a&unknown;b"), "a&unknown;b");
+        // Lone ampersand
+        assert_eq!(decode_html_entities("a & b"), "a & b");
     }
 }
