@@ -1043,7 +1043,8 @@ struct AtxHeading {
 /// Handles:
 /// - Bold: `**text**` or `__text__` → `text`
 /// - Italic: `*text*` or `_text_` → `text`
-/// Decodes common HTML entities in heading text.
+///
+/// - Decode common HTML entities in heading text.
 ///
 /// Markdown sources may contain HTML entities like `&shy;`, `&amp;`, etc.
 /// These need to be decoded before slugifying so that:
@@ -1092,8 +1093,8 @@ fn decode_html_entities(text: &str) -> String {
                 continue;
             } else if found_semicolon {
                 match entity.as_str() {
-                    "shy" => result.push('\u{00AD}'),    // soft hyphen (dropped by slugify)
-                    "nbsp" => result.push(' '),           // non-breaking space → space
+                    "shy" => result.push('\u{00AD}'), // soft hyphen (dropped by slugify)
+                    "nbsp" => result.push(' '),       // non-breaking space → space
                     "amp" => result.push('&'),
                     "lt" => result.push('<'),
                     "gt" => result.push('>'),
@@ -1103,8 +1104,8 @@ fn decode_html_entities(text: &str) -> String {
                     "ndash" => result.push('\u{2013}'),
                     "laquo" => result.push('\u{00AB}'),
                     "raquo" => result.push('\u{00BB}'),
-                    "zwj" => result.push('\u{200D}'),     // zero-width joiner
-                    "zwnj" => result.push('\u{200C}'),    // zero-width non-joiner
+                    "zwj" => result.push('\u{200D}'), // zero-width joiner
+                    "zwnj" => result.push('\u{200C}'), // zero-width non-joiner
                     s if s.starts_with('#') => {
                         // Numeric character reference: &#123; or &#x1F;
                         let num_str = &s[1..];
@@ -2440,7 +2441,12 @@ Some text.
 "#;
         let headings = extract_headings_from_source(source);
 
-        assert_eq!(headings.len(), 2, "Expected 2 headings, got {}", headings.len());
+        assert_eq!(
+            headings.len(),
+            2,
+            "Expected 2 headings, got {}",
+            headings.len()
+        );
         assert_eq!(headings[0].text, "locals");
         assert_eq!(headings[1].text, "preferredLocale");
     }
@@ -2460,7 +2466,10 @@ Some text.
 
         assert_eq!(headings.len(), 2);
         // &shy; decoded to U+00AD soft hyphen in text
-        assert_eq!(headings[0].text, "Erweitern der Entwicklungs\u{00AD}werkzeugleiste");
+        assert_eq!(
+            headings[0].text,
+            "Erweitern der Entwicklungs\u{00AD}werkzeugleiste"
+        );
         assert_eq!(headings[1].text, "Aktualisierungs\u{00AD}anleitungen");
         // Slug should NOT contain "shy" — soft hyphen is stripped by slugify
         assert_eq!(headings[0].slug, "erweitern-der-entwicklungswerkzeugleiste");

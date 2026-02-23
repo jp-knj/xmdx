@@ -185,6 +185,7 @@ function wrapTaskItemChildren(children: HastNode[]): HastNode[] {
   if (firstMeaningfulIndex === -1) return children;
 
   const firstMeaningful = children[firstMeaningfulIndex];
+  if (!firstMeaningful) return children;
   if (!isCheckboxInput(firstMeaningful)) return children;
 
   const prefix = children.slice(0, firstMeaningfulIndex);
