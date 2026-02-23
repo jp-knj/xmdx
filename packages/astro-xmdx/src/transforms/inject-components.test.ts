@@ -403,4 +403,46 @@ export default function Content() {
 
     expect(result).toContain('import { Aside }');
   });
+
+  it('should inject Badge component from registry', () => {
+    const code = `
+export default function Content() {
+  return <Badge variant="note">New</Badge>;
+}`;
+
+    const result = injectComponentImportsFromRegistry(code, testRegistry);
+
+    expect(result).toContain("import { Badge } from '@astrojs/starlight/components';");
+  });
+
+  it('should inject Icon component from registry', () => {
+    const code = `
+export default function Content() {
+  return <Icon name="star" />;
+}`;
+
+    const result = injectComponentImportsFromRegistry(code, testRegistry);
+
+    expect(result).toContain("import { Icon } from '@astrojs/starlight/components';");
+  });
+
+  it('should inject both Badge and Icon alongside other Starlight components', () => {
+    const code = `
+export default function Content() {
+  return (
+    <>
+      <Aside>Note</Aside>
+      <Badge variant="tip">New</Badge>
+      <Icon name="star" />
+    </>
+  );
+}`;
+
+    const result = injectComponentImportsFromRegistry(code, testRegistry);
+
+    expect(result).toContain('Aside');
+    expect(result).toContain('Badge');
+    expect(result).toContain('Icon');
+    expect(result).toContain("@astrojs/starlight/components");
+  });
 });
