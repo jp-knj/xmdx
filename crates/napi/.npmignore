@@ -8,6 +8,12 @@ crates/
 target/
 .cargo/
 
+# Native binaries (distributed via platform-specific @xmdx/napi-* packages)
+*.node
+
+# Platform-specific npm packages (published separately)
+npm/
+
 # Development files
 __tests__/
 examples/

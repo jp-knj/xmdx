@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/napi-linux-x64-gnu",
-  "version": "0.0.3",
+  "version": "0.0.5-next.4",
   "cpu": [
     "x64"
   ],
