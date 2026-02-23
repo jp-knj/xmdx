@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/napi-darwin-x64",
-  "version": "0.0.3-next.1",
+  "version": "0.0.5-next.4",
   "cpu": [
     "x64"
   ],

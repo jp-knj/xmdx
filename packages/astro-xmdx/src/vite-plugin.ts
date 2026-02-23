@@ -205,10 +205,13 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     rewriteCodeBlocks: !!expressiveCode,
   };
 
-  // Track whether Starlight is configured for gating default directive handling
-  const hasStarlightConfigured = Boolean(userOptions.starlightComponents) ||
-    (Array.isArray(userOptions.libraries) &&
-     userOptions.libraries.some(lib => lib === starlightLibrary));
+  // Track whether Starlight is configured for gating default directive handling.
+  // Prefer the explicit flag set by the integration during auto-detection;
+  // fall back to the legacy derivation for preset-based users.
+  const hasStarlightConfigured = userOptions.starlightDetected ??
+    (Boolean(userOptions.starlightComponents) ||
+     (Array.isArray(userOptions.libraries) &&
+      userOptions.libraries.some(lib => lib === starlightLibrary)));
 
   // MDX import handling options
   const mdxOptions = userOptions.mdx;
@@ -223,8 +226,11 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   // 2. ExpressiveCode is explicitly disabled (fallback highlighting)
   const shikiManager = new ShikiManager(ENABLE_SHIKI || !expressiveCode);
 
-  // ExpressiveCode pre-rendering manager for build-time code highlighting
-  const ecManager = new ExpressiveCodeManager(expressiveCode);
+  // ExpressiveCode pre-rendering manager for build-time code highlighting.
+  // When Starlight is configured, its EC integration handles rendering --
+  // skip our own engine to avoid double-processing and theme mismatches.
+  const starlightHandlesEC = hasStarlightConfigured;
+  const ecManager = new ExpressiveCodeManager(expressiveCode, starlightHandlesEC);
 
   // Lazy compiler initialization to avoid Vite module runner timing issues
   const getCompiler = async (): Promise<XmdxCompiler> => {

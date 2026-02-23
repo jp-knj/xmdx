@@ -1,7 +1,6 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import xmdx from "astro-xmdx";
-import { starlightPreset } from "astro-xmdx/presets";
 
 export default defineConfig({
   site: "https://example.com",
@@ -17,8 +16,6 @@ export default defineConfig({
         },
       ],
     }),
-    xmdx({
-      presets: [starlightPreset()],
-    }),
+    xmdx(),
   ],
 });

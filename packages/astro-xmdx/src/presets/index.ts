@@ -33,6 +33,11 @@ export const STARLIGHT_DEFAULT_ALLOW_IMPORTS = [
   'astro:*',
   // Local project components (common Astro convention)
   '~/components/*',
+  // Relative imports (common in MDX files)
+  './*',
+  '../*',
+  // Astro source directory alias
+  '@/*',
   // Common image imports
   '*.svg',
   '*.png',
@@ -41,6 +46,10 @@ export const STARLIGHT_DEFAULT_ALLOW_IMPORTS = [
   '*.gif',
   '*.webp',
   '*.avif',
+  // Astro component imports
+  '*.astro',
+  '*.tsx',
+  '*.jsx',
 ] as const;
 
 /**

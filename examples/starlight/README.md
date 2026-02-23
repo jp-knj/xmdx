@@ -1,6 +1,6 @@
 # starlight example
 
-Starlight docs project configured with `astro-xmdx` and `starlightPreset()`.
+Starlight docs project configured with `astro-xmdx` (auto-detects Starlight).
 
 ## Run
 

@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/napi",
-  "version": "0.0.3-next.1",
+  "version": "0.0.5-next.4",
   "description": "High-performance streaming Markdown to HTML parser built with Rust for Astro (Node.js NAPI bindings)",
   "type": "module",
   "main": "index.js",

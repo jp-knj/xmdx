@@ -206,6 +206,25 @@ describe('validateRegistry', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('should include all 12 Starlight components including Badge and Icon', () => {
+    const registry = createRegistry([starlightLibrary]);
+
+    expect(registry.hasComponent('Aside')).toBe(true);
+    expect(registry.hasComponent('Tabs')).toBe(true);
+    expect(registry.hasComponent('TabItem')).toBe(true);
+    expect(registry.hasComponent('Steps')).toBe(true);
+    expect(registry.hasComponent('FileTree')).toBe(true);
+    expect(registry.hasComponent('CardGrid')).toBe(true);
+    expect(registry.hasComponent('LinkCard')).toBe(true);
+    expect(registry.hasComponent('LinkButton')).toBe(true);
+    expect(registry.hasComponent('Card')).toBe(true);
+    expect(registry.hasComponent('Code')).toBe(true);
+    expect(registry.hasComponent('Badge')).toBe(true);
+    expect(registry.hasComponent('Icon')).toBe(true);
+
+    expect(registry.getAllComponents().length).toBe(12);
+  });
+
   it('should validate registry created from library with directive mappings', () => {
     const library: ComponentLibrary = {
       id: 'test',

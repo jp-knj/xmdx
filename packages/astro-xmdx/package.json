@@ -1,6 +1,6 @@
 {
   "name": "astro-xmdx",
-  "version": "0.0.3-next.12",
+  "version": "0.0.3-next.17",
   "description": "Astro integration for xmdx - high-performance MDX compiler",
   "type": "module",
   "main": "./index.ts",

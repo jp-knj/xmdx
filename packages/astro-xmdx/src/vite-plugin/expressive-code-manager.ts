@@ -53,9 +53,16 @@ export class ExpressiveCodeManager {
   private config: ExpressiveCodeConfig | null;
   private renderCache = new Map<string, string>();
   private collectedStyles = '';
+  /**
+   * When true, Starlight's own EC integration handles rendering.
+   * xmdx still rewrites `<pre><code>` → `<Code>` but skips pre-rendering
+   * to avoid theme/config mismatches and double-processing.
+   */
+  readonly starlightHandlesRendering: boolean;
 
-  constructor(config: ExpressiveCodeConfig | null) {
+  constructor(config: ExpressiveCodeConfig | null, starlightHandlesRendering = false) {
     this.config = config;
+    this.starlightHandlesRendering = starlightHandlesRendering;
   }
 
   /**
@@ -67,10 +74,14 @@ export class ExpressiveCodeManager {
 
   /**
    * Lazily initializes the ExpressiveCode engine.
-   * Returns null if ExpressiveCode is not configured.
+   * Returns null if ExpressiveCode is not configured or if Starlight handles rendering.
    */
   async init(): Promise<ExpressiveCodeEngine | null> {
     if (!this.config) return null;
+    // Skip engine initialization when Starlight handles rendering.
+    // Starlight's EC integration uses its own theme config and plugins;
+    // initializing our own engine would waste startup time and risk mismatches.
+    if (this.starlightHandlesRendering) return null;
     if (this.engine) return this.engine;
     if (this.initPromise) return this.initPromise;
 
@@ -146,17 +157,6 @@ export class ExpressiveCodeManager {
       console.warn(`[xmdx] ExpressiveCode render failed for ${lang ?? 'text'}:`, error);
       return null;
     }
-  }
-
-  /**
-   * Returns the already-resolved engine for code with pre tags,
-   * using a pre-resolved instance to avoid extra awaits in hot paths.
-   */
-  forCode(code: string, resolved: ExpressiveCodeEngine | null): ExpressiveCodeEngine | null {
-    if (!this.config || !resolved) return null;
-    // Quick check for code blocks
-    if (!code.includes('<Code') && !code.includes('code={')) return null;
-    return resolved;
   }
 
   /**

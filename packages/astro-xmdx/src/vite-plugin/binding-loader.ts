@@ -15,6 +15,71 @@ const DEBUG_BINDING = process.env.XMDX_DEBUG_BINDING === '1';
 export const ENABLE_SHIKI = process.env.XMDX_SHIKI === '1';
 export const IS_MDAST = process.env.XMDX_PIPELINE === 'mdast';
 
+function dedupe(items: string[]): string[] {
+  return [...new Set(items)];
+}
+
+function normalizeLibc(libc: string | null | undefined): 'gnu' | 'musl' | null {
+  if (libc === 'gnu' || libc === 'musl') return libc;
+  return null;
+}
+
+/**
+ * Returns platform-compatible native binary candidate names in priority order.
+ */
+export function getNativeBinaryCandidates(
+  platform: string,
+  arch: string,
+  libc?: string | null
+): string[] {
+  if (platform === 'linux' && (arch === 'x64' || arch === 'arm64')) {
+    const preferred = normalizeLibc(libc) ?? 'gnu';
+    const secondary = preferred === 'gnu' ? 'musl' : 'gnu';
+    return dedupe([
+      `xmdx.linux-${arch}-${preferred}.node`,
+      `xmdx-linux-${arch}-${preferred}.node`,
+      `xmdx.linux-${arch}-${secondary}.node`,
+      `xmdx-linux-${arch}-${secondary}.node`,
+    ]);
+  }
+
+  if (platform === 'darwin' && (arch === 'x64' || arch === 'arm64')) {
+    return dedupe([
+      `xmdx.darwin-${arch}.node`,
+      `xmdx-darwin-${arch}.node`,
+    ]);
+  }
+
+  if (platform === 'win32' && arch === 'x64') {
+    return dedupe([
+      'xmdx.win32-x64-msvc.node',
+      'xmdx-win32-x64-msvc.node',
+    ]);
+  }
+
+  return dedupe([
+    `xmdx.${platform}-${arch}.node`,
+    `xmdx-${platform}-${arch}.node`,
+  ]);
+}
+
+/**
+ * Selects the first compatible native binary from discovered files.
+ */
+export function selectCompatibleNodeFile(
+  files: string[],
+  platform: string,
+  arch: string,
+  libc?: string | null
+): string | null {
+  const fileSet = new Set(files);
+  const candidates = getNativeBinaryCandidates(platform, arch, libc ?? null);
+  for (const candidate of candidates) {
+    if (fileSet.has(candidate)) return candidate;
+  }
+  return null;
+}
+
 const logBindingSource = (source: string): void => {
   if (!DEBUG_BINDING) return;
   console.info(`[xmdx] binding source: ${source}`);
