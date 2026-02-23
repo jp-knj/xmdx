@@ -50,7 +50,7 @@ export default defineConfig({
 
 ## Examples
 
-- [`examples/starlight`](./examples/starlight): Starlight docs site using `astro-xmdx` with `starlightPreset()`.
+- [`examples/starlight`](./examples/starlight): Starlight docs site using `astro-xmdx` with auto-detected Starlight support.
 
 ## Supported Platforms
 

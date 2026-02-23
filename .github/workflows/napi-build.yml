@@ -196,6 +196,10 @@ jobs:
         working-directory: crates/napi
         run: pnpm artifacts
 
+      - name: Prepare package.json (add optionalDependencies)
+        working-directory: crates/napi
+        run: npx napi prepublish -t npm
+
       - name: Determine npm tag
         id: npm-tag
         run: |

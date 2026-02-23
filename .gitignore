@@ -148,3 +148,6 @@ target
 
 # Astro cache
 .astro/
+
+# xmdx cache
+.xmdx-cache/
