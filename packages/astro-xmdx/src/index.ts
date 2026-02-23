@@ -7,9 +7,11 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { AstroIntegration } from 'astro';
 import type { ComponentLibrary } from 'xmdx/registry';
+import { starlightLibrary, astroLibrary } from 'xmdx/registry';
 import { xmdxPlugin } from './vite-plugin.js';
 import { mergePresets, STARLIGHT_DEFAULT_ALLOW_IMPORTS, type PresetConfig } from './presets/index.js';
 import { safeParseFrontmatter } from './utils/frontmatter.js';
+import { findStarlightIntegration, applyStarlightOverrides } from './utils/starlight-detection.js';
 import type { XmdxPlugin, MdxImportHandlingOptions } from './types.js';
 
 /**
@@ -118,20 +120,6 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
     delete (resolvedOptions as Record<string, unknown>).presets;
   }
 
-  // Auto-apply Starlight default allowImports when starlightComponents is enabled
-  // This ensures imports like @astrojs/starlight/components don't trigger fallback
-  const hasStarlightComponents = resolvedOptions.starlightComponents === true ||
-    (typeof resolvedOptions.starlightComponents === 'object' && resolvedOptions.starlightComponents.enabled);
-  const hasAllowImports = resolvedOptions.mdx?.allowImports && resolvedOptions.mdx.allowImports.length > 0;
-
-  if (hasStarlightComponents && !hasAllowImports) {
-    resolvedOptions.mdx = {
-      ...resolvedOptions.mdx,
-      allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
-      ignoreCodeFences: resolvedOptions.mdx?.ignoreCodeFences ?? true,
-    };
-  }
-
   return {
     name: 'astro-xmdx',
     hooks: {
@@ -195,15 +183,14 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
           });
         }
 
-        // Auto-detect Starlight and apply preset if not already configured
-        const hasStarlight = config.integrations?.some(
+        // Auto-detect Starlight and apply defaults when user has not
+        // explicitly configured these options in xmdx().
+        const starlight = findStarlightIntegration(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (i: any) => i.name === '@astrojs/starlight'
+          config.integrations as any[]
         );
 
-        // Auto-apply Starlight defaults when Starlight is detected and user has not
-        // explicitly configured these options in xmdx().
-        if (hasStarlight) {
+        if (starlight) {
           if (resolvedOptions.starlightComponents === undefined) {
             resolvedOptions.starlightComponents = true;
           }
@@ -215,10 +202,20 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
             };
           }
           if (resolvedOptions.expressiveCode === undefined) {
-            // Starlight installs astro-expressive-code, so default to Code component
-            // rewriting for MD/MDX fences to preserve EC layout + copy button UX.
             resolvedOptions.expressiveCode = true;
           }
+
+          // Auto-register Starlight libraries when user hasn't provided their own.
+          // Apply any component overrides to adjust import paths.
+          if (!resolvedOptions.libraries) {
+            const effectiveStarlightLibrary = starlight.componentOverrides.size > 0
+              ? applyStarlightOverrides(starlightLibrary, starlight.componentOverrides)
+              : starlightLibrary;
+            resolvedOptions.libraries = [astroLibrary, effectiveStarlightLibrary];
+          }
+
+          // Pass explicit flag so vite-plugin doesn't need to re-derive it
+          (resolvedOptions as Record<string, unknown>).starlightDetected = true;
         }
 
         updateConfig({
