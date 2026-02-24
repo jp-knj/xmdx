@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use xmdx_core::Slugger;
 
 /// Escapes a string for use in an HTML attribute value.
-fn escape_html_attr(s: &str) -> String {
+pub(super) fn escape_html_attr(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -155,6 +155,10 @@ pub struct Context<'a> {
 
     /// Component registry for directive and component mappings.
     registry: RegistryConfig,
+
+    /// Pending footnote definitions collected during rendering.
+    /// Each entry is `(identifier, rendered_li_html)`.
+    pending_footnotes: Vec<(String, String)>,
 }
 
 impl<'a> Context<'a> {
@@ -175,6 +179,7 @@ impl<'a> Context<'a> {
             stack: vec![Scope::Root],
             options,
             registry: registry.unwrap_or_else(default_starlight_registry),
+            pending_footnotes: Vec::new(),
         }
     }
 
@@ -471,9 +476,31 @@ impl<'a> Context<'a> {
         self.options.allow_raw_html()
     }
 
+    /// Returns whether heading autolinks are enabled.
+    pub fn heading_autolinks_enabled(&self) -> bool {
+        self.options.heading_autolinks()
+    }
+
+    /// Adds a footnote definition to be aggregated into a single section at finish time.
+    pub fn push_footnote(&mut self, id: String, li_html: String) {
+        self.pending_footnotes.push((id, li_html));
+    }
+
     /// Consumes the context and returns the list of rendering blocks.
     pub fn finish(mut self) -> BlocksResult {
         self.flush_html();
+
+        // Emit a single aggregated footnotes section if any definitions were collected
+        if !self.pending_footnotes.is_empty() {
+            let mut section = String::new();
+            section.push_str("<section data-footnotes class=\"footnotes\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2><ol>");
+            for (_id, li_html) in &self.pending_footnotes {
+                section.push_str(li_html);
+            }
+            section.push_str("</ol></section>");
+            self.blocks.push(RenderBlock::Html { content: section });
+        }
+
         BlocksResult {
             blocks: self.blocks,
             headings: self.headings,

@@ -251,7 +251,20 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     configResolved(config) {
       resolvedConfig = config;
       loadProfiler?.setRoot(config.root);
-      if (config.esbuild == null) {
+
+      // Vite 8+: use oxc config; Vite 7 and below: use esbuild config
+      const configAny = config as Record<string, unknown>;
+      if ('oxc' in configAny) {
+        // Vite 8+ with OXC support
+        const oxcConfig = (configAny.oxc ?? {}) as Record<string, unknown>;
+        if (oxcConfig.jsx == null) {
+          oxcConfig.jsx = {
+            runtime: 'automatic',
+            importSource: 'astro',
+          };
+        }
+        configAny.oxc = oxcConfig;
+      } else if (config.esbuild == null) {
         (config as { esbuild: object }).esbuild = {
           jsx: 'automatic',
           jsxImportSource: 'astro',

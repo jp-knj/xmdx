@@ -5,11 +5,10 @@
 
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
-import { transformWithEsbuild } from 'vite';
+import { transformJsx } from './jsx-transform.js';
 import { compile as compileMdx } from '@mdx-js/mdx';
 import remarkGfm from 'remark-gfm';
 import remarkDirective from 'remark-directive';
-import { ESBUILD_JSX_CONFIG } from '../constants.js';
 import { stripFrontmatter } from '../utils/frontmatter.js';
 import { loadXmdxBinding } from './binding-loader.js';
 import { rewriteFallbackDirectives, injectFallbackImports } from './directive-rewriter.js';
@@ -180,6 +179,14 @@ function isWhitespaceText(node: HastNode): boolean {
   return isText(node) && (node.value ?? '').trim().length === 0;
 }
 
+const BLOCK_TAG_NAMES = new Set([
+  'ul', 'ol', 'div', 'blockquote', 'pre', 'table', 'hr', 'dl', 'details', 'section',
+]);
+
+function isBlockElement(node: HastNode): boolean {
+  return isElement(node) && BLOCK_TAG_NAMES.has(node.tagName);
+}
+
 function wrapTaskItemChildren(children: HastNode[]): HastNode[] {
   const firstMeaningfulIndex = children.findIndex((child) => !isWhitespaceText(child));
   if (firstMeaningfulIndex === -1) return children;
@@ -190,11 +197,18 @@ function wrapTaskItemChildren(children: HastNode[]): HastNode[] {
 
   const prefix = children.slice(0, firstMeaningfulIndex);
   const tail = children.slice(firstMeaningfulIndex + 1);
+
+  // Split tail at the first block element: inline content goes inside
+  // <label><span>, block children become siblings after </label>.
+  const firstBlockIndex = tail.findIndex((child) => isBlockElement(child));
+  const inlineChildren = firstBlockIndex === -1 ? tail : tail.slice(0, firstBlockIndex);
+  const blockChildren = firstBlockIndex === -1 ? [] : tail.slice(firstBlockIndex);
+
   const span: HastElement = {
     type: 'element',
     tagName: 'span',
     properties: {},
-    children: tail,
+    children: inlineChildren,
   };
   const label: HastElement = {
     type: 'element',
@@ -202,7 +216,7 @@ function wrapTaskItemChildren(children: HastNode[]): HastNode[] {
     properties: {},
     children: [firstMeaningful, span],
   };
-  return [...prefix, label];
+  return [...prefix, label, ...blockChildren];
 }
 
 /**
@@ -337,11 +351,11 @@ export default XmdxContent;
   // Code blocks are output as-is and Starlight's EC integration processes them at runtime
   const finalCode = wrappedCode;
 
-  // Transform JSX through esbuild (same as the main compilation path)
-  const esbuildResult = await transformWithEsbuild(finalCode, virtualId, ESBUILD_JSX_CONFIG);
+  // Transform JSX to JS (uses OXC on Vite 8+, esbuild otherwise)
+  const jsxResult = await transformJsx(finalCode, virtualId);
 
   return {
-    code: esbuildResult.code,
-    map: esbuildResult.map as SourceMapInput | undefined,
+    code: jsxResult.code,
+    map: jsxResult.map,
   };
 }

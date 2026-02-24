@@ -42,6 +42,10 @@ pub struct Options {
     /// avoiding parse errors on trusted docs content that mixes raw tags.
     #[serde(default = "default_allow_raw_html")]
     pub allow_raw_html: bool,
+    /// Whether to wrap heading content in anchor links for self-linking.
+    /// When enabled, each heading gets an `<a>` element linking to itself.
+    #[serde(default)]
+    pub enable_heading_autolinks: bool,
 }
 
 impl Options {
@@ -53,6 +57,11 @@ impl Options {
     /// Returns whether raw HTML passthrough is enabled.
     pub fn allow_raw_html(&self) -> bool {
         self.allow_raw_html
+    }
+
+    /// Returns whether heading autolinks are enabled.
+    pub fn heading_autolinks(&self) -> bool {
+        self.enable_heading_autolinks
     }
 }
 
@@ -67,6 +76,7 @@ impl Default for Options {
             enable_smartypants: false,
             enable_lazy_images: false,
             allow_raw_html: default_allow_raw_html(),
+            enable_heading_autolinks: false,
         }
     }
 }
@@ -136,6 +146,8 @@ pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String>
             frontmatter: true,
             // GitHub Flavored Markdown features
             gfm_autolink_literal: true,
+            gfm_footnote_definition: true,
+            gfm_label_start_footnote: true,
             gfm_strikethrough: true,
             gfm_table: true,
             gfm_task_list_item: true,
@@ -1462,6 +1474,183 @@ export const authClient = createAuthClient();
         assert!(
             !all_html.contains("{#bar}"),
             "Custom ID syntax should be stripped from output, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_footnote_reference_and_definition() {
+        // Use multiple footnotes to verify they aggregate into a single <section>
+        let input = "Here is a footnote[^1] and another[^2].\n\n[^1]: First footnote content.\n\n[^2]: Second footnote content.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Footnote references should produce superscript links
+        assert!(
+            all_html.contains("<sup>"),
+            "Should contain <sup> for footnote ref, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("href=\"#user-content-fn-1\""),
+            "Should link to first footnote definition, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("href=\"#user-content-fn-2\""),
+            "Should link to second footnote definition, got: {}",
+            all_html
+        );
+
+        // Should have exactly ONE footnotes section (not one per definition)
+        let section_count = all_html.matches("class=\"footnotes\"").count();
+        assert_eq!(
+            section_count, 1,
+            "Should have exactly one footnotes section, got {}: {}",
+            section_count, all_html
+        );
+
+        // Should have exactly ONE <ol> inside the section
+        let footnote_section_start = all_html.find("class=\"footnotes\"").unwrap();
+        let footnote_section = &all_html[footnote_section_start..];
+        assert!(
+            footnote_section.contains("<ol>"),
+            "Section should contain <ol>, got: {}",
+            footnote_section
+        );
+        let ol_count = footnote_section.matches("<ol>").count();
+        assert_eq!(
+            ol_count, 1,
+            "Should have exactly one <ol>, got {}: {}",
+            ol_count, footnote_section
+        );
+
+        // Should have exactly ONE id="footnote-label"
+        let label_count = all_html.matches("id=\"footnote-label\"").count();
+        assert_eq!(
+            label_count, 1,
+            "Should have exactly one footnote-label, got {}: {}",
+            label_count, all_html
+        );
+
+        // Both <li> items should be present
+        assert!(
+            all_html.contains("id=\"user-content-fn-1\""),
+            "Should have first fn ID, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("id=\"user-content-fn-2\""),
+            "Should have second fn ID, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("First footnote content."),
+            "Should contain first footnote content, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("Second footnote content."),
+            "Should contain second footnote content, got: {}",
+            all_html
+        );
+
+        // Both backref links should be present
+        assert!(
+            all_html.contains("href=\"#user-content-fnref-1\""),
+            "Should have first backref link, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("href=\"#user-content-fnref-2\""),
+            "Should have second backref link, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_footnote_identifier_escaping() {
+        // Footnote identifiers with special characters must be escaped in attributes
+        let input = "Text[^a\"b].\n\n[^a\"b]: Footnote with special id.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // The raw `"` must not appear unescaped in attribute positions
+        assert!(
+            !all_html.contains("fn-a\"b"),
+            "Unescaped double-quote in footnote attribute, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("fn-a&quot;b"),
+            "Expected escaped &quot; in footnote attribute, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_task_list_with_nested_list() {
+        // Nested sub-lists must NOT be wrapped inside <span> within <label>.
+        // They should appear after </label> but still inside <li>.
+        let input = "- [x] Task item\n  - Sub item\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // The nested <ul> must come after </label>, not inside <span>
+        assert!(
+            all_html.contains("</label><ul>"),
+            "Nested <ul> should appear after </label>, got: {}",
+            all_html
+        );
+        // The <span> should NOT contain a nested <ul>
+        assert!(
+            !all_html.contains("<span>") || {
+                let span_start = all_html.find("<span>").unwrap();
+                let span_end = all_html[span_start..].find("</span>").unwrap() + span_start;
+                let span_content = &all_html[span_start..span_end];
+                !span_content.contains("<ul>")
+            },
+            "Nested <ul> should not be inside <span>, got: {}",
             all_html
         );
     }

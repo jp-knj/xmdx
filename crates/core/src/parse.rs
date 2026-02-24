@@ -55,6 +55,8 @@ impl ParseOptions {
 
         if self.gfm {
             constructs.gfm_autolink_literal = true;
+            constructs.gfm_footnote_definition = true;
+            constructs.gfm_label_start_footnote = true;
             constructs.gfm_strikethrough = true;
             constructs.gfm_table = true;
             constructs.gfm_task_list_item = true;

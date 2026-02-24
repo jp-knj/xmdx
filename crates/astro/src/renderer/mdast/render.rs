@@ -1,6 +1,6 @@
 //! Rendering functions for the mdast renderer.
 
-use super::context::Context;
+use super::context::{Context, escape_html_attr};
 use super::types::{HeadingEntry, PropValue, RenderBlock, Scope};
 use markdown::mdast::Node;
 use std::collections::HashMap;
@@ -83,11 +83,28 @@ fn render_list_item(item: &markdown::mdast::ListItem, ctx: &mut Context) {
             checked_str
         ));
 
+        // Partition children: inline/phrasing content (up through the first
+        // Paragraph) goes inside <label><span>, block children (nested List,
+        // Blockquote, etc.) are rendered after </label> as siblings inside <li>.
+        let mut found_paragraph = false;
+        let mut block_children = Vec::new();
         for child in &item.children {
-            render_node(child, ctx);
+            if found_paragraph {
+                block_children.push(child);
+            } else {
+                render_node(child, ctx);
+                if matches!(child, Node::Paragraph(_)) {
+                    found_paragraph = true;
+                }
+            }
         }
 
         ctx.push_raw("</span></label>");
+
+        // Render block children (nested lists, etc.) after </label>
+        for child in block_children {
+            render_node(child, ctx);
+        }
     } else {
         for child in &item.children {
             render_node(child, ctx);
@@ -333,6 +350,14 @@ fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
     let tag = format!("h{}", heading.depth);
     ctx.push_raw(&format!("<{} id=\"{}\">", tag, slug));
 
+    // Wrap heading content in an anchor if autolinks are enabled
+    let autolink = ctx.heading_autolinks_enabled();
+    if autolink {
+        ctx.push_raw("<a href=\"#");
+        ctx.push_raw(&slug);
+        ctx.push_raw("\">");
+    }
+
     // Render children, stripping {#id} from the last Text node if present
     if custom_id.is_some() {
         render_heading_children(&heading.children, ctx);
@@ -340,6 +365,10 @@ fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
         for child in &heading.children {
             render_node(child, ctx);
         }
+    }
+
+    if autolink {
+        ctx.push_raw("</a>");
     }
 
     ctx.push_raw(&format!("</{}>", tag));
@@ -491,6 +520,49 @@ fn render_blockquote(quote: &markdown::mdast::Blockquote, ctx: &mut Context) {
     ctx.push_raw("</blockquote>");
 }
 
+/// Renders a footnote reference as a superscript link `<sup><a href="#fn-id">[n]</a></sup>`.
+///
+/// The footnote index is determined by the order references appear in the document.
+/// References link to the corresponding footnote definition.
+fn render_footnote_reference(fnref: &markdown::mdast::FootnoteReference, ctx: &mut Context) {
+    let id = &fnref.identifier;
+    let label = fnref.label.as_deref().unwrap_or(id);
+    ctx.push_raw("<sup><a href=\"#user-content-fn-");
+    ctx.push_attr_value(id);
+    ctx.push_raw("\" id=\"user-content-fnref-");
+    ctx.push_attr_value(id);
+    ctx.push_raw("\" data-footnote-ref aria-describedby=\"footnote-label\">");
+    ctx.push_text(label);
+    ctx.push_raw("</a></sup>");
+}
+
+/// Renders a footnote definition as a list item, deferring the section wrapper.
+///
+/// Each definition is rendered as `<li id="fn-id">...content...<a href="#fnref-id">↩</a></li>`
+/// and collected in the context. The enclosing `<section>` and `<ol>` are emitted
+/// once at `finish()` time, aggregating all footnote definitions into a single section.
+fn render_footnote_definition(fndef: &markdown::mdast::FootnoteDefinition, ctx: &mut Context) {
+    let id = &fndef.identifier;
+
+    // Render children into a temporary HTML string
+    let children_html = ctx.render_children_to_html(&fndef.children);
+
+    // Build the <li> content
+    let mut li_html = String::new();
+    li_html.push_str("<li id=\"user-content-fn-");
+    li_html.push_str(&escape_html_attr(id));
+    li_html.push_str("\">");
+    li_html.push_str(&children_html);
+    li_html.push_str(" <a href=\"#user-content-fnref-");
+    li_html.push_str(&escape_html_attr(id));
+    li_html.push_str(
+        "\" class=\"data-footnote-backref\" aria-label=\"Back to reference\">\u{21a9}</a>",
+    );
+    li_html.push_str("</li>");
+
+    ctx.push_footnote(id.to_string(), li_html);
+}
+
 /// Recursively renders an AST node to HTML, updating the context state.
 pub fn render_node(node: &Node, ctx: &mut Context) {
     match node {
@@ -545,6 +617,8 @@ pub fn render_node(node: &Node, ctx: &mut Context) {
         Node::MdxJsxTextElement(elem) => {
             render_jsx(elem.name.as_deref(), &elem.attributes, &elem.children, ctx);
         }
+        Node::FootnoteReference(fnref) => render_footnote_reference(fnref, ctx),
+        Node::FootnoteDefinition(fndef) => render_footnote_definition(fndef, ctx),
         _ => {
             log::warn!("Unhandled markdown node type: {:?}", node);
         }

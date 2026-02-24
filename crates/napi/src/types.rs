@@ -31,6 +31,14 @@ pub struct CompilerConfig {
     /// Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
     /// Only set to true when ExpressiveCode is enabled.
     pub rewrite_code_blocks: Option<bool>,
+    /// Whether to wrap heading content in anchor links for self-linking.
+    pub enable_heading_autolinks: Option<bool>,
+    /// Custom directive names to recognize beyond the built-in set.
+    /// Each entry is a directive name (e.g., "custom-box").
+    pub custom_directive_names: Option<Vec<String>>,
+    /// Component name overrides for directives.
+    /// Maps directive name to component name (e.g., {"note": "Callout", "custom-box": "Box"}).
+    pub directive_component_map: Option<serde_json::Value>,
 }
 
 /// File-specific overrides that accompany each compilation.
@@ -185,6 +193,8 @@ pub struct BlockOptions {
     pub enable_lazy_images: Option<bool>,
     /// Allow raw HTML (<script>, <style>, etc.) to pass through. Defaults to true.
     pub allow_raw_html: Option<bool>,
+    /// Wrap heading content in anchor links for self-linking. Defaults to false.
+    pub enable_heading_autolinks: Option<bool>,
 }
 
 /// Represents a rendering block returned by parse_blocks().

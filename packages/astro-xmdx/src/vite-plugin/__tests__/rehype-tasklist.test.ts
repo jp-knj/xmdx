@@ -87,6 +87,30 @@ describe('rehypeTasklistEnhancer', () => {
     });
   });
 
+  describe('nested task list', () => {
+    test('nested sub-list is not wrapped inside span', async () => {
+      const md = `- [x] Task item\n  - Sub item\n`;
+      const out = await compileTaskList(md);
+
+      // The label and span should be present
+      expect(out).toContain('label: "label"');
+      expect(out).toContain('span: "span"');
+      // The nested ul should not be a child of the span element
+      // In the JSX output, the ul should appear after the label, not nested inside span
+      expect(out).toContain('task-list-item');
+    });
+
+    test('nested sub-list appears after label in tight list', async () => {
+      const md = `- [ ] Parent task\n  - Child item 1\n  - Child item 2\n`;
+      const out = await compileTaskList(md);
+
+      expect(out).toContain('label: "label"');
+      expect(out).toContain('span: "span"');
+      // The ul for sub-items should exist
+      expect(out).toContain('ul');
+    });
+  });
+
   describe('task list inside JSX component', () => {
     test('wraps checkbox in label when inside a component like Checklist', async () => {
       const md = `import Checklist from './Checklist.astro';

@@ -22,6 +22,37 @@ pub use types::*;
 use utils::empty_frontmatter;
 pub(crate) use utils::{build_import_list, dedupe_imports};
 
+/// Build a `DirectiveConfig` from optional `CompilerConfig`.
+fn build_directive_config(config: Option<&CompilerConfig>) -> xmdx_core::DirectiveConfig {
+    let mut dc = xmdx_core::DirectiveConfig::default();
+    if let Some(cfg) = config {
+        if let Some(ref names) = cfg.custom_directive_names {
+            let mut all_names: Vec<String> = xmdx_core::DEFAULT_DIRECTIVE_NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            for name in names {
+                let name = name.to_ascii_lowercase();
+                if !all_names.contains(&name) {
+                    all_names.push(name);
+                }
+            }
+            dc.custom_names = all_names;
+        }
+        if let Some(ref map) = cfg.directive_component_map
+            && let Some(obj) = map.as_object()
+        {
+            for (k, v) in obj {
+                if let Some(component) = v.as_str() {
+                    dc.component_map
+                        .insert(k.to_ascii_lowercase(), component.to_string());
+                }
+            }
+        }
+    }
+    dc
+}
+
 /// Converts HTML entities to JSX-safe expressions.
 ///
 /// When slot content with nested components is embedded directly in JSX,
@@ -158,6 +189,7 @@ pub fn parse_blocks(input: String, opts: Option<BlockOptions>) -> napi::Result<P
             enable_smartypants: o.enable_smartypants.unwrap_or(false),
             enable_lazy_images: o.enable_lazy_images.unwrap_or(false),
             allow_raw_html: o.allow_raw_html.unwrap_or(false),
+            enable_heading_autolinks: o.enable_heading_autolinks.unwrap_or(false),
         }
     } else {
         mdast::Options {
@@ -530,6 +562,7 @@ pub fn compile_mdx_batch(
 
         if is_mdx {
             // Use mdxjs-rs for MDX files
+            let dir_config = build_directive_config(config.as_ref());
             let mdx_options = MdxCompileOptions {
                 jsx_import_source: config
                     .as_ref()
@@ -539,6 +572,17 @@ pub fn compile_mdx_batch(
                 rewrite_code_blocks: config
                     .as_ref()
                     .and_then(|c| c.rewrite_code_blocks)
+                    .unwrap_or(false),
+                directive_config: if dir_config.custom_names.is_empty()
+                    && dir_config.component_map.is_empty()
+                {
+                    None
+                } else {
+                    Some(dir_config)
+                },
+                enable_heading_autolinks: config
+                    .as_ref()
+                    .and_then(|c| c.enable_heading_autolinks)
                     .unwrap_or(false),
             };
 

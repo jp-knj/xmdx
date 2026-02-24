@@ -54,6 +54,10 @@ pub struct MdxCompileOptions {
     /// Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
     /// Only set to true when ExpressiveCode is enabled.
     pub rewrite_code_blocks: bool,
+    /// Directive configuration for custom directive names and component mappings.
+    pub directive_config: Option<crate::directives::DirectiveConfig>,
+    /// Whether to wrap heading content in anchor links for self-linking.
+    pub enable_heading_autolinks: bool,
 }
 
 /// Compiles MDX source to JavaScript.
@@ -108,9 +112,13 @@ pub fn compile_mdx(
     let frontmatter_json = serde_json::to_string(&value)?;
     let content = source[body_start..].to_string();
 
-    // Preprocess directives (:::note, :::caution, etc.) into JSX Aside tags
+    // Preprocess directives (:::note, :::caution, etc.) into JSX component tags
     // This allows mdxjs-rs to parse the content without requiring remark-directive
-    let (content, _directive_count) = rewrite_directives_to_asides(&content);
+    let (content, _directive_count) = if let Some(ref dir_config) = opts.directive_config {
+        crate::directives::rewrite_directives(&content, dir_config)
+    } else {
+        rewrite_directives_to_asides(&content)
+    };
 
     // Extract headings from the source before compilation
     let headings = extract_headings_from_source(&content);
@@ -118,6 +126,13 @@ pub fn compile_mdx(
     // Strip {#custom-id} from headings before passing to mdxjs-rs
     // (MDX treats {…} as JSX expressions, so they must be removed)
     let content = strip_custom_ids_from_headings(&content);
+
+    // Wrap heading content in anchor links if autolinks are enabled
+    let content = if opts.enable_heading_autolinks {
+        rewrite_headings_with_autolinks(&content, &headings)
+    } else {
+        content
+    };
 
     // Configure mdxjs-rs options
     let mdx_options = Options {
@@ -336,6 +351,43 @@ fn find_jsx_call_end(input: &str) -> Option<usize> {
 /// ```text
 /// _jsx("label", { children: [_jsx(_components.input, ...), _jsx("span", { children: [" ", "Text"] })] })
 /// ```
+/// Block-level JSX call patterns used to split inline vs block content in task list items.
+const BLOCK_JSX_PATTERNS: &[&str] = &[
+    "_jsx(_components.ul,",
+    "_jsxs(_components.ul,",
+    "_jsx(\"ul\",",
+    "_jsxs(\"ul\",",
+    "_jsx(_components.ol,",
+    "_jsxs(_components.ol,",
+    "_jsx(\"ol\",",
+    "_jsxs(\"ol\",",
+    "_jsx(_components.blockquote,",
+    "_jsxs(_components.blockquote,",
+    "_jsx(\"blockquote\",",
+    "_jsxs(\"blockquote\",",
+    "_jsx(_components.pre,",
+    "_jsxs(_components.pre,",
+    "_jsx(\"pre\",",
+    "_jsxs(\"pre\",",
+    "_jsx(_components.table,",
+    "_jsxs(_components.table,",
+    "_jsx(\"table\",",
+    "_jsxs(\"table\",",
+    "_jsx(_components.hr,",
+    "_jsx(\"hr\",",
+];
+
+/// Finds the start position of the first block-level JSX call in `content`.
+fn find_first_block_jsx(content: &str) -> Option<usize> {
+    let mut earliest: Option<usize> = None;
+    for pattern in BLOCK_JSX_PATTERNS {
+        if let Some(pos) = content.find(pattern) {
+            earliest = Some(earliest.map_or(pos, |e: usize| e.min(pos)));
+        }
+    }
+    earliest
+}
+
 fn rewrite_tight_task_list_children(content: &str) -> String {
     // Find the _jsx(_components.input, ...) call
     let input_patterns = ["_jsx(_components.input,", "_jsx(\"input\","];
@@ -361,14 +413,32 @@ fn rewrite_tight_task_list_children(content: &str) -> String {
     // Everything after the input call is the text content (skip leading comma/whitespace)
     let after_input = content[input_end..].trim_start();
     let after_input = after_input.strip_prefix(',').unwrap_or(after_input);
+    let after_input = after_input.trim();
 
-    // Build the span children from remaining content
-    let span_children = after_input.trim();
+    // Split at the first block-level JSX call: inline part goes into <span>,
+    // block part gets appended after the <label> call.
+    let (span_children, block_suffix) = match find_first_block_jsx(after_input) {
+        Some(split_pos) => {
+            // Walk back to find the preceding comma so the span content is clean
+            let inline_part = after_input[..split_pos]
+                .trim_end()
+                .trim_end_matches(',')
+                .trim_end();
+            let block_part = after_input[split_pos..].trim();
+            (inline_part, Some(block_part))
+        }
+        None => (after_input, None),
+    };
 
-    format!(
+    let label = format!(
         "_jsx(\"label\", {{ children: [{}, _jsx(\"span\", {{ children: [{}] }})] }})",
         input_jsx, span_children
-    )
+    );
+
+    match block_suffix {
+        Some(block) => format!("{}, {}", label, block),
+        None => label,
+    }
 }
 
 /// Rewrites children of a loose task list item (where items are wrapped in `<p>`).
@@ -1356,6 +1426,85 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
     })
 }
 
+/// Rewrites ATX heading lines to wrap content in `<a href="#slug">...</a>`.
+///
+/// This is applied before passing to mdxjs-rs so that the compiled output
+/// includes self-linking anchor tags on headings, matching the mdast renderer's
+/// heading autolinks behavior.
+fn rewrite_headings_with_autolinks(source: &str, headings: &[MdxHeading]) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut heading_idx = 0;
+    let mut fence_state: Option<(char, usize)> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        // Track fenced code blocks
+        if let Some((marker, len)) = parse_fence_marker(trimmed) {
+            if let Some((open_marker, open_len)) = fence_state {
+                if marker == open_marker && len >= open_len {
+                    fence_state = None;
+                }
+            } else {
+                fence_state = Some((marker, len));
+            }
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        if fence_state.is_some() || is_indented_code_block(line) || !trimmed.starts_with('#') {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        // Check if this is an ATX heading
+        if parse_atx_heading(trimmed).is_some() {
+            if heading_idx < headings.len() {
+                let slug = &headings[heading_idx].slug;
+                heading_idx += 1;
+
+                // Find the heading content (after "# " prefix)
+                let mut chars = trimmed.chars();
+                let mut depth = 0;
+                while chars.as_str().starts_with('#') && depth < 6 {
+                    chars.next();
+                    depth += 1;
+                }
+                // Skip the space after #
+                if chars.as_str().starts_with(' ') || chars.as_str().starts_with('\t') {
+                    chars.next();
+                }
+                let content = chars.as_str();
+
+                // Reconstruct: ## <a href="#slug">content</a>
+                let prefix: String = "#".repeat(depth);
+                result.push_str(&prefix);
+                result.push_str(" <a href=\"#");
+                result.push_str(slug);
+                result.push_str("\">");
+                result.push_str(content);
+                result.push_str("</a>");
+                result.push('\n');
+            } else {
+                result.push_str(line);
+                result.push('\n');
+            }
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    // Remove the trailing newline if the original source didn't end with one
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2010,6 +2159,60 @@ This should NOT be converted to an Aside.
             "Should not contain <p> wrapper in task list items, got: {}",
             output.code
         );
+    }
+
+    #[test]
+    fn test_compile_mdx_task_list_nested() {
+        // Nested sub-lists should NOT be inside the span call
+        let source = r#"
+- [x] Task item
+  - Sub item
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        assert!(
+            output.code.contains("\"label\""),
+            "Expected label wrapper in output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("\"span\""),
+            "Expected span wrapper in output, got: {}",
+            output.code
+        );
+        // The nested ul should appear as a sibling of the label, not inside span.
+        // Verify the span's own children bracket doesn't contain ul.
+        if let Some(span_pos) = output.code.find("\"span\"")
+            && let Some(children_offset) = output.code[span_pos..].find("children: [")
+        {
+            let bracket_start = span_pos + children_offset + "children: [".len();
+            let mut depth: i32 = 1;
+            let mut end = bracket_start;
+            for (i, ch) in output.code[bracket_start..].char_indices() {
+                match ch {
+                    '[' => depth += 1,
+                    ']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = bracket_start + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let span_children_content = &output.code[bracket_start..end];
+            assert!(
+                !span_children_content.contains("_components.ul")
+                    && !span_children_content.contains("\"ul\""),
+                "Nested ul should not be inside span children, got: {}",
+                span_children_content
+            );
+        }
     }
 
     #[test]

@@ -107,6 +107,8 @@ export interface BlockOptions {
   enableLazyImages?: boolean
   /** Allow raw HTML (<script>, <style>, etc.) to pass through. Defaults to true. */
   allowRawHtml?: boolean
+  /** Wrap heading content in anchor links for self-linking. Defaults to false. */
+  enableHeadingAutolinks?: boolean
 }
 
 /**
@@ -259,6 +261,18 @@ export interface CompilerConfig {
    * Only set to true when ExpressiveCode is enabled.
    */
   rewriteCodeBlocks?: boolean
+  /** Whether to wrap heading content in anchor links for self-linking. */
+  enableHeadingAutolinks?: boolean
+  /**
+   * Custom directive names to recognize beyond the built-in set.
+   * Each entry is a directive name (e.g., "custom-box").
+   */
+  customDirectiveNames?: Array<string>
+  /**
+   * Component name overrides for directives.
+   * Maps directive name to component name (e.g., {"note": "Callout", "custom-box": "Box"}).
+   */
+  directiveComponentMap?: any
 }
 
 /** Result returned by the streaming compiler. */

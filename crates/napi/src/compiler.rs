@@ -19,6 +19,8 @@ const ASTRO_DEFAULT_RUNTIME: &str = "astro/runtime/server/index.js";
 #[derive(Debug, Clone)]
 pub(crate) struct InternalCompilerConfig {
     pub(crate) jsx_import_source: String,
+    pub(crate) enable_heading_autolinks: bool,
+    pub(crate) directive_config: xmdx_core::DirectiveConfig,
 }
 
 impl InternalCompilerConfig {
@@ -27,8 +29,70 @@ impl InternalCompilerConfig {
         let jsx_import_source = cfg
             .jsx_import_source
             .unwrap_or_else(|| ASTRO_DEFAULT_RUNTIME.to_string());
+        let enable_heading_autolinks = cfg.enable_heading_autolinks.unwrap_or(false);
 
-        Self { jsx_import_source }
+        // Build directive config from custom names and component map
+        let mut directive_config = xmdx_core::DirectiveConfig::default();
+        if let Some(names) = cfg.custom_directive_names {
+            // Merge custom names with defaults
+            let mut all_names: Vec<String> = xmdx_core::DEFAULT_DIRECTIVE_NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            for name in names {
+                let name = name.to_ascii_lowercase();
+                if !all_names.contains(&name) {
+                    all_names.push(name);
+                }
+            }
+            directive_config.custom_names = all_names;
+        }
+        if let Some(map) = cfg.directive_component_map
+            && let Some(obj) = map.as_object()
+        {
+            for (k, v) in obj {
+                if let Some(component) = v.as_str() {
+                    directive_config
+                        .component_map
+                        .insert(k.to_ascii_lowercase(), component.to_string());
+                }
+            }
+        }
+
+        Self {
+            jsx_import_source,
+            enable_heading_autolinks,
+            directive_config,
+        }
+    }
+
+    /// Reconstruct a `CompilerConfig` that preserves all settings including
+    /// directive configuration, for passing to `compile_ir`.
+    pub(crate) fn to_compiler_config(&self) -> CompilerConfig {
+        let custom_directive_names = if self.directive_config.custom_names.is_empty() {
+            None
+        } else {
+            Some(self.directive_config.custom_names.clone())
+        };
+        let directive_component_map = if self.directive_config.component_map.is_empty() {
+            None
+        } else {
+            let map: serde_json::Map<String, serde_json::Value> = self
+                .directive_config
+                .component_map
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+            Some(serde_json::Value::Object(map))
+        };
+
+        CompilerConfig {
+            jsx_import_source: Some(self.jsx_import_source.clone()),
+            enable_heading_autolinks: Some(self.enable_heading_autolinks),
+            custom_directive_names,
+            directive_component_map,
+            ..CompilerConfig::default()
+        }
     }
 }
 
@@ -65,10 +129,7 @@ impl XmdxCompiler {
             source.clone(),
             filepath.clone(),
             options.clone(),
-            Some(CompilerConfig {
-                jsx_import_source: Some(self.config.jsx_import_source.clone()),
-                ..CompilerConfig::default()
-            }),
+            Some(self.config.to_compiler_config()),
         )?;
 
         compile_document_from_ir(ir)
@@ -98,10 +159,7 @@ impl XmdxCompiler {
         let continue_on_error = opts.continue_on_error.unwrap_or(true);
 
         // Use compiler's config, ignoring any config in batch options
-        let config = Some(CompilerConfig {
-            jsx_import_source: Some(self.config.jsx_import_source.clone()),
-            ..CompilerConfig::default()
-        });
+        let config = Some(self.config.to_compiler_config());
 
         // Configure thread pool if max_threads is specified
         let pool = if let Some(max_threads) = opts.max_threads {
@@ -202,10 +260,7 @@ impl XmdxCompiler {
         let continue_on_error = opts.continue_on_error.unwrap_or(true);
 
         // Use compiler's config, ignoring any config in batch options
-        let config = Some(CompilerConfig {
-            jsx_import_source: Some(self.config.jsx_import_source.clone()),
-            ..CompilerConfig::default()
-        });
+        let config = Some(self.config.to_compiler_config());
 
         // Configure thread pool if max_threads is specified
         let pool = if let Some(max_threads) = opts.max_threads {
@@ -331,6 +386,7 @@ pub fn compile_ir(
     let mdast_options = MdastOptions {
         enable_directives: true,
         allow_raw_html: false,
+        enable_heading_autolinks: internal.enable_heading_autolinks,
         ..Default::default()
     };
     let blocks_result = to_blocks(&body_without_imports, &mdast_options).map_err(|err| {
@@ -341,11 +397,20 @@ pub fn compile_ir(
     })?;
 
     // Convert blocks to JSX module string with directive mapping
+    let directive_config = &internal.directive_config;
     let directive_mapper = |name: &str| -> Option<DirectiveMappingResult> {
-        let directive_types = ["note", "tip", "caution", "danger"];
-        if directive_types.contains(&name) {
+        // When custom names are configured, only map those names.
+        // Otherwise use the default built-in set.
+        let is_known = if directive_config.custom_names.is_empty() {
+            let defaults = ["note", "tip", "caution", "danger"];
+            defaults.contains(&name)
+        } else {
+            directive_config.custom_names.iter().any(|n| n == name)
+        };
+        if is_known {
+            let tag_name = directive_config.component_for(name).to_string();
             Some(DirectiveMappingResult {
-                tag_name: "Aside".to_string(),
+                tag_name,
                 type_prop: Some(name.to_string()),
             })
         } else {
@@ -459,15 +524,7 @@ pub(crate) fn compile_document(
     options: Option<FileOptions>,
     hoisted_imports: Vec<String>,
 ) -> napi::Result<CompileResult> {
-    let mut ir = compile_ir(
-        source,
-        filepath,
-        options,
-        Some(CompilerConfig {
-            jsx_import_source: Some(config.jsx_import_source.clone()),
-            ..CompilerConfig::default()
-        }),
-    )?;
+    let mut ir = compile_ir(source, filepath, options, Some(config.to_compiler_config()))?;
 
     if !hoisted_imports.is_empty() {
         ir.hoisted_imports

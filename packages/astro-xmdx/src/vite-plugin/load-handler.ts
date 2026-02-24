@@ -4,7 +4,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { transformWithEsbuild, type ResolvedConfig } from 'vite';
+import type { ResolvedConfig } from 'vite';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import { blocksToJsx } from '../transforms/blocks-to-jsx.js';
@@ -12,7 +12,8 @@ import { stripFrontmatter } from '../utils/frontmatter.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { extractImportStatements } from '../utils/imports.js';
 import { deriveFileOptions, stripQuery } from '../utils/paths.js';
-import { ESBUILD_JSX_CONFIG, OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
+import { OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
+import { transformJsx } from './jsx-transform.js';
 import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '../types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { Transform } from '../pipeline/types.js';
@@ -121,12 +122,12 @@ async function runPipelineAndEsbuild(
   if (deps.loadProfiler) deps.loadProfiler.record('transform-pipeline', performance.now() - tpStart);
 
   const esStart = LOAD_PROFILE ? performance.now() : 0;
-  const esbuildResult = await transformWithEsbuild(transformed.code, input.id, ESBUILD_JSX_CONFIG);
+  const jsxResult = await transformJsx(transformed.code, input.id);
   if (deps.loadProfiler) deps.loadProfiler.record('esbuild', performance.now() - esStart);
 
   return {
-    code: esbuildResult.code,
-    map: (esbuildResult.map as SourceMapInput | undefined) ?? undefined,
+    code: jsxResult.code,
+    map: jsxResult.map ?? undefined,
   };
 }
 

@@ -346,10 +346,63 @@ function generateComponentImports(components: UsedComponent[], registry: Registr
 
   // Generate individual default imports with full path convention
   for (const comp of defaultExports) {
-    imports.push(`import ${comp.name} from '${comp.modulePath}/${comp.name}.astro';`);
+    // If modulePath already has a file extension (e.g. Starlight component overrides
+    // like './src/CustomAside.astro'), import directly from it. Otherwise, use the
+    // convention: ${modulePath}/${name}.astro
+    const importPath = /\.\w+$/.test(comp.modulePath)
+      ? comp.modulePath
+      : `${comp.modulePath}/${comp.name}.astro`;
+    imports.push(`import ${comp.name} from '${importPath}';`);
   }
 
   return imports.join('\n');
+}
+
+// PERF: Pre-compiled pattern for heading JSX calls
+const HEADING_JSX_PATTERN = /_jsxs?\(_components\.h([1-6]),\s*\{/g;
+
+/**
+ * Extracts a plain-text string from the children value following a heading JSX call.
+ *
+ * Handles both simple string children (`children: "Hello"`) and array children
+ * where we concatenate all string literals (`children: ["Hello", " ", "World"]`).
+ * Returns null if children cannot be reliably extracted.
+ */
+function extractChildrenText(code: string, propsStart: number): string | null {
+  const searchRegion = code.slice(propsStart, propsStart + 500);
+  const childrenMatch = /children:\s*/.exec(searchRegion);
+  if (!childrenMatch) return null;
+
+  const afterChildren = searchRegion.slice(childrenMatch.index + childrenMatch[0].length);
+
+  // Case 1: children: "simple string"
+  if (afterChildren.startsWith('"')) {
+    const endQuote = afterChildren.indexOf('"', 1);
+    if (endQuote > 0) return afterChildren.slice(1, endQuote);
+  }
+
+  // Case 2: children: ["part1", _jsx(...), "part2", ...]
+  // Concatenate only string literals for matching.
+  if (afterChildren.startsWith('[')) {
+    let text = '';
+    const STR_RE = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+    // Only scan up to the closing bracket
+    let depth = 1;
+    let end = 1;
+    for (let i = 1; i < afterChildren.length && depth > 0; i++) {
+      if (afterChildren[i] === '[') depth++;
+      else if (afterChildren[i] === ']') depth--;
+      if (depth === 0) { end = i; break; }
+    }
+    const inner = afterChildren.slice(1, end);
+    let m: RegExpExecArray | null;
+    while ((m = STR_RE.exec(inner)) !== null) {
+      text += m[1];
+    }
+    return text || null;
+  }
+
+  return null;
 }
 
 /**
@@ -358,6 +411,10 @@ function generateComponentImports(components: UsedComponent[], registry: Registr
  * mdxjs-rs generates `_jsx(_components.h2, { children: "..." })` without `id` attributes.
  * This function adds the corresponding slug from the extracted headings array so that
  * the rendered HTML has proper fragment anchors (e.g., `<h2 id="getting-started">`).
+ *
+ * Matches heading calls to the extracted headings by depth and text content rather than
+ * sequential order, so setext or other heading types that aren't in the extracted headings
+ * array don't cause ID misalignment.
  */
 function injectHeadingIds(
   code: string,
@@ -365,14 +422,53 @@ function injectHeadingIds(
 ): string {
   if (headings.length === 0) return code;
 
-  let headingIndex = 0;
+  // Build a queue of headings to match, indexed by "depth:text" for O(1) lookup.
+  // Use a Map of arrays to handle duplicate heading text at the same depth.
+  const headingMap = new Map<string, Array<{ slug: string; used: boolean }>>();
+  for (const h of headings) {
+    const key = `${h.depth}:${h.text}`;
+    let list = headingMap.get(key);
+    if (!list) {
+      list = [];
+      headingMap.set(key, list);
+    }
+    list.push({ slug: h.slug, used: false });
+  }
+
+  // Also keep a sequential fallback index for cases where text extraction fails
+  let fallbackIndex = 0;
+
+  HEADING_JSX_PATTERN.lastIndex = 0;
   return code.replace(
-    /_jsxs?\(_components\.h[1-6],\s*\{/g,
-    (match) => {
-      if (headingIndex < headings.length) {
-        const slug = headings[headingIndex]!.slug;
-        headingIndex++;
-        return `${match}\n                id: ${JSON.stringify(slug)},`;
+    HEADING_JSX_PATTERN,
+    (match, depthStr: string, offset: number) => {
+      const depth = Number.parseInt(depthStr, 10);
+
+      // Try to extract children text to match by content
+      const propsStart = offset + match.length;
+      const childrenText = extractChildrenText(code, propsStart);
+
+      if (childrenText !== null) {
+        const key = `${depth}:${childrenText}`;
+        const entries = headingMap.get(key);
+        if (entries) {
+          const entry = entries.find(e => !e.used);
+          if (entry) {
+            entry.used = true;
+            return `${match}\n                id: ${JSON.stringify(entry.slug)},`;
+          }
+        }
+        // No match found — this heading call is not in the extracted headings (e.g., setext)
+        return match;
+      }
+
+      // Fallback: text extraction failed, use sequential matching
+      while (fallbackIndex < headings.length) {
+        const h = headings[fallbackIndex]!;
+        fallbackIndex++;
+        if (h.depth === depth) {
+          return `${match}\n                id: ${JSON.stringify(h.slug)},`;
+        }
       }
       return match;
     }
