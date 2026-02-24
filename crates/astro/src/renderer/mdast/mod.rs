@@ -1584,7 +1584,8 @@ export const authClient = createAuthClient();
 
     #[test]
     fn test_footnote_identifier_escaping() {
-        // Footnote identifiers with special characters must be escaped in attributes
+        // Footnote identifiers with special characters are sanitized for safe
+        // fragment IDs: quotes and other non-alphanumeric chars are stripped.
         let input = "Text[^a\"b].\n\n[^a\"b]: Footnote with special id.\n";
         let options = Options {
             enable_directives: false,
@@ -1602,17 +1603,95 @@ export const authClient = createAuthClient();
             .collect::<Vec<_>>()
             .join("");
 
-        // The raw `"` must not appear unescaped in attribute positions
+        // The raw `"` must not appear in fragment IDs (neither raw nor HTML-escaped)
         assert!(
             !all_html.contains("fn-a\"b"),
             "Unescaped double-quote in footnote attribute, got: {}",
             all_html
         );
+        // The sanitized id should strip the quote: a"b → ab
         assert!(
-            all_html.contains("fn-a&quot;b"),
-            "Expected escaped &quot; in footnote attribute, got: {}",
+            all_html.contains("fn-ab"),
+            "Expected sanitized footnote id fn-ab, got: {}",
             all_html
         );
+    }
+
+    #[test]
+    fn test_footnote_identifier_sanitization_special_chars() {
+        // Footnote identifiers with periods/hyphens/underscores produce
+        // sanitized fragment IDs, keeping only safe characters.
+        let input = "Text[^v2.1-beta_rc].\n\n[^v2.1-beta_rc]: Version note.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Period should be stripped, hyphens and underscores preserved
+        // v2.1-beta_rc → v21-beta_rc
+        assert!(
+            all_html.contains("fn-v21-beta_rc"),
+            "Expected sanitized footnote id fn-v21-beta_rc, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("fnref-v21-beta_rc"),
+            "Expected sanitized fnref id fnref-v21-beta_rc, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_sanitize_footnote_id_unit() {
+        use super::context::sanitize_footnote_id;
+
+        assert_eq!(sanitize_footnote_id("simple"), "simple");
+        assert_eq!(sanitize_footnote_id("my-note"), "my-note");
+        assert_eq!(sanitize_footnote_id("my_note"), "my_note");
+        assert_eq!(sanitize_footnote_id("UPPER"), "upper");
+        assert_eq!(sanitize_footnote_id("a\"b"), "ab");
+        assert_eq!(sanitize_footnote_id("v2.1"), "v21");
+        assert_eq!(sanitize_footnote_id("a b"), "a-b");
+        assert_eq!(sanitize_footnote_id("a\tb"), "a-b");
+        assert_eq!(sanitize_footnote_id(""), "fn");
+        assert_eq!(sanitize_footnote_id("!@#"), "fn");
+        // Non-ASCII: Unicode letters/digits are preserved
+        assert_eq!(sanitize_footnote_id("注"), "注");
+        assert_eq!(sanitize_footnote_id("пример"), "пример");
+        assert_eq!(sanitize_footnote_id("café"), "café");
+        // Distinct non-ASCII identifiers produce distinct IDs
+        assert_ne!(sanitize_footnote_id("注"), sanitize_footnote_id("例"));
+    }
+
+    #[test]
+    fn test_footnote_id_collision_disambiguation() {
+        // Distinct identifiers that sanitize to the same form must get
+        // distinct safe IDs to avoid duplicate HTML id attributes.
+        let options = Options::default();
+        let mut ctx = Context::new(&options);
+
+        let id1 = ctx.get_safe_footnote_id("a b");
+        let id2 = ctx.get_safe_footnote_id("a-b");
+        assert_ne!(id1, id2, "Colliding sanitized IDs must be disambiguated");
+        // First one should get the base form
+        assert_eq!(id1, "a-b");
+        // Second one should get a suffixed form
+        assert_eq!(id2, "a-b-2");
+
+        // Same identifier should return the same safe ID on repeat calls
+        let id1_again = ctx.get_safe_footnote_id("a b");
+        assert_eq!(id1, id1_again, "Same identifier should reuse its safe ID");
     }
 
     #[test]
@@ -1688,6 +1767,332 @@ export const authClient = createAuthClient();
             all_html.contains("<strong>Bold text</strong>"),
             "Bold text should be rendered without custom ID, got: {}",
             all_html
+        );
+    }
+
+    #[test]
+    fn test_repeated_footnote_references() {
+        let input =
+            "First[^1] and second[^1] and third[^1].\n\n[^1]: Footnote content.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // First reference: no suffix
+        assert!(
+            all_html.contains("id=\"user-content-fnref-1\""),
+            "First ref should have no suffix, got: {}",
+            all_html
+        );
+        // Second reference: -2 suffix
+        assert!(
+            all_html.contains("id=\"user-content-fnref-1-2\""),
+            "Second ref should have -2 suffix, got: {}",
+            all_html
+        );
+        // Third reference: -3 suffix
+        assert!(
+            all_html.contains("id=\"user-content-fnref-1-3\""),
+            "Third ref should have -3 suffix, got: {}",
+            all_html
+        );
+
+        // Three backref links in the definition
+        assert!(
+            all_html.contains("href=\"#user-content-fnref-1\""),
+            "Should have backref to first ref, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("href=\"#user-content-fnref-1-2\""),
+            "Should have backref to second ref, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("href=\"#user-content-fnref-1-3\""),
+            "Should have backref to third ref, got: {}",
+            all_html
+        );
+
+        // Non-first backrefs should have <sup> numbers
+        assert!(
+            all_html.contains("<sup>2</sup>"),
+            "Second backref should have <sup>2</sup>, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains("<sup>3</sup>"),
+            "Third backref should have <sup>3</sup>, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_footnote_ordinal_numbers() {
+        // Footnote references should display ordinal numbers (1, 2, 3) based on
+        // first-reference order, not the literal identifier text.
+        let input = "First[^alpha] and second[^beta] and third[^1].\n\n[^alpha]: Alpha footnote.\n[^beta]: Beta footnote.\n[^1]: One footnote.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Superscripts should contain ordinal numbers, not identifiers
+        assert!(
+            all_html.contains(">1</a></sup>"),
+            "First footnote ref should show ordinal 1, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains(">2</a></sup>"),
+            "Second footnote ref should show ordinal 2, got: {}",
+            all_html
+        );
+        assert!(
+            all_html.contains(">3</a></sup>"),
+            "Third footnote ref should show ordinal 3, got: {}",
+            all_html
+        );
+        // Should NOT contain the literal identifier text as superscript
+        assert!(
+            !all_html.contains(">alpha</a></sup>"),
+            "Should not show 'alpha' as superscript, got: {}",
+            all_html
+        );
+        assert!(
+            !all_html.contains(">beta</a></sup>"),
+            "Should not show 'beta' as superscript, got: {}",
+            all_html
+        );
+
+        // Definitions in the <ol> should be ordered by first-reference order
+        let section_start = all_html.find("class=\"footnotes\"").unwrap();
+        let section = &all_html[section_start..];
+        let alpha_pos = section.find("fn-alpha").unwrap();
+        let beta_pos = section.find("fn-beta").unwrap();
+        let one_pos = section.find("fn-1").unwrap();
+        assert!(
+            alpha_pos < beta_pos && beta_pos < one_pos,
+            "Definitions should be ordered alpha, beta, 1 (by first-reference order), got section: {}",
+            section
+        );
+    }
+
+    #[test]
+    fn test_heading_autolink_skips_when_heading_contains_link() {
+        let input = "## Check the [docs](https://example.com) page\n";
+        let options = Options {
+            enable_heading_autolinks: true,
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Should have the link
+        assert!(
+            all_html.contains("<a href=\"https://example.com\">docs</a>"),
+            "Should render the inline link, got: {}",
+            all_html
+        );
+
+        // Should NOT have a wrapping autolink <a> (which would nest anchors)
+        // Count <a> elements — there should be exactly one (the inline link)
+        let anchor_count = all_html.matches("<a ").count();
+        assert_eq!(
+            anchor_count, 1,
+            "Should have exactly one <a> (the inline link, no autolink wrapper), got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_heading_autolink_wraps_when_no_link() {
+        let input = "## Plain heading\n";
+        let options = Options {
+            enable_heading_autolinks: true,
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Should have autolink wrapper
+        assert!(
+            all_html.contains("<a href=\"#plain-heading\">"),
+            "Should have autolink wrapper, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_footnote_inside_jsx_component_children() {
+        // Regression test: footnote references and definitions inside JSX component
+        // children (e.g. <Aside>) must bubble up to the parent context so the
+        // footnote section appears in the final output.
+        let input = r#":::note[Important]
+Here is a footnote inside a directive[^1].
+
+[^1]: Footnote defined inside the directive.
+:::"#;
+        let options = Options {
+            enable_directives: true,
+            ..Default::default()
+        };
+
+        let result = to_blocks(input, &options).unwrap();
+
+        // Convert blocks to JSX to verify the footnote section is emitted
+        let jsx =
+            crate::codegen::blocks_to_jsx_string(&result.blocks, None::<fn(&str) -> Option<_>>);
+
+        // The footnote section should appear in the final JSX output
+        // (inside set:html JSON strings, quotes are escaped as \")
+        assert!(
+            jsx.contains("footnotes"),
+            "Footnote section should appear in JSX output, got: {}",
+            jsx
+        );
+
+        // The footnote reference link should be present somewhere
+        assert!(
+            jsx.contains("user-content-fn-1"),
+            "Footnote reference link should be present, got: {}",
+            jsx
+        );
+
+        // The backref should be present
+        assert!(
+            jsx.contains("user-content-fnref-1"),
+            "Footnote backref should be present in JSX, got: {}",
+            jsx
+        );
+
+        // The footnote content should be present
+        assert!(
+            jsx.contains("Footnote defined inside the directive."),
+            "Footnote content should be present, got: {}",
+            jsx
+        );
+    }
+
+    #[test]
+    fn test_footnote_ref_count_across_child_context() {
+        // Regression test: when the same footnote is referenced in the parent
+        // flow AND inside a child context (e.g., directive/JSX component), the
+        // ref IDs must not collide. The child must continue the parent's ref
+        // counter so the second reference gets a -2 suffix.
+        let input = r#"Outer ref[^1].
+
+:::note[Important]
+Inner ref[^1].
+:::
+
+[^1]: Shared footnote."#;
+        let options = Options {
+            enable_directives: true,
+            ..Default::default()
+        };
+
+        let result = to_blocks(input, &options).unwrap();
+
+        // Convert to JSX so we can inspect both component slots and HTML blocks
+        let jsx =
+            crate::codegen::blocks_to_jsx_string(&result.blocks, None::<fn(&str) -> Option<_>>);
+
+        // First reference (outer): id="user-content-fnref-1" (no suffix)
+        assert!(
+            jsx.contains("fnref-1\\\"") || jsx.contains("fnref-1\""),
+            "First ref should have no suffix, got: {}",
+            jsx
+        );
+        // Second reference (inner child): id="user-content-fnref-1-2"
+        assert!(
+            jsx.contains("fnref-1-2"),
+            "Second ref (inside directive) should have -2 suffix, got: {}",
+            jsx
+        );
+    }
+
+    #[test]
+    fn test_single_footnote_reference_unchanged() {
+        let input = "Text with footnote[^1].\n\n[^1]: Single reference content.\n";
+        let options = Options {
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // No suffix on single reference
+        assert!(
+            all_html.contains("id=\"user-content-fnref-1\""),
+            "Single ref should have no suffix, got: {}",
+            all_html
+        );
+        // No -2 suffix should exist
+        assert!(
+            !all_html.contains("fnref-1-2"),
+            "Should not have -2 suffix for single ref, got: {}",
+            all_html
+        );
+        // No <sup> in backref for single reference
+        let footnote_section_start = all_html.find("class=\"footnotes\"").unwrap();
+        let footnote_section = &all_html[footnote_section_start..];
+        assert!(
+            !footnote_section.contains("<sup>"),
+            "Single-ref backref should not have <sup>, got: {}",
+            footnote_section
         );
     }
 }

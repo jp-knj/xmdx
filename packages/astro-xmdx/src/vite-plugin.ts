@@ -9,11 +9,7 @@ import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
 import { DiskCache } from './vite-plugin/disk-cache.js';
 import {
-  createRegistry,
   starlightLibrary,
-  astroLibrary,
-  type ComponentLibrary,
-  type Registry,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
 import { resolveExpressiveCodeConfig } from './utils/config.js';
@@ -25,14 +21,14 @@ import {
   OUTPUT_EXTENSION,
   STARLIGHT_LAYER_ORDER,
 } from './constants.js';
-import type { XmdxPlugin, PluginHooks, TransformContext } from './types.js';
-
 // Import from extracted vite-plugin modules
 import type {
   XmdxBinding,
   XmdxCompiler,
   XmdxPluginOptions,
 } from './vite-plugin/types.js';
+import { resolveLibraries } from './vite-plugin/resolve-libraries.js';
+import { collectHooks } from './vite-plugin/collect-hooks.js';
 import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
 import { ShikiManager } from './vite-plugin/shiki-manager.js';
 import { createLoadProfiler } from './vite-plugin/load-profiler.js';
@@ -45,61 +41,8 @@ import type {
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
 
-/**
- * Resolves library configuration from options.
- * Supports both new `libraries` API and legacy `starlightComponents` option.
- */
-export function resolveLibraries(options: XmdxPluginOptions): {
-  libraries: ComponentLibrary[];
-  registry: Registry;
-} {
-  // New API: explicit libraries array
-  if (Array.isArray(options.libraries)) {
-    const registry = createRegistry(options.libraries);
-    return { libraries: options.libraries, registry };
-  }
-
-  // Legacy API: derive libraries from starlightComponents option
-  const libraries: ComponentLibrary[] = [astroLibrary];
-
-  // Add Starlight library when starlightComponents is set OR expressiveCode is enabled.
-  // ExpressiveCode in Starlight projects uses @astrojs/starlight/components for Code.
-  if (options.starlightComponents || options.expressiveCode) {
-    libraries.push(starlightLibrary);
-  }
-
-  const registry = createRegistry(libraries);
-  return { libraries, registry };
-}
-
-/**
- * Collects hooks from an array of plugins, organizing them by hook type.
- */
-function collectHooks(plugins: XmdxPlugin[]): PluginHooks {
-  const hooks: PluginHooks = {
-    afterParse: [],
-    beforeInject: [],
-    beforeOutput: [],
-    preprocess: [],
-  };
-
-  // Sort plugins: 'pre' first, then undefined, then 'post'
-  const sorted = [...plugins].sort((a, b) => {
-    const order: Record<string, number> = { pre: 0, undefined: 1, post: 2 };
-    const aOrder = order[a.enforce ?? 'undefined'] ?? 1;
-    const bOrder = order[b.enforce ?? 'undefined'] ?? 1;
-    return aOrder - bOrder;
-  });
-
-  for (const plugin of sorted) {
-    if (plugin.afterParse) hooks.afterParse.push(plugin.afterParse);
-    if (plugin.beforeInject) hooks.beforeInject.push(plugin.beforeInject);
-    if (plugin.beforeOutput) hooks.beforeOutput.push(plugin.beforeOutput);
-    if (plugin.preprocess) hooks.preprocess.push(plugin.preprocess);
-  }
-
-  return hooks;
-}
+// Preserve public API — resolveLibraries was exported from this module
+export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
 
 /**
  * Creates the Xmdx Vite plugin that intercepts `.md`/`.mdx` files
@@ -254,7 +197,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
       // Vite 8+: use oxc config; Vite 7 and below: use esbuild config
       const configAny = config as Record<string, unknown>;
-      if ('oxc' in configAny) {
+      if ('oxc' in configAny && configAny.oxc !== false) {
         // Vite 8+ with OXC support
         const oxcConfig = (configAny.oxc ?? {}) as Record<string, unknown>;
         if (oxcConfig.jsx == null) {

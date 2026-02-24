@@ -1,7 +1,4 @@
-/**
- * Vite plugin modules for Xmdx
- * @module vite-plugin
- */
+/** Barrel re-exports — the plugin factory lives in ../vite-plugin.ts */
 
 // Re-export types
 export type {

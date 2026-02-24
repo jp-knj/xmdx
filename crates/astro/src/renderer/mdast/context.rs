@@ -8,6 +8,34 @@ use markdown::mdast::Node;
 use std::collections::HashMap;
 use xmdx_core::Slugger;
 
+/// Normalizes a footnote identifier for use in HTML fragment IDs.
+///
+/// GFM footnote labels can contain whitespace and punctuation (e.g. `[^my note]`).
+/// Raw identifiers cannot be used directly in `id` / `href` fragments because
+/// spaces and special characters produce invalid or unreliable fragment targets.
+/// This function converts the identifier to a safe slug: lowercase, spaces → hyphens,
+/// ASCII alphanumeric/hyphens/underscores and Unicode letters/digits are kept.
+pub(super) fn sanitize_footnote_id(id: &str) -> String {
+    let mut result = String::with_capacity(id.len());
+    for c in id.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            result.push(c.to_ascii_lowercase());
+        } else if c.is_alphabetic() || c.is_numeric() {
+            // Preserve non-ASCII letters/digits (Unicode)
+            for lc in c.to_lowercase() {
+                result.push(lc);
+            }
+        } else if c == ' ' || c == '\t' {
+            result.push('-');
+        }
+        // Other chars (punctuation, etc.) are dropped
+    }
+    if result.is_empty() {
+        result.push_str("fn");
+    }
+    result
+}
+
 /// Escapes a string for use in an HTML attribute value.
 pub(super) fn escape_html_attr(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -157,8 +185,24 @@ pub struct Context<'a> {
     registry: RegistryConfig,
 
     /// Pending footnote definitions collected during rendering.
-    /// Each entry is `(identifier, rendered_li_html)`.
+    /// Each entry is `(identifier, children_html)` — the `<li>` wrapper and
+    /// backref links are built at `finish()` time once total ref counts are known.
     pending_footnotes: Vec<(String, String)>,
+
+    /// Per-identifier reference counter for footnotes.
+    /// Used to generate unique IDs when the same footnote is referenced multiple times.
+    footnote_ref_counts: HashMap<String, usize>,
+
+    /// Maps sanitized footnote IDs → original identifier that first claimed it.
+    /// Used to detect and resolve collisions when different identifiers
+    /// produce the same sanitized form.
+    footnote_safe_ids: HashMap<String, String>,
+
+    /// Maps footnote identifier → ordinal number (1-indexed, assigned on first reference).
+    footnote_ordinals: HashMap<String, usize>,
+
+    /// Next ordinal to assign.
+    footnote_ordinal_counter: usize,
 }
 
 impl<'a> Context<'a> {
@@ -180,6 +224,10 @@ impl<'a> Context<'a> {
             options,
             registry: registry.unwrap_or_else(default_starlight_registry),
             pending_footnotes: Vec::new(),
+            footnote_ref_counts: HashMap::new(),
+            footnote_safe_ids: HashMap::new(),
+            footnote_ordinals: HashMap::new(),
+            footnote_ordinal_counter: 0,
         }
     }
 
@@ -431,6 +479,13 @@ impl<'a> Context<'a> {
         // Clone registry to pass to child context
         let mut child_ctx = Context::with_registry(self.options, Some(self.registry.clone()));
 
+        // Seed the child context with the parent's footnote state so footnotes
+        // inside components get correct document-level ordinals and ref counts.
+        child_ctx.footnote_ordinals = self.footnote_ordinals.clone();
+        child_ctx.footnote_ordinal_counter = self.footnote_ordinal_counter;
+        child_ctx.footnote_ref_counts = self.footnote_ref_counts.clone();
+        child_ctx.footnote_safe_ids = self.footnote_safe_ids.clone();
+
         for child in children {
             render_node(child, &mut child_ctx);
         }
@@ -438,6 +493,16 @@ impl<'a> Context<'a> {
 
         // Bubble up headings from child context to parent (for TOC)
         self.headings.append(&mut child_ctx.headings);
+
+        // Bubble up footnote definitions from child context to parent
+        self.pending_footnotes
+            .append(&mut child_ctx.pending_footnotes);
+
+        // Absorb the child's updated footnote state back into the parent
+        self.footnote_ref_counts = std::mem::take(&mut child_ctx.footnote_ref_counts);
+        self.footnote_ordinals = std::mem::take(&mut child_ctx.footnote_ordinals);
+        self.footnote_ordinal_counter = child_ctx.footnote_ordinal_counter;
+        self.footnote_safe_ids = std::mem::take(&mut child_ctx.footnote_safe_ids);
 
         child_ctx.blocks
     }
@@ -481,9 +546,68 @@ impl<'a> Context<'a> {
         self.options.heading_autolinks()
     }
 
-    /// Adds a footnote definition to be aggregated into a single section at finish time.
-    pub fn push_footnote(&mut self, id: String, li_html: String) {
-        self.pending_footnotes.push((id, li_html));
+    /// Increments and returns the ref count for a footnote identifier (1-indexed).
+    pub fn next_footnote_ref_count(&mut self, id: &str) -> usize {
+        let count = self.footnote_ref_counts.entry(id.to_string()).or_insert(0);
+        *count += 1;
+        *count
+    }
+
+    /// Returns total ref count for a footnote identifier.
+    pub fn footnote_ref_count(&self, id: &str) -> usize {
+        self.footnote_ref_counts.get(id).copied().unwrap_or(0)
+    }
+
+    /// Adds a footnote definition (children HTML only) to be aggregated at finish time.
+    ///
+    /// The `<li>` wrapper and backref links are built in `finish()` once total
+    /// ref counts are known, so repeated references get correct backref anchors.
+    pub fn push_footnote(&mut self, id: String, children_html: String) {
+        self.pending_footnotes.push((id, children_html));
+    }
+
+    /// Returns a unique sanitized ID for a footnote identifier.
+    /// On first call for a given identifier, sanitizes and reserves the ID.
+    /// If a different identifier already claimed the same sanitized form,
+    /// appends a numeric suffix to disambiguate.
+    pub fn get_safe_footnote_id(&mut self, id: &str) -> String {
+        // Check if this exact identifier already has an assigned safe ID
+        // (reuse across repeated references to the same footnote)
+        for (safe, orig) in &self.footnote_safe_ids {
+            if orig == id {
+                return safe.clone();
+            }
+        }
+        let mut safe = sanitize_footnote_id(id);
+        if let Some(existing_orig) = self.footnote_safe_ids.get(&safe) {
+            if existing_orig != id {
+                // Collision: different identifier mapped to same safe_id
+                let base = safe.clone();
+                let mut n = 2;
+                loop {
+                    safe = format!("{}-{}", base, n);
+                    if !self.footnote_safe_ids.contains_key(&safe) {
+                        break;
+                    }
+                    n += 1;
+                }
+            }
+        }
+        self.footnote_safe_ids.insert(safe.clone(), id.to_string());
+        safe
+    }
+
+    /// Returns the ordinal for a footnote identifier, assigning the next
+    /// sequential ordinal on first encounter.
+    pub fn get_or_assign_footnote_ordinal(&mut self, id: &str) -> usize {
+        if let Some(&ordinal) = self.footnote_ordinals.get(id) {
+            ordinal
+        } else {
+            self.footnote_ordinal_counter += 1;
+            let ordinal = self.footnote_ordinal_counter;
+            self.footnote_ordinals.insert(id.to_string(), ordinal);
+            ordinal
+        }
     }
 
     /// Consumes the context and returns the list of rendering blocks.
@@ -492,10 +616,56 @@ impl<'a> Context<'a> {
 
         // Emit a single aggregated footnotes section if any definitions were collected
         if !self.pending_footnotes.is_empty() {
+            // Sort definitions by first-reference order (ordinal).
+            // Unreferenced definitions (no ordinal) sort to the end.
+            let ordinals = &self.footnote_ordinals;
+            self.pending_footnotes.sort_by_key(|(id, _)| {
+                ordinals.get(id).copied().unwrap_or(usize::MAX)
+            });
+
+            // Pre-compute safe IDs for all pending footnotes to avoid borrow conflicts.
+            let ids: Vec<String> = self
+                .pending_footnotes
+                .iter()
+                .map(|(id, _)| id.clone())
+                .collect();
+            let safe_ids: Vec<String> = ids.iter().map(|id| self.get_safe_footnote_id(id)).collect();
+
             let mut section = String::new();
             section.push_str("<section data-footnotes class=\"footnotes\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2><ol>");
-            for (_id, li_html) in &self.pending_footnotes {
-                section.push_str(li_html);
+            for (i, (id, children_html)) in self.pending_footnotes.iter().enumerate() {
+                let total_refs = self.footnote_ref_count(id);
+                let safe_id = &safe_ids[i];
+
+                section.push_str("<li id=\"user-content-fn-");
+                section.push_str(&safe_id);
+                section.push_str("\">");
+                section.push_str(children_html);
+
+                // Build backref links (skip if no references exist)
+                if total_refs == 1 {
+                    // Single reference: one backref without suffix
+                    section.push_str(" <a href=\"#user-content-fnref-");
+                    section.push_str(&safe_id);
+                    section.push_str("\" data-footnote-backref class=\"footnote-backref\" aria-label=\"Back to reference\">\u{21a9}</a>");
+                } else {
+                    // Multiple references: one backref per reference
+                    for n in 1..=total_refs {
+                        section.push(' ');
+                        section.push_str("<a href=\"#user-content-fnref-");
+                        section.push_str(&safe_id);
+                        if n > 1 {
+                            section.push_str(&format!("-{}", n));
+                        }
+                        section.push_str("\" data-footnote-backref class=\"footnote-backref\" aria-label=\"Back to reference\">\u{21a9}");
+                        if n > 1 {
+                            section.push_str(&format!("<sup>{}</sup>", n));
+                        }
+                        section.push_str("</a>");
+                    }
+                }
+
+                section.push_str("</li>");
             }
             section.push_str("</ol></section>");
             self.blocks.push(RenderBlock::Html { content: section });

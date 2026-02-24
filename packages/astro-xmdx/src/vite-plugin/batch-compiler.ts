@@ -13,7 +13,7 @@ import type { ResolvedConfig } from 'vite';
 import { batchTransformJsx } from './jsx-transform.js';
 import { runParallelJsxTransform } from './jsx-worker-pool.js';
 import { DiskCache } from './disk-cache.js';
-import { wrapMdxModule } from './mdx-wrapper.js';
+import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { XmdxBinding, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
