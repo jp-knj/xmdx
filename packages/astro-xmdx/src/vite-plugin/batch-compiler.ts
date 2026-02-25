@@ -12,15 +12,15 @@ import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
 import { batchTransformJsx } from './jsx-transform.js';
 import { runParallelJsxTransform } from './jsx-worker-pool.js';
-import { DiskCache } from './disk-cache.js';
+import { DiskCache } from './cache/disk-cache.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { XmdxBinding, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
 import type { Transform } from '../pipeline/types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ShikiManager } from './shiki-manager.js';
-import type { ExpressiveCodeManager } from './expressive-code-manager.js';
+import type { ShikiManager } from './highlighting/shiki-manager.js';
+import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
 import type {
@@ -28,7 +28,7 @@ import type {
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
-} from './cache-types.js';
+} from './cache/types.js';
 import { debugLog, debugTime, debugTimeEnd } from './load-profiler.js';
 
 const require = createRequire(import.meta.url);

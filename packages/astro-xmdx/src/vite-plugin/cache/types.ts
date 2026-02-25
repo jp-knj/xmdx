@@ -4,7 +4,7 @@
  */
 
 import type { SourceMapInput } from 'rollup';
-import type { MdxBatchCompileResult, ModuleBatchCompileResult } from './types.js';
+import type { MdxBatchCompileResult, ModuleBatchCompileResult } from '../types.js';
 
 export type EsbuildCacheEntry = { code: string; map?: SourceMapInput };
 

@@ -5,7 +5,7 @@
 
 import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ExpressiveCodeManager } from '../vite-plugin/expressive-code-manager.js';
+import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
 
 // PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
 const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;

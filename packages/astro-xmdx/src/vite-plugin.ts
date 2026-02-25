@@ -7,13 +7,13 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
-import { DiskCache } from './vite-plugin/disk-cache.js';
+import { DiskCache } from './vite-plugin/cache/disk-cache.js';
 import {
   starlightLibrary,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
 import { resolveExpressiveCodeConfig } from './utils/config.js';
-import { ExpressiveCodeManager } from './vite-plugin/expressive-code-manager.js';
+import { ExpressiveCodeManager } from './vite-plugin/highlighting/expressive-code-manager.js';
 import { detectProblematicMdxPatterns } from './utils/mdx-detection.js';
 import { stripQuery, shouldCompile } from './utils/paths.js';
 import {
@@ -30,14 +30,14 @@ import type {
 import { resolveLibraries } from './vite-plugin/resolve-libraries.js';
 import { collectHooks } from './vite-plugin/collect-hooks.js';
 import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
-import { ShikiManager } from './vite-plugin/shiki-manager.js';
+import { ShikiManager } from './vite-plugin/highlighting/shiki-manager.js';
 import { createLoadProfiler } from './vite-plugin/load-profiler.js';
 import type {
   CachedMdxResult,
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
-} from './vite-plugin/cache-types.js';
+} from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
 

@@ -36,8 +36,19 @@ export function extractArrayInner(s: string): string {
   let depth = 1;
   let end = 1;
   for (let i = 1; i < s.length && depth > 0; i++) {
-    if (s[i] === '[') depth++;
-    else if (s[i] === ']') depth--;
+    const ch = s[i];
+    if (ch === '"') {
+      // Skip quoted string — advance past closing quote
+      i++;
+      while (i < s.length) {
+        if (s[i] === '\\') { i++; }      // skip escape
+        else if (s[i] === '"') { break; } // closing quote
+        i++;
+      }
+      continue; // i now on closing quote; loop's i++ moves past it
+    }
+    if (ch === '[') depth++;
+    else if (ch === ']') depth--;
     if (depth === 0) { end = i; break; }
   }
   return s.slice(1, end);

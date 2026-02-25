@@ -18,13 +18,13 @@ import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '..
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { Transform } from '../pipeline/types.js';
 import { IS_MDAST } from './binding-loader.js';
-import type { CachedMdxResult, CachedModuleResult, EsbuildCacheEntry } from './cache-types.js';
-import { compileFallbackModule } from './jsx-module.js';
+import type { CachedMdxResult, CachedModuleResult, EsbuildCacheEntry } from './cache/types.js';
+import { compileFallbackModule } from './fallback/compile.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { LoadProfiler } from './load-profiler.js';
 import { LOAD_PROFILE } from './load-profiler.js';
-import type { ShikiManager } from './shiki-manager.js';
+import type { ShikiManager } from './highlighting/shiki-manager.js';
 import type { CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
 
 interface LoadState {

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { wrapMdxModule } from './index.js';
+import { extractArrayInner } from './string-utils.js';
 import { createRegistry, starlightLibrary } from 'xmdx/registry';
 import type { ComponentLibrary } from 'xmdx/registry';
 
@@ -468,6 +469,32 @@ export default _createMdxContent;`;
       expect(result).toContain('id: "-1"');
     });
 
+    test('heading with bracket inside string literal gets correct ID', () => {
+      // ## See [Docs] intro — compiled children array contains "]" inside a string literal
+      const mdxCode = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", {
+    children: [
+      _jsx(_components.h2, { children: ["See [Docs]", " intro"] }),
+    ]
+  });
+}
+export default _createMdxContent;`;
+
+      const headings = [
+        { depth: 2, slug: 'see-docs-intro', text: 'See [Docs] intro' },
+      ];
+
+      const registry = createRegistry([starlightLibrary]);
+      const result = wrapMdxModule(mdxCode, {
+        frontmatter: {},
+        headings,
+        registry,
+      }, 'test.mdx');
+
+      expect(result).toContain('id: "see-docs-intro"');
+    });
+
     test('HTML-in-heading via fallback', () => {
       // ## <span>text</span> compiles to array children with a JSX call.
       // extractChildrenText returns null, so fallback prefix-match assigns the slug.
@@ -494,5 +521,19 @@ export default _createMdxContent;`;
 
       expect(result).toContain('id: "text"');
     });
+  });
+});
+
+describe('extractArrayInner', () => {
+  test('handles bracket inside string literal', () => {
+    expect(extractArrayInner('["a]b", "c"]')).toBe('"a]b", "c"');
+  });
+
+  test('simple quoted string (no regression)', () => {
+    expect(extractArrayInner('["ok"]')).toBe('"ok"');
+  });
+
+  test('brackets inside string literal', () => {
+    expect(extractArrayInner('["a[b]c"]')).toBe('"a[b]c"');
   });
 });

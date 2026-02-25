@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { compile } from '@mdx-js/mdx';
 import remarkGfm from 'remark-gfm';
-import { rehypeTasklistEnhancer } from './jsx-module.js';
+import { rehypeTasklistEnhancer } from './rehype-tasklist.js';
 
 /**
  * Helper: compile markdown through @mdx-js/mdx with remark-gfm and

@@ -4,7 +4,7 @@
  */
 
 import { createShikiHighlighter } from './shiki-highlighter.js';
-import type { ShikiHighlighter } from '../transforms/shiki.js';
+import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 export class ShikiManager {
   private instance: Promise<ShikiHighlighter> | undefined;

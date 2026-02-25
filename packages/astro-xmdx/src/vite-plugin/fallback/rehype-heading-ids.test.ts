@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { rehypeHeadingIds, slugifyHeading, extractCustomId } from './jsx-module.js';
+import { rehypeHeadingIds, slugifyHeading, extractCustomId, extractAndStripCustomIds } from './rehype-heading-ids.js';
 
 describe('slugifyHeading', () => {
   test('slugifies heading text with punctuation', () => {
@@ -274,5 +274,66 @@ describe('rehypeHeadingIds', () => {
     expect(heading.properties?.id).toBe('bold-heading');
     // The last text node should have {#...} stripped
     expect(heading.children?.[1]?.value).toBe(' heading');
+  });
+
+  test('uses preExtractedIds when {#id} was pre-stripped from source', () => {
+    const preExtractedIds = new Map([['My Section', 'custom-section']]);
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'My Section' }],
+        },
+      ],
+    };
+
+    rehypeHeadingIds(undefined, preExtractedIds)(tree);
+
+    const heading = tree.children[0] as { properties?: { id?: string } };
+    expect(heading.properties?.id).toBe('custom-section');
+  });
+});
+
+describe('extractAndStripCustomIds', () => {
+  test('strips {#id} from ATX headings', () => {
+    const md = '## My Section {#custom-section}\n\nSome text.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe('## My Section\n\nSome text.');
+    expect(result.customIds.get('My Section')).toBe('custom-section');
+  });
+
+  test('leaves non-heading lines with {#id} unchanged', () => {
+    const md = 'This is a paragraph with {#not-a-heading}.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe(md);
+    expect(result.customIds.size).toBe(0);
+  });
+
+  test('ignores headings inside code fences', () => {
+    const md = '```\n## Heading {#fenced}\n```\n\n## Real Heading {#real}';
+    const result = extractAndStripCustomIds(md);
+    // The fenced heading should be untouched
+    expect(result.stripped).toContain('## Heading {#fenced}');
+    // The real heading should be stripped
+    expect(result.customIds.get('Real Heading')).toBe('real');
+    expect(result.customIds.has('Heading')).toBe(false);
+  });
+
+  test('handles multiple headings', () => {
+    const md = '# Title {#title}\n\n## Section A {#sec-a}\n\nText\n\n## Section B {#sec-b}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Title')).toBe('title');
+    expect(result.customIds.get('Section A')).toBe('sec-a');
+    expect(result.customIds.get('Section B')).toBe('sec-b');
+    expect(result.stripped).not.toContain('{#');
+  });
+
+  test('headings without custom IDs are unchanged', () => {
+    const md = '## Normal Heading\n\nParagraph.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe(md);
+    expect(result.customIds.size).toBe(0);
   });
 });

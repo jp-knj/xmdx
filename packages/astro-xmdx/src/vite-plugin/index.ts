@@ -16,15 +16,15 @@ export { DEFAULT_EXTENSIONS } from '../utils/paths.js';
 export { loadXmdxBinding, resetBindingPromise, ENABLE_SHIKI, IS_MDAST } from './binding-loader.js';
 
 // Re-export JSX module utilities
-export { compileFallbackModule } from './jsx-module.js';
+export { compileFallbackModule } from './fallback/compile.js';
 
 // Re-export directive rewriter
-export { rewriteFallbackDirectives, injectFallbackImports } from './directive-rewriter.js';
+export { rewriteFallbackDirectives, injectFallbackImports } from './fallback/directive-rewriter.js';
 
 // Re-export config normalization utilities
 export { normalizeStarlightComponents } from './normalize-config.js';
 export type { NormalizedStarlightComponents } from './normalize-config.js';
 
 // Re-export shiki highlighter
-export { createShikiHighlighter } from './shiki-highlighter.js';
+export { createShikiHighlighter } from './highlighting/shiki-highlighter.js';
 export type { ShikiHighlighter } from '../transforms/shiki.js';
