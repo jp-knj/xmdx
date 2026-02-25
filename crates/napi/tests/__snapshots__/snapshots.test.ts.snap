@@ -105,9 +105,9 @@ exports[`snapshot: gfm_full.md 2`] = `
 ]
 `;
 
-exports[`snapshot: aside_directive.md 1`] = `"<Aside {...{"type": "note", "title": "Heads"}}><_Fragment set:html={"<p>Body of directive aside.</p>"} /></Aside>"`;
+exports[`snapshot: aside_directive.md 1`] = `"<Aside {...{"title": "Heads", "type": "note"}}><_Fragment set:html={"<p>Body of directive aside.</p>"} /></Aside>"`;
 
-exports[`snapshot: directives with attributes 1`] = `"<Aside {...{"type": "note", "title": "Important Notice"}}><_Fragment set:html={"<p>This is <strong>important</strong> content with a <a href=\\"https://example.com\\">link</a>.</p>"} /></Aside><Aside {...{"type": "warning"}}><_Fragment set:html={"<p>Be careful!</p>"} /></Aside><Aside {...{"type": "tip"}}><_Fragment set:html={"<p>A tip with attributes.</p>"} /></Aside>"`;
+exports[`snapshot: directives with attributes 1`] = `"<Aside {...{"title": "Important Notice", "type": "note"}}><_Fragment set:html={"<p>This is <strong>important</strong> content with a <a href=\\"https://example.com\\">link</a>.</p>"} /></Aside><Aside {...{"type": "warning"}}><_Fragment set:html={"<p>Be careful!</p>"} /></Aside><Aside {...{"type": "tip"}}><_Fragment set:html={"<p>A tip with attributes.</p>"} /></Aside>"`;
 
 exports[`snapshot: task lists 1`] = `"<_Fragment set:html={"<ul><li class=\\"task-list-item\\"><label><input type=\\"checkbox\\" disabled checked/><span>Completed task</span></label></li><li class=\\"task-list-item\\"><label><input type=\\"checkbox\\" disabled/><span>Incomplete task</span></label></li><li>Regular list item</li></ul><ol><li class=\\"task-list-item\\"><label><input type=\\"checkbox\\" disabled checked/><span>Ordered checked</span></label></li><li class=\\"task-list-item\\"><label><input type=\\"checkbox\\" disabled/><span>Ordered unchecked</span></label></li></ol>"} />"`;
 

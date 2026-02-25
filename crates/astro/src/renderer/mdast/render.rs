@@ -3,7 +3,7 @@
 use super::context::Context;
 use super::types::{HeadingEntry, PropValue, RenderBlock, Scope};
 use markdown::mdast::Node;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use xmdx_core::slug::extract_custom_id;
 
 /// Extracts plain text from a list of AST nodes (for heading text).
@@ -202,7 +202,7 @@ fn render_jsx(
 
         let slot_children = ctx.render_children_to_blocks(children);
 
-        let mut props = HashMap::new();
+        let mut props = BTreeMap::new();
         props.insert("type".to_string(), PropValue::literal(directive_type));
         if let Some(t) = title {
             props.insert("title".to_string(), PropValue::literal(t));
@@ -217,7 +217,7 @@ fn render_jsx(
     }
 
     // 3. Extract props from JSX attributes
-    let mut props = HashMap::new();
+    let mut props = BTreeMap::new();
     for attr in attributes {
         match attr {
             markdown::mdast::AttributeContent::Property(prop) => {

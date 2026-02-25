@@ -5,7 +5,7 @@ use super::types::{BlocksResult, HeadingEntry, PropValue, RenderBlock, Scope};
 use crate::RegistryConfig;
 use crate::registry::defaults::default_starlight_registry;
 use markdown::mdast::Node;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use xmdx_core::Slugger;
 
 /// Normalizes a footnote identifier for use in HTML fragment IDs.
@@ -379,7 +379,7 @@ impl<'a> Context<'a> {
     pub fn push_component(
         &mut self,
         name: &str,
-        props: HashMap<String, PropValue>,
+        props: BTreeMap<String, PropValue>,
         slot_children: Vec<RenderBlock>,
     ) {
         self.flush_html();
@@ -417,7 +417,7 @@ impl<'a> Context<'a> {
     pub fn push_component_inline(
         &mut self,
         name: &str,
-        props: &HashMap<String, PropValue>,
+        props: &BTreeMap<String, PropValue>,
         slot_children: &[RenderBlock],
     ) {
         // Convert slot_children to inline HTML string
