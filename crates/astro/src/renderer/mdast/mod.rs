@@ -46,6 +46,10 @@ pub struct Options {
     /// When enabled, each heading gets an `<a>` element linking to itself.
     #[serde(default)]
     pub enable_heading_autolinks: bool,
+    /// Whether to enable math syntax ($inline$ and $$block$$).
+    /// When enabled, math expressions are rendered as `<MathBlock>` and `<MathInline>` components.
+    #[serde(default)]
+    pub enable_math: bool,
 }
 
 impl Options {
@@ -77,6 +81,7 @@ impl Default for Options {
             enable_lazy_images: false,
             allow_raw_html: default_allow_raw_html(),
             enable_heading_autolinks: false,
+            enable_math: false,
         }
     }
 }
@@ -151,8 +156,12 @@ pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String>
             gfm_strikethrough: true,
             gfm_table: true,
             gfm_task_list_item: true,
+            // Math: $inline$ and $$block$$
+            math_flow: options.enable_math,
+            math_text: options.enable_math,
             ..markdown::Constructs::default()
         },
+        math_text_single_dollar: options.enable_math,
         ..markdown::ParseOptions::default()
     };
 
@@ -1772,8 +1781,7 @@ export const authClient = createAuthClient();
 
     #[test]
     fn test_repeated_footnote_references() {
-        let input =
-            "First[^1] and second[^1] and third[^1].\n\n[^1]: Footnote content.\n";
+        let input = "First[^1] and second[^1] and third[^1].\n\n[^1]: Footnote content.\n";
         let options = Options {
             enable_directives: false,
             ..Default::default()
@@ -2093,6 +2101,76 @@ Inner ref[^1].
             !footnote_section.contains("<sup>"),
             "Single-ref backref should not have <sup>, got: {}",
             footnote_section
+        );
+    }
+
+    #[test]
+    fn test_inline_math() {
+        let input = "Euler's formula: $E = mc^2$";
+        let options = Options {
+            enable_math: true,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        assert_eq!(blocks.blocks.len(), 1);
+        match &blocks.blocks[0] {
+            RenderBlock::Html { content } => {
+                assert!(
+                    content.contains("MathInline"),
+                    "Should contain MathInline component: {}",
+                    content
+                );
+                assert!(
+                    content.contains("E = mc^2"),
+                    "Should contain math expression: {}",
+                    content
+                );
+            }
+            _ => panic!("Expected HTML block for inline math"),
+        }
+    }
+
+    #[test]
+    fn test_block_math() {
+        let input = "$$\n\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}\n$$";
+        let options = Options {
+            enable_math: true,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        // Should have a MathBlock component
+        let has_math_block = blocks
+            .blocks
+            .iter()
+            .any(|b| matches!(b, RenderBlock::Component { name, .. } if name == "MathBlock"));
+        assert!(
+            has_math_block,
+            "Should have MathBlock component: {:?}",
+            blocks.blocks
+        );
+    }
+
+    #[test]
+    fn test_math_disabled_by_default() {
+        let input = "Price is $5 and $10";
+        let options = Options::default();
+
+        let blocks = to_blocks(input, &options).unwrap();
+        // With math disabled, $ signs should be treated as literal text
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !all_html.contains("MathInline"),
+            "Should not contain MathInline when math is disabled: {}",
+            all_html
         );
     }
 }

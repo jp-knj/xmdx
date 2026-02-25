@@ -664,6 +664,17 @@ pub fn render_node(node: &Node, ctx: &mut Context) {
         }
         Node::FootnoteReference(fnref) => render_footnote_reference(fnref, ctx),
         Node::FootnoteDefinition(fndef) => render_footnote_definition(fndef, ctx),
+        Node::Math(math) => {
+            let mut props = BTreeMap::new();
+            props.insert("expr".to_string(), PropValue::literal(&math.value));
+            ctx.push_component("MathBlock", props, Vec::new());
+        }
+        Node::InlineMath(math) => {
+            ctx.push_raw(&format!(
+                "<MathInline expr={{{}}} />",
+                serde_json::to_string(&math.value).unwrap_or_default()
+            ));
+        }
         _ => {
             log::warn!("Unhandled markdown node type: {:?}", node);
         }

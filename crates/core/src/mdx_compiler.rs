@@ -58,6 +58,8 @@ pub struct MdxCompileOptions {
     pub directive_config: Option<crate::directives::DirectiveConfig>,
     /// Whether to wrap heading content in anchor links for self-linking.
     pub enable_heading_autolinks: bool,
+    /// Whether to enable math syntax ($inline$ and $$block$$).
+    pub math: bool,
 }
 
 /// Compiles MDX source to JavaScript.
@@ -128,12 +130,18 @@ pub fn compile_mdx(
     let content = strip_custom_ids_from_headings(&content);
 
     // Configure mdxjs-rs options
+    let mut parse_options = MdxParseOptions::gfm();
+    if opts.math {
+        parse_options.constructs.math_flow = true;
+        parse_options.constructs.math_text = true;
+        parse_options.math_text_single_dollar = true;
+    }
     let mdx_options = Options {
         filepath: Some(filepath.to_string()),
         jsx_runtime: Some(JsxRuntime::Automatic),
         jsx_import_source: opts.jsx_import_source,
         jsx: opts.jsx,
-        parse: MdxParseOptions::gfm(),
+        parse: parse_options,
         ..Default::default()
     };
 
@@ -3278,8 +3286,7 @@ title: Test
             },
         ];
 
-        let code =
-            r#"_jsx("h2", { children: "Section" }), _jsx("h2", { children: "Section" })"#;
+        let code = r#"_jsx("h2", { children: "Section" }), _jsx("h2", { children: "Section" })"#;
         let result = rewrite_heading_autolinks_in_jsx(code, &headings);
 
         // First should get "section", second should get "section-1"

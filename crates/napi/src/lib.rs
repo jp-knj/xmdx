@@ -190,6 +190,7 @@ pub fn parse_blocks(input: String, opts: Option<BlockOptions>) -> napi::Result<P
             enable_lazy_images: o.enable_lazy_images.unwrap_or(false),
             allow_raw_html: o.allow_raw_html.unwrap_or(false),
             enable_heading_autolinks: o.enable_heading_autolinks.unwrap_or(false),
+            enable_math: o.enable_math.unwrap_or(false),
         }
     } else {
         mdast::Options {
@@ -584,6 +585,7 @@ pub fn compile_mdx_batch(
                     .as_ref()
                     .and_then(|c| c.enable_heading_autolinks)
                     .unwrap_or(false),
+                math: config.as_ref().and_then(|c| c.math).unwrap_or(false),
             };
 
             match compile_mdx(&input.source, &filepath, Some(mdx_options)) {
@@ -940,9 +942,8 @@ mod tests {
         let content_pos = result.code.find("function xmdxContent").unwrap();
         let fenced_pos = result.code.find("export const no = true").unwrap();
 
-        // mdast currently only hoists LEADING imports/exports
-        // exports that appear after content are not hoisted
-        // TODO: Add full hoisting support similar to old multipass pipeline
+        // Hoisting now handles all root-level imports/exports throughout the document
+        // (see compile_document_hoists_mid_document_imports test below)
 
         assert!(
             fenced_pos > content_pos,
