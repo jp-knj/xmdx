@@ -82,6 +82,22 @@ describe('generateComponentImports', () => {
     ]);
   });
 
+  test('absolute Windows path with backslashes gets normalized and /@fs/ prefix', () => {
+    const components: UsedComponent[] = [
+      { name: 'Widget', modulePath: 'C:\\Users\\foo\\src\\Widget.astro', exportType: 'default' },
+    ];
+    const result = generateComponentImports(components, registry);
+    expect(result).toBe("import Widget from '/@fs/C:/Users/foo/src/Widget.astro';");
+  });
+
+  test('absolute Windows backslash path without extension appends name.astro', () => {
+    const components: UsedComponent[] = [
+      { name: 'Card', modulePath: 'C:\\project\\src\\components', exportType: 'default' },
+    ];
+    const result = generateComponentImports(components, registry);
+    expect(result).toBe("import Card from '/@fs/C:/project/src/components/Card.astro';");
+  });
+
   test('absolute path without file extension appends name.astro with /@fs/ prefix', () => {
     const components: UsedComponent[] = [
       { name: 'Card', modulePath: '/projects/my-site/src/components', exportType: 'default' },

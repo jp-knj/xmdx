@@ -294,6 +294,45 @@ describe('injectFallbackImports', () => {
     expect(asideIndex).toBeGreaterThan(reactIndex);
   });
 
+  test('default export with full file path gets /@fs/ prefix and no appended name', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Aside', modulePath: '/Users/site/src/CustomAside.astro', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Aside type="note">Content</Aside>`;
+    const usedComponents = new Set(['Aside']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Aside from '/@fs/Users/site/src/CustomAside.astro';");
+  });
+
+  test('default export without extension appends name.astro', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Aside', modulePath: '@my/components', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Aside type="note">Content</Aside>`;
+    const usedComponents = new Set(['Aside']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Aside from '@my/components/Aside.astro';");
+  });
+
+  test('default export with Windows backslash path gets /@fs/ prefix', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Widget', modulePath: 'C:\\Users\\foo\\src\\Widget.astro', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Widget>Content</Widget>`;
+    const usedComponents = new Set(['Widget']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Widget from '/@fs/C:/Users/foo/src/Widget.astro';");
+  });
+
   test('handles multiple used components', () => {
     const source = `# Content
 

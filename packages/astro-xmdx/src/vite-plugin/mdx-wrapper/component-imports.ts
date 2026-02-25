@@ -47,14 +47,14 @@ export function generateComponentImports(components: UsedComponent[], registry: 
       : `${comp.modulePath}/${comp.name}.astro`;
     // Absolute filesystem paths must use Vite's /@fs/ prefix to be valid
     // specifiers in virtual modules (especially on Windows where C:/ is invalid ESM)
-    const importPath = isAbsoluteFilePath(rawPath) ? `/@fs/${rawPath.replace(/^\//, '')}` : rawPath;
+    const importPath = isAbsoluteFilePath(rawPath) ? `/@fs/${rawPath.replace(/\\/g, '/').replace(/^\//, '')}` : rawPath;
     imports.push(`import ${comp.name} from '${importPath}';`);
   }
 
   return imports.join('\n');
 }
 
-/** Detects absolute filesystem paths (POSIX /foo or Windows C:/) */
+/** Detects absolute filesystem paths (POSIX /foo or Windows C:\) */
 function isAbsoluteFilePath(p: string): boolean {
   return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 }

@@ -5,7 +5,7 @@
 
 import type { Registry } from 'xmdx/registry';
 import { starlightLibrary } from 'xmdx/registry';
-import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
+import { collectImportedNames, insertAfterImports } from '../../utils/imports.js';
 
 /**
  * Opening directive state for stack tracking.
@@ -255,7 +255,11 @@ export function injectFallbackImports(
       if (def.exportType === 'named') {
         importLines.push(`import { ${componentName} } from '${def.modulePath}';`);
       } else {
-        importLines.push(`import ${componentName} from '${def.modulePath}/${componentName}.astro';`);
+        const hasExtension = /\.(astro|[cm]?[jt]sx?|svelte|vue)$/.test(def.modulePath);
+        const rawPath = hasExtension ? def.modulePath : `${def.modulePath}/${componentName}.astro`;
+        const isAbsolute = rawPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rawPath);
+        const importPath = isAbsolute ? `/@fs/${rawPath.replace(/\\/g, '/').replace(/^\//, '')}` : rawPath;
+        importLines.push(`import ${componentName} from '${importPath}';`);
       }
     } else if (componentName === 'Aside' && hasStarlightConfigured) {
       // Fallback for Starlight Aside component when using default directives
