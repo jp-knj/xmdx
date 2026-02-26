@@ -86,6 +86,7 @@ GitHub Actions runs two jobs on PRs to `main`:
 
 ## Key Conventions
 
+- Do not add `Co-Authored-By` lines to commit messages
 - Rust edition 2024, TypeScript strict mode with ES2022 target and NodeNext module resolution
 - Test files are co-located with source as `*.test.ts` (TypeScript) or inline `#[cfg(test)]` modules (Rust)
 - Package exports use TypeScript source files directly (no pre-compilation step for development)

@@ -33,6 +33,8 @@ pub struct CompilerConfig {
     pub rewrite_code_blocks: Option<bool>,
     /// Whether to wrap heading content in anchor links for self-linking.
     pub enable_heading_autolinks: Option<bool>,
+    /// Whether to enable math syntax ($inline$ and $$block$$).
+    pub math: Option<bool>,
     /// Custom directive names to recognize beyond the built-in set.
     /// Each entry is a directive name (e.g., "custom-box").
     pub custom_directive_names: Option<Vec<String>>,
@@ -121,6 +123,8 @@ pub struct CompileResult {
     pub imports: Vec<ImportedModule>,
     /// Parse diagnostics (warnings, not errors)
     pub diagnostics: Diagnostics,
+    /// Whether user provided their own `export default` statement.
+    pub has_user_default_export: bool,
 }
 
 /// Neutral IR returned when Astro-compat codegen is disabled.
@@ -195,6 +199,8 @@ pub struct BlockOptions {
     pub allow_raw_html: Option<bool>,
     /// Wrap heading content in anchor links for self-linking. Defaults to false.
     pub enable_heading_autolinks: Option<bool>,
+    /// Enable math syntax ($inline$ and $$block$$). Defaults to false.
+    pub enable_math: Option<bool>,
 }
 
 /// Represents a rendering block returned by parse_blocks().

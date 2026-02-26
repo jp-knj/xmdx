@@ -11,6 +11,7 @@ pub fn to_mdast_options(opts: Option<BlockOptions>) -> MdastOptions {
             enable_lazy_images: o.enable_lazy_images.unwrap_or(false),
             allow_raw_html: o.allow_raw_html.unwrap_or(true),
             enable_heading_autolinks: o.enable_heading_autolinks.unwrap_or(false),
+            enable_math: o.enable_math.unwrap_or(false),
         },
         None => MdastOptions {
             enable_directives: false,
@@ -18,6 +19,7 @@ pub fn to_mdast_options(opts: Option<BlockOptions>) -> MdastOptions {
             enable_lazy_images: false,
             allow_raw_html: true,
             enable_heading_autolinks: false,
+            enable_math: false,
         },
     }
 }

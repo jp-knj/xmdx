@@ -20,6 +20,7 @@ const ASTRO_DEFAULT_RUNTIME: &str = "astro/runtime/server/index.js";
 pub(crate) struct InternalCompilerConfig {
     pub(crate) jsx_import_source: String,
     pub(crate) enable_heading_autolinks: bool,
+    pub(crate) enable_math: bool,
     pub(crate) directive_config: xmdx_core::DirectiveConfig,
 }
 
@@ -30,6 +31,7 @@ impl InternalCompilerConfig {
             .jsx_import_source
             .unwrap_or_else(|| ASTRO_DEFAULT_RUNTIME.to_string());
         let enable_heading_autolinks = cfg.enable_heading_autolinks.unwrap_or(false);
+        let enable_math = cfg.math.unwrap_or(false);
 
         // Build directive config from custom names and component map
         let mut directive_config = xmdx_core::DirectiveConfig::default();
@@ -62,6 +64,7 @@ impl InternalCompilerConfig {
         Self {
             jsx_import_source,
             enable_heading_autolinks,
+            enable_math,
             directive_config,
         }
     }
@@ -89,6 +92,7 @@ impl InternalCompilerConfig {
         CompilerConfig {
             jsx_import_source: Some(self.jsx_import_source.clone()),
             enable_heading_autolinks: Some(self.enable_heading_autolinks),
+            math: Some(self.enable_math),
             custom_directive_names,
             directive_component_map,
             ..CompilerConfig::default()
@@ -387,6 +391,7 @@ pub fn compile_ir(
         enable_directives: true,
         allow_raw_html: false,
         enable_heading_autolinks: internal.enable_heading_autolinks,
+        enable_math: internal.enable_math,
         ..Default::default()
     };
     let blocks_result = to_blocks(&body_without_imports, &mdast_options).map_err(|err| {
@@ -513,6 +518,7 @@ pub(crate) fn compile_document_from_ir(ir: CompileIrResult) -> napi::Result<Comp
         headings: ir.headings,
         imports,
         diagnostics: ir.diagnostics,
+        has_user_default_export: ir.has_user_default_export,
     })
 }
 

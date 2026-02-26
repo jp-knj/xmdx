@@ -109,6 +109,8 @@ export interface BlockOptions {
   allowRawHtml?: boolean
   /** Wrap heading content in anchor links for self-linking. Defaults to false. */
   enableHeadingAutolinks?: boolean
+  /** Enable math syntax ($inline$ and $$block$$). Defaults to false. */
+  enableMath?: boolean
 }
 
 /**
@@ -263,6 +265,8 @@ export interface CompilerConfig {
   rewriteCodeBlocks?: boolean
   /** Whether to wrap heading content in anchor links for self-linking. */
   enableHeadingAutolinks?: boolean
+  /** Whether to enable math syntax ($inline$ and $$block$$). */
+  math?: boolean
   /**
    * Custom directive names to recognize beyond the built-in set.
    * Each entry is a directive name (e.g., "custom-box").
@@ -289,6 +293,8 @@ export interface CompileResult {
   imports: Array<ImportedModule>
   /** Parse diagnostics (warnings, not errors) */
   diagnostics: Diagnostics
+  /** Whether user provided their own `export default` statement. */
+  hasUserDefaultExport: boolean
 }
 
 /** Helper factory exposed to JavaScript for ergonomic reuse. */

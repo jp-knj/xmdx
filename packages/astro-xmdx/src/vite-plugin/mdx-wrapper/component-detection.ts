@@ -45,19 +45,80 @@ function computeRegistryHash(registry: Registry): string {
 }
 
 /**
+ * Extracts imported names from a single complete import statement string.
+ * Handles default, namespace, and named imports.
+ */
+function processImportStatement(statement: string, imported: Set<string>): void {
+  const match = IMPORT_LINE_PATTERN.exec(statement);
+  if (!match) return;
+
+  if (/^import\s+type\s/.test(statement)) return;
+
+  let clause = match[1]?.trim() ?? '';
+  if (clause.startsWith('type ')) {
+    clause = clause.slice('type '.length).trim();
+  }
+
+  // Default import: import Foo from 'module' or import Foo, { Bar } from 'module'
+  const defaultMatch = clause.match(DEFAULT_IMPORT_PATTERN);
+  if (defaultMatch?.[1]) {
+    imported.add(defaultMatch[1]);
+  }
+
+  // Namespace import: import * as Foo from 'module'
+  const namespaceMatch = clause.match(NAMESPACE_IMPORT_PATTERN);
+  if (namespaceMatch?.[1]) {
+    imported.add(namespaceMatch[1]);
+  }
+
+  // Named imports: import { Foo, Bar as Baz } from 'module'
+  // Also handles: import Default, { Foo, Bar } from 'module'
+  const namedMatch = clause.match(NAMED_IMPORT_PATTERN);
+  if (namedMatch?.[1]) {
+    const parts = namedMatch[1].split(',');
+    for (const part of parts) {
+      const item = part.trim();
+      if (!item) continue;
+      const withoutType = item.replace(/^type\s+/, '');
+      const segments = withoutType.split(/\s+as\s+/);
+      const name = segments[1] ?? segments[0];
+      if (name) {
+        imported.add(name.trim());
+      }
+    }
+  }
+}
+
+const FROM_CLAUSE_PATTERN = /from\s+['"][^'"]+['"]/;
+
+/**
  * Extracts already-imported component names from the mdxjs-rs output.
  * This prevents duplicate imports when we add our component injections.
  *
  * Only scans top-level import statements by processing lines at the start
  * of the file, stopping when we hit actual code (function definitions, etc.).
  * This avoids matching import statements inside code strings/samples.
+ *
+ * Supports multi-line imports (e.g. `import {\n  Foo,\n  Bar\n} from '...'`).
  */
 function extractExistingImports(code: string): Set<string> {
   const imported = new Set<string>();
   const lines = code.split('\n');
+  let inImport = false;
+  let currentImport = '';
 
   for (const line of lines) {
     const trimmed = line.trim();
+
+    if (inImport) {
+      currentImport += ' ' + trimmed;
+      if (FROM_CLAUSE_PATTERN.test(trimmed)) {
+        processImportStatement(currentImport, imported);
+        inImport = false;
+        currentImport = '';
+      }
+      continue;
+    }
 
     // Skip empty lines and comments at the top
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
@@ -69,46 +130,13 @@ function extractExistingImports(code: string): Set<string> {
       break;
     }
 
-    // Process this import line using pre-compiled pattern
-    const match = IMPORT_LINE_PATTERN.exec(trimmed);
-    if (!match) continue;
-
-    if (/^import\s+type\s/.test(trimmed)) {
-      continue;
-    }
-
-    let clause = match[1]?.trim() ?? '';
-    if (clause.startsWith('type ')) {
-      clause = clause.slice('type '.length).trim();
-    }
-
-    // Default import: import Foo from 'module' or import Foo, { Bar } from 'module'
-    const defaultMatch = clause.match(DEFAULT_IMPORT_PATTERN);
-    if (defaultMatch?.[1]) {
-      imported.add(defaultMatch[1]);
-    }
-
-    // Namespace import: import * as Foo from 'module'
-    const namespaceMatch = clause.match(NAMESPACE_IMPORT_PATTERN);
-    if (namespaceMatch?.[1]) {
-      imported.add(namespaceMatch[1]);
-    }
-
-    // Named imports: import { Foo, Bar as Baz } from 'module'
-    // Also handles: import Default, { Foo, Bar } from 'module'
-    const namedMatch = clause.match(NAMED_IMPORT_PATTERN);
-    if (namedMatch?.[1]) {
-      const parts = namedMatch[1].split(',');
-      for (const part of parts) {
-        const item = part.trim();
-        if (!item) continue;
-        const withoutType = item.replace(/^type\s+/, '');
-        const segments = withoutType.split(/\s+as\s+/);
-        const name = segments[1] ?? segments[0];
-        if (name) {
-          imported.add(name.trim());
-        }
-      }
+    // Check if import is complete on one line
+    if (FROM_CLAUSE_PATTERN.test(trimmed)) {
+      processImportStatement(trimmed, imported);
+    } else {
+      // Multi-line import — start accumulating
+      inImport = true;
+      currentImport = trimmed;
     }
   }
 

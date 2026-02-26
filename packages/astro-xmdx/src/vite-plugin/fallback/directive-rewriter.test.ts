@@ -130,6 +130,48 @@ Real note.
     });
   });
 
+  describe('hyphenated directive names', () => {
+    test('accepts hyphenated directive name from registry', () => {
+      const hyphenRegistry = createRegistry([{
+        ...starlightLibrary,
+        directiveMappings: [
+          { directive: 'custom-box', component: 'CustomBox', injectProps: {} },
+        ],
+      }]);
+      const source = `:::custom-box
+Content inside custom box.
+:::`;
+      const result = rewriteFallbackDirectives(source, hyphenRegistry, false);
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain('<CustomBox');
+      expect(result.code).toContain('</CustomBox>');
+      expect(result.usedComponents.has('CustomBox')).toBe(true);
+    });
+
+    test('accepts hyphenated directive name with bracket title', () => {
+      const hyphenRegistry = createRegistry([{
+        ...starlightLibrary,
+        directiveMappings: [
+          { directive: 'custom-box', component: 'CustomBox', injectProps: {} },
+        ],
+      }]);
+      const source = `:::custom-box[My Title]
+Content here.
+:::`;
+      const result = rewriteFallbackDirectives(source, hyphenRegistry, false);
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain('title="My Title"');
+    });
+
+    test('rejects directive name starting with a digit', () => {
+      const source = `:::123bad
+Content.
+:::`;
+      const result = rewriteFallbackDirectives(source, null, true);
+      expect(result.changed).toBe(false);
+    });
+  });
+
   describe('registry integration', () => {
     test('uses registry directive mappings when available', () => {
       const source = `:::note
@@ -304,7 +346,7 @@ describe('injectFallbackImports', () => {
     const source = `# Content\n\n<Aside type="note">Content</Aside>`;
     const usedComponents = new Set(['Aside']);
     const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
-    expect(result).toContain("import Aside from '/@fs/Users/site/src/CustomAside.astro';");
+    expect(result).toContain("import Aside from '/@fs//Users/site/src/CustomAside.astro';");
   });
 
   test('default export without extension appends name.astro', () => {

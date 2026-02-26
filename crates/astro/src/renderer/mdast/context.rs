@@ -579,18 +579,18 @@ impl<'a> Context<'a> {
             }
         }
         let mut safe = sanitize_footnote_id(id);
-        if let Some(existing_orig) = self.footnote_safe_ids.get(&safe) {
-            if existing_orig != id {
-                // Collision: different identifier mapped to same safe_id
-                let base = safe.clone();
-                let mut n = 2;
-                loop {
-                    safe = format!("{}-{}", base, n);
-                    if !self.footnote_safe_ids.contains_key(&safe) {
-                        break;
-                    }
-                    n += 1;
+        if let Some(existing_orig) = self.footnote_safe_ids.get(&safe)
+            && existing_orig != id
+        {
+            // Collision: different identifier mapped to same safe_id
+            let base = safe.clone();
+            let mut n = 2;
+            loop {
+                safe = format!("{}-{}", base, n);
+                if !self.footnote_safe_ids.contains_key(&safe) {
+                    break;
                 }
+                n += 1;
             }
         }
         self.footnote_safe_ids.insert(safe.clone(), id.to_string());
@@ -619,9 +619,8 @@ impl<'a> Context<'a> {
             // Sort definitions by first-reference order (ordinal).
             // Unreferenced definitions (no ordinal) sort to the end.
             let ordinals = &self.footnote_ordinals;
-            self.pending_footnotes.sort_by_key(|(id, _)| {
-                ordinals.get(id).copied().unwrap_or(usize::MAX)
-            });
+            self.pending_footnotes
+                .sort_by_key(|(id, _)| ordinals.get(id).copied().unwrap_or(usize::MAX));
 
             // Pre-compute safe IDs for all pending footnotes to avoid borrow conflicts.
             let ids: Vec<String> = self
@@ -629,7 +628,8 @@ impl<'a> Context<'a> {
                 .iter()
                 .map(|(id, _)| id.clone())
                 .collect();
-            let safe_ids: Vec<String> = ids.iter().map(|id| self.get_safe_footnote_id(id)).collect();
+            let safe_ids: Vec<String> =
+                ids.iter().map(|id| self.get_safe_footnote_id(id)).collect();
 
             let mut section = String::new();
             section.push_str("<section data-footnotes class=\"footnotes\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2><ol>");
@@ -638,7 +638,7 @@ impl<'a> Context<'a> {
                 let safe_id = &safe_ids[i];
 
                 section.push_str("<li id=\"user-content-fn-");
-                section.push_str(&safe_id);
+                section.push_str(safe_id);
                 section.push_str("\">");
                 section.push_str(children_html);
 
@@ -646,14 +646,14 @@ impl<'a> Context<'a> {
                 if total_refs == 1 {
                     // Single reference: one backref without suffix
                     section.push_str(" <a href=\"#user-content-fnref-");
-                    section.push_str(&safe_id);
+                    section.push_str(safe_id);
                     section.push_str("\" data-footnote-backref class=\"footnote-backref\" aria-label=\"Back to reference\">\u{21a9}</a>");
                 } else {
                     // Multiple references: one backref per reference
                     for n in 1..=total_refs {
                         section.push(' ');
                         section.push_str("<a href=\"#user-content-fnref-");
-                        section.push_str(&safe_id);
+                        section.push_str(safe_id);
                         if n > 1 {
                             section.push_str(&format!("-{}", n));
                         }
