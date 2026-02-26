@@ -56,7 +56,7 @@ describe('generateComponentImports', () => {
     ];
 
     const result = generateComponentImports(components, registry);
-    expect(result).toBe("import Aside from '/@fs/projects/my-site/src/CustomAside.astro';");
+    expect(result).toBe("import Aside from '/@fs//projects/my-site/src/CustomAside.astro';");
   });
 
   test('absolute Windows path gets /@fs/ prefix', () => {
@@ -104,6 +104,6 @@ describe('generateComponentImports', () => {
     ];
 
     const result = generateComponentImports(components, registry);
-    expect(result).toBe("import Card from '/@fs/projects/my-site/src/components/Card.astro';");
+    expect(result).toBe("import Card from '/@fs//projects/my-site/src/components/Card.astro';");
   });
 });

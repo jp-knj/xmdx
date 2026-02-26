@@ -48,6 +48,27 @@ export function slugifyHeading(text: string): string {
 
 const CUSTOM_ID_RE = /\s*\{#([a-zA-Z0-9_-]+)\}\s*$/;
 
+/**
+ * Strip common inline markdown formatting to produce plain text matching
+ * what the HAST extractText() function would return after parsing.
+ * Used to normalize keys so extractAndStripCustomIds and rehypeHeadingIds agree.
+ */
+export function stripInlineMarkdown(text: string): string {
+  return text
+    // Images: ![alt](url) → alt
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // Links: [text](url) → text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // Inline code: `text`
+    .replace(/`([^`]+)`/g, '$1')
+    // Strikethrough: ~~text~~
+    .replace(/~~([^~]+)~~/g, '$1')
+    // Bold/italic with asterisks (backreference ensures balanced delimiters)
+    .replace(/(\*{1,3})(.+?)\1/g, '$2')
+    // Bold/italic with underscores
+    .replace(/(_{1,3})(.+?)\1/g, '$2');
+}
+
 export function extractCustomId(text: string): { text: string; customId: string | null } {
   const match = CUSTOM_ID_RE.exec(text);
   if (match) {
@@ -100,10 +121,12 @@ function stripCustomIdFromLastTextNode(node: HastNode): void {
  */
 export function extractAndStripCustomIds(markdown: string): {
   stripped: string;
-  customIds: Map<string, string>;
+  customIds: Map<string, (string | null)[]>;
 } {
   const lines = markdown.split('\n');
-  const customIds = new Map<string, string>();
+  const customIds = new Map<string, (string | null)[]>();
+  // Track headings without custom IDs whose text hasn't yet appeared with one
+  const pendingNulls = new Map<string, number>();
   let inFence = false;
   let fenceMarker = '';
 
@@ -131,11 +154,35 @@ export function extractAndStripCustomIds(markdown: string): {
     const prefix = headingMatch[1]!;
     const content = headingMatch[2]!;
     const idMatch = CUSTOM_ID_RE.exec(content);
-    if (!idMatch) continue;
+
+    if (!idMatch) {
+      // No custom ID — record position for potential backfill
+      const key = stripInlineMarkdown(content).trim();
+      const existing = customIds.get(key);
+      if (existing) {
+        // Already tracking this text (a prior occurrence had a custom ID)
+        existing.push(null);
+      } else {
+        // Not yet seen with a custom ID — increment pending count
+        pendingNulls.set(key, (pendingNulls.get(key) ?? 0) + 1);
+      }
+      continue;
+    }
 
     const customId = idMatch[1]!;
     const cleanContent = content.slice(0, idMatch.index);
-    customIds.set(cleanContent.trim(), customId);
+    const key = stripInlineMarkdown(cleanContent).trim();
+    const existing = customIds.get(key);
+    if (existing) {
+      existing.push(customId);
+    } else {
+      // Backfill pending nulls for earlier occurrences of the same text
+      const pending = pendingNulls.get(key) ?? 0;
+      const arr: (string | null)[] = new Array<null>(pending).fill(null);
+      arr.push(customId);
+      customIds.set(key, arr);
+      pendingNulls.delete(key);
+    }
     lines[i] = `${prefix} ${cleanContent}`;
   }
 
@@ -156,7 +203,7 @@ export function extractAndStripCustomIds(markdown: string): {
  */
 export function rehypeHeadingIds(
   collectedHeadings?: Array<{ depth: number; slug: string; text: string }>,
-  preExtractedIds?: Map<string, string>
+  preExtractedIds?: Map<string, (string | null)[]>
 ) {
   return (tree: HastNode) => {
     const usedSlugs = new Map<string, number>();
@@ -173,7 +220,8 @@ export function rehypeHeadingIds(
 
         // If no custom ID found in HAST (e.g. pre-stripped), check preExtractedIds
         if (!customId && preExtractedIds) {
-          customId = preExtractedIds.get(rawText.trim()) ?? null;
+          const ids = preExtractedIds.get(rawText.trim());
+          customId = ids?.length ? (ids.shift() ?? null) : null;
         }
 
         const cleanText = customId

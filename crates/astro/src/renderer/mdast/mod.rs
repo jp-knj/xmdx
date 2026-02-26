@@ -2113,22 +2113,16 @@ Inner ref[^1].
         };
 
         let blocks = to_blocks(input, &options).unwrap();
-        assert_eq!(blocks.blocks.len(), 1);
-        match &blocks.blocks[0] {
-            RenderBlock::Html { content } => {
-                assert!(
-                    content.contains("MathInline"),
-                    "Should contain MathInline component: {}",
-                    content
-                );
-                assert!(
-                    content.contains("E = mc^2"),
-                    "Should contain math expression: {}",
-                    content
-                );
-            }
-            _ => panic!("Expected HTML block for inline math"),
-        }
+        // Inline math produces a Component block (not HTML) so Astro
+        // instantiates MathInline as a real component instead of inert HTML.
+        let has_math_inline = blocks.blocks.iter().any(
+            |b| matches!(b, RenderBlock::Component { name, .. } if name == "MathInline"),
+        );
+        assert!(
+            has_math_inline,
+            "Should have MathInline component block: {:?}",
+            blocks.blocks
+        );
     }
 
     #[test]

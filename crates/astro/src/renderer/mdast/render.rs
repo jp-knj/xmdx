@@ -670,10 +670,9 @@ pub fn render_node(node: &Node, ctx: &mut Context) {
             ctx.push_component("MathBlock", props, Vec::new());
         }
         Node::InlineMath(math) => {
-            ctx.push_raw(&format!(
-                "<MathInline expr={{{}}} />",
-                serde_json::to_string(&math.value).unwrap_or_default()
-            ));
+            let mut props = BTreeMap::new();
+            props.insert("expr".to_string(), PropValue::literal(&math.value));
+            ctx.push_component("MathInline", props, Vec::new());
         }
         _ => {
             log::warn!("Unhandled markdown node type: {:?}", node);
