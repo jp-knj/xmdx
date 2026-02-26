@@ -1072,6 +1072,13 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
             continue;
         }
 
+        // Skip indented code blocks (4+ spaces or tab) before parsing
+        // Per CommonMark, these are code blocks and should not be parsed as headings
+        // Note: This only applies to lines that are NOT fence markers (already handled above)
+        if is_indented_code_block(line) {
+            continue;
+        }
+
         // Match ATX headings (# to ######)
         if let Some(heading_match) = parse_atx_heading(trimmed) {
             let slug = if let Some(ref custom_id) = heading_match.custom_id {
