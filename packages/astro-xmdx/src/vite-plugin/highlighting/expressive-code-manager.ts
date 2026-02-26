@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import type { ExpressiveCodeConfig } from '../utils/config.js';
+import type { ExpressiveCodeConfig } from '../../utils/config.js';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);

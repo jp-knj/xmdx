@@ -1,7 +1,7 @@
 //! Type definitions for the mdast renderer.
 
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A component prop value - either a literal string or a JS expression.
 #[derive(Debug, Serialize, Clone, PartialEq)]
@@ -59,7 +59,7 @@ pub enum RenderBlock {
         /// Component name (e.g., "note", "card").
         name: String,
         /// Component props as key-value pairs (literals or expressions).
-        props: HashMap<String, PropValue>,
+        props: BTreeMap<String, PropValue>,
         /// Structured children for the component's default slot.
         slot_children: Vec<RenderBlock>,
     },

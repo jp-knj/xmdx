@@ -51,7 +51,7 @@ export async function compile(
     code: result.code,
     frontmatter: JSON.parse(result.frontmatterJson) as Record<string, unknown>,
     headings: result.headings as HeadingEntry[],
-    hasUserDefaultExport: false, // TODO: expose from NAPI
+    hasUserDefaultExport: result.hasUserDefaultExport ?? false,
   };
 }
 

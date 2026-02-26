@@ -3,7 +3,9 @@
  * @module utils/starlight-detection
  */
 
+import path from 'node:path';
 import type { ComponentLibrary, ComponentDefinition } from 'xmdx/registry';
+import { normalizePath } from './paths.js';
 
 /**
  * Result of finding the Starlight integration in an Astro config.
@@ -77,19 +79,29 @@ export function getStarlightComponentOverrides(
 /**
  * Applies Starlight component overrides to a library's component list.
  * Returns a new library with overridden import paths where applicable.
+ *
+ * When `rootDir` is provided, relative override paths (e.g. `./src/CustomAside.astro`)
+ * are resolved to absolute paths. This is necessary because the generated import
+ * statements are emitted inside virtual modules that Vite resolves relative to
+ * the MDX file directory, not the project root.
  */
 export function applyStarlightOverrides(
   library: ComponentLibrary,
-  overrides: Map<string, string>
+  overrides: Map<string, string>,
+  rootDir?: string
 ): ComponentLibrary {
   if (overrides.size === 0) return library;
 
   const updatedComponents: ComponentDefinition[] = library.components.map((comp) => {
     const overridePath = overrides.get(comp.name);
     if (overridePath) {
+      // Resolve relative paths against rootDir so they work from any MDX file location
+      const resolvedPath = rootDir && (overridePath.startsWith('./') || overridePath.startsWith('../'))
+        ? normalizePath(path.resolve(rootDir, overridePath))
+        : overridePath;
       return {
         ...comp,
-        modulePath: overridePath,
+        modulePath: resolvedPath,
         exportType: 'default' as const,
       };
     }

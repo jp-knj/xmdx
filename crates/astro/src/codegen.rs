@@ -699,7 +699,7 @@ fn emit_code_block(code: &str, lang: Option<&str>, result: &mut String) {
 /// Emits a component render block with props, slot content, and directive mapping.
 fn emit_component_block<F>(
     name: &str,
-    props: &std::collections::HashMap<String, PropValue>,
+    props: &std::collections::BTreeMap<String, PropValue>,
     slot_children: &[RenderBlock],
     directive_mapper: &Option<F>,
     registry: &RegistryConfig,
@@ -786,7 +786,7 @@ where
 }
 
 /// Emits component props as a JSX spread object `{...{key: value, ...}}`.
-fn emit_props(props: &std::collections::HashMap<String, PropValue>, result: &mut String) {
+fn emit_props(props: &std::collections::BTreeMap<String, PropValue>, result: &mut String) {
     if props.is_empty() {
         return;
     }
@@ -1323,7 +1323,7 @@ pub fn generate_astro_module(options: &AstroModuleOptions<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_js_string_literal() {
@@ -1384,7 +1384,7 @@ mod tests {
 
     #[test]
     fn test_blocks_to_jsx_string_cjk_props() {
-        let mut props = HashMap::new();
+        let mut props = BTreeMap::new();
         props.insert(
             "title".to_string(),
             PropValue::Literal {
@@ -1419,7 +1419,7 @@ mod tests {
 
     #[test]
     fn test_blocks_to_jsx_string_component() {
-        let mut props = HashMap::new();
+        let mut props = BTreeMap::new();
         props.insert(
             "title".to_string(),
             PropValue::Literal {
@@ -1443,7 +1443,7 @@ mod tests {
 
     #[test]
     fn test_blocks_to_jsx_string_with_directive_mapper() {
-        let mut props = HashMap::new();
+        let mut props = BTreeMap::new();
         props.insert(
             "title".to_string(),
             PropValue::Literal {
@@ -1482,7 +1482,7 @@ mod tests {
         // they should be embedded directly, not wrapped in set:html
         let blocks = vec![RenderBlock::Component {
             name: "CardGrid".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![RenderBlock::Html {
                 content: "<Card title=\"First\"><p>Content 1</p></Card><Card title=\"Second\"><p>Content 2</p></Card>".to_string(),
             }],
@@ -1500,7 +1500,7 @@ mod tests {
         // When slot contains a mix of HTML and components, embed directly
         let blocks = vec![RenderBlock::Component {
             name: "Wrapper".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![RenderBlock::Html {
                 content: "<p>Before</p><NestedComponent /><p>After</p>".to_string(),
             }],
@@ -1614,7 +1614,7 @@ mod tests {
         // entities become JSX expressions so they render as text, not markup
         let blocks = vec![RenderBlock::Component {
             name: "Card".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![RenderBlock::Html {
                 content: "<Badge>a &lt; b &amp;&amp; c</Badge>".to_string(),
             }],
@@ -1632,11 +1632,11 @@ mod tests {
         // JSX expressions like {title} or {items.map(...)} should be preserved
         let blocks = vec![RenderBlock::Component {
             name: "CardGrid".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![RenderBlock::Component {
                 name: "Card".to_string(),
                 props: {
-                    let mut p = HashMap::new();
+                    let mut p = BTreeMap::new();
                     p.insert(
                         "title".to_string(),
                         PropValue::Expression {
@@ -1807,12 +1807,12 @@ mod tests {
         // before slot distribution, losing the slot assignment.
         let blocks = vec![RenderBlock::Component {
             name: "IslandsDiagram".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![
                 RenderBlock::Component {
                     name: "Fragment".to_string(),
                     props: {
-                        let mut p = HashMap::new();
+                        let mut p = BTreeMap::new();
                         p.insert("slot".to_string(), PropValue::literal("headerApp"));
                         p
                     },
@@ -1823,7 +1823,7 @@ mod tests {
                 RenderBlock::Component {
                     name: "Fragment".to_string(),
                     props: {
-                        let mut p = HashMap::new();
+                        let mut p = BTreeMap::new();
                         p.insert("slot".to_string(), PropValue::literal("footer"));
                         p
                     },
@@ -1859,7 +1859,7 @@ mod tests {
         // Component with both Fragment-slot children and regular default slot content
         let blocks = vec![RenderBlock::Component {
             name: "MyComponent".to_string(),
-            props: HashMap::new(),
+            props: BTreeMap::new(),
             slot_children: vec![
                 RenderBlock::Html {
                     content: "<p>Default content</p>".to_string(),
@@ -1867,7 +1867,7 @@ mod tests {
                 RenderBlock::Component {
                     name: "Fragment".to_string(),
                     props: {
-                        let mut p = HashMap::new();
+                        let mut p = BTreeMap::new();
                         p.insert("slot".to_string(), PropValue::literal("sidebar"));
                         p
                     },
@@ -1905,7 +1905,7 @@ mod tests {
         let blocks = vec![RenderBlock::Component {
             name: "Fragment".to_string(),
             props: {
-                let mut p = HashMap::new();
+                let mut p = BTreeMap::new();
                 p.insert("slot".to_string(), PropValue::literal("test"));
                 p
             },

@@ -5,6 +5,7 @@ import {
   applyStarlightOverrides,
 } from './starlight-detection.js';
 import type { ComponentLibrary } from 'xmdx/registry';
+import type { XmdxOptions } from '../index.js';
 
 describe('findStarlightIntegration', () => {
   it('should return null when integrations is undefined', () => {
@@ -188,5 +189,93 @@ describe('applyStarlightOverrides', () => {
       expect(comp.modulePath).toBe('@astrojs/starlight/components');
       expect(comp.exportType).toBe('named');
     }
+  });
+
+  it('should resolve relative override paths to absolute when rootDir is provided', () => {
+    const overrides = new Map([['Aside', './src/CustomAside.astro']]);
+    const result = applyStarlightOverrides(baseLibrary, overrides, '/projects/my-site');
+
+    const aside = result.components.find(c => c.name === 'Aside')!;
+    expect(aside.modulePath).toBe('/projects/my-site/src/CustomAside.astro');
+    expect(aside.exportType).toBe('default');
+  });
+
+  it('should not modify absolute override paths when rootDir is provided', () => {
+    const overrides = new Map([['Aside', '/absolute/path/CustomAside.astro']]);
+    const result = applyStarlightOverrides(baseLibrary, overrides, '/projects/my-site');
+
+    const aside = result.components.find(c => c.name === 'Aside')!;
+    expect(aside.modulePath).toBe('/absolute/path/CustomAside.astro');
+  });
+
+  it('should not modify package paths when rootDir is provided', () => {
+    const overrides = new Map([['Aside', 'my-package/Aside.astro']]);
+    const result = applyStarlightOverrides(baseLibrary, overrides, '/projects/my-site');
+
+    const aside = result.components.find(c => c.name === 'Aside')!;
+    expect(aside.modulePath).toBe('my-package/Aside.astro');
+  });
+});
+
+describe('starlightDetected gating', () => {
+  // This tests the conditional logic from index.ts:
+  // starlightDetected should only be set when starlightComponents !== false.
+  // We replicate the exact conditional used in the integration hook.
+
+  function isStarlightDisabled(value: unknown): boolean {
+    if (value === false) return true;
+    if (typeof value === 'object' && value !== null && (value as Record<string, unknown>).enabled === false) return true;
+    return false;
+  }
+
+  function resolveStarlightDetected(
+    resolvedOptions: Record<string, unknown>,
+    starlightFound: boolean,
+  ): boolean {
+    // Mirrors the logic in index.ts astro:config:setup hook
+    if (starlightFound) {
+      if (resolvedOptions.starlightComponents === undefined) {
+        resolvedOptions.starlightComponents = true;
+      }
+      if (!isStarlightDisabled(resolvedOptions.starlightComponents)) {
+        resolvedOptions.starlightDetected = true;
+      }
+    }
+    return resolvedOptions.starlightDetected === true;
+  }
+
+  it('should set starlightDetected when Starlight is found and starlightComponents is undefined', () => {
+    const opts: Record<string, unknown> = {};
+    const result = resolveStarlightDetected(opts, true);
+    expect(result).toBe(true);
+    expect(opts.starlightDetected).toBe(true);
+  });
+
+  it('should set starlightDetected when starlightComponents is explicitly true', () => {
+    const opts: Record<string, unknown> = { starlightComponents: true };
+    const result = resolveStarlightDetected(opts, true);
+    expect(result).toBe(true);
+    expect(opts.starlightDetected).toBe(true);
+  });
+
+  it('should NOT set starlightDetected when starlightComponents is explicitly false', () => {
+    const opts: Record<string, unknown> = { starlightComponents: false };
+    const result = resolveStarlightDetected(opts, true);
+    expect(result).toBe(false);
+    expect(opts.starlightDetected).toBeUndefined();
+  });
+
+  it('should NOT set starlightDetected when starlightComponents is { enabled: false }', () => {
+    const opts: Record<string, unknown> = { starlightComponents: { enabled: false } };
+    const result = resolveStarlightDetected(opts, true);
+    expect(result).toBe(false);
+    expect(opts.starlightDetected).toBeUndefined();
+  });
+
+  it('should NOT set starlightDetected when Starlight is not found', () => {
+    const opts: Record<string, unknown> = {};
+    const result = resolveStarlightDetected(opts, false);
+    expect(result).toBe(false);
+    expect(opts.starlightDetected).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { rehypeHeadingIds, slugifyHeading, extractCustomId } from './jsx-module.js';
+import { rehypeHeadingIds, slugifyHeading, extractCustomId, extractAndStripCustomIds, stripInlineMarkdown } from './rehype-heading-ids.js';
 
 describe('slugifyHeading', () => {
   test('slugifies heading text with punctuation', () => {
@@ -274,5 +274,245 @@ describe('rehypeHeadingIds', () => {
     expect(heading.properties?.id).toBe('bold-heading');
     // The last text node should have {#...} stripped
     expect(heading.children?.[1]?.value).toBe(' heading');
+  });
+
+  test('consumes preExtractedIds in document order for same-text headings', () => {
+    const preExtractedIds = new Map([['Intro', ['a', 'b']]]);
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'Intro' }],
+        },
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'Intro' }],
+        },
+      ],
+    };
+
+    rehypeHeadingIds(undefined, preExtractedIds)(tree);
+
+    const headings = tree.children as Array<{ properties?: { id?: string } }>;
+    expect(headings[0].properties?.id).toBe('a');
+    expect(headings[1].properties?.id).toBe('b');
+  });
+
+  test('preExtractedIds with nulls assigns auto-slug then custom ID', () => {
+    const preExtractedIds = new Map<string, (string | null)[]>([['Title', [null, 'custom']]]);
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'Title' }],
+        },
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'Title' }],
+        },
+      ],
+    };
+
+    rehypeHeadingIds(undefined, preExtractedIds)(tree);
+
+    const headings = tree.children as Array<{ properties?: { id?: string } }>;
+    expect(headings[0].properties?.id).toBe('title');
+    expect(headings[1].properties?.id).toBe('custom');
+  });
+
+  test('preExtractedIds works for formatted headings (italic)', () => {
+    // Simulates: ## *Intro* {#start-here} after pre-stripping becomes ## *Intro*
+    // extractAndStripCustomIds keys it as "Intro", and extractText returns "Intro"
+    const preExtractedIds = new Map<string, (string | null)[]>([['Intro', ['start-here']]]);
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [
+            { type: 'element', tagName: 'em', children: [{ type: 'text', value: 'Intro' }] },
+          ],
+        },
+      ],
+    };
+
+    rehypeHeadingIds(undefined, preExtractedIds)(tree);
+
+    const heading = tree.children[0] as { properties?: { id?: string } };
+    expect(heading.properties?.id).toBe('start-here');
+  });
+
+  test('uses preExtractedIds when {#id} was pre-stripped from source', () => {
+    const preExtractedIds = new Map([['My Section', ['custom-section']]]);
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'h2',
+          children: [{ type: 'text', value: 'My Section' }],
+        },
+      ],
+    };
+
+    rehypeHeadingIds(undefined, preExtractedIds)(tree);
+
+    const heading = tree.children[0] as { properties?: { id?: string } };
+    expect(heading.properties?.id).toBe('custom-section');
+  });
+});
+
+describe('stripInlineMarkdown', () => {
+  test('strips emphasis asterisks', () => {
+    expect(stripInlineMarkdown('*Intro*')).toBe('Intro');
+  });
+
+  test('strips bold asterisks', () => {
+    expect(stripInlineMarkdown('**Bold**')).toBe('Bold');
+  });
+
+  test('strips bold+italic asterisks', () => {
+    expect(stripInlineMarkdown('***Bold Italic***')).toBe('Bold Italic');
+  });
+
+  test('strips emphasis underscores', () => {
+    expect(stripInlineMarkdown('_Intro_')).toBe('Intro');
+  });
+
+  test('strips bold underscores', () => {
+    expect(stripInlineMarkdown('__Bold__')).toBe('Bold');
+  });
+
+  test('strips inline code backticks', () => {
+    expect(stripInlineMarkdown('`code`')).toBe('code');
+  });
+
+  test('strips strikethrough', () => {
+    expect(stripInlineMarkdown('~~deleted~~')).toBe('deleted');
+  });
+
+  test('strips links', () => {
+    expect(stripInlineMarkdown('[link text](https://example.com)')).toBe('link text');
+  });
+
+  test('strips images', () => {
+    expect(stripInlineMarkdown('![alt text](image.png)')).toBe('alt text');
+  });
+
+  test('handles mixed formatting', () => {
+    expect(stripInlineMarkdown('**Bold** and *italic*')).toBe('Bold and italic');
+  });
+
+  test('leaves plain text unchanged', () => {
+    expect(stripInlineMarkdown('Plain heading')).toBe('Plain heading');
+  });
+});
+
+describe('extractAndStripCustomIds', () => {
+  test('strips {#id} from ATX headings', () => {
+    const md = '## My Section {#custom-section}\n\nSome text.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe('## My Section\n\nSome text.');
+    expect(result.customIds.get('My Section')).toEqual(['custom-section']);
+  });
+
+  test('leaves non-heading lines with {#id} unchanged', () => {
+    const md = 'This is a paragraph with {#not-a-heading}.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe(md);
+    expect(result.customIds.size).toBe(0);
+  });
+
+  test('ignores headings inside code fences', () => {
+    const md = '```\n## Heading {#fenced}\n```\n\n## Real Heading {#real}';
+    const result = extractAndStripCustomIds(md);
+    // The fenced heading should be untouched
+    expect(result.stripped).toContain('## Heading {#fenced}');
+    // The real heading should be stripped
+    expect(result.customIds.get('Real Heading')).toEqual(['real']);
+    expect(result.customIds.has('Heading')).toBe(false);
+  });
+
+  test('handles multiple headings', () => {
+    const md = '# Title {#title}\n\n## Section A {#sec-a}\n\nText\n\n## Section B {#sec-b}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Title')).toEqual(['title']);
+    expect(result.customIds.get('Section A')).toEqual(['sec-a']);
+    expect(result.customIds.get('Section B')).toEqual(['sec-b']);
+    expect(result.stripped).not.toContain('{#');
+  });
+
+  test('same heading text with different custom IDs are all preserved', () => {
+    const md = '## Intro {#a}\n\nText\n\n## Intro {#b}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Intro')).toEqual(['a', 'b']);
+    expect(result.stripped).toBe('## Intro\n\nText\n\n## Intro');
+  });
+
+  test('headings without custom IDs are unchanged', () => {
+    const md = '## Normal Heading\n\nParagraph.';
+    const result = extractAndStripCustomIds(md);
+    expect(result.stripped).toBe(md);
+    expect(result.customIds.size).toBe(0);
+  });
+
+  test('non-custom heading before same-text custom heading gets null backfill', () => {
+    const md = '## Title\n\n## Title {#custom}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Title')).toEqual([null, 'custom']);
+    expect(result.stripped).toBe('## Title\n\n## Title');
+  });
+
+  test('custom heading before same-text non-custom heading gets trailing null', () => {
+    const md = '## Title {#custom}\n\n## Title';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Title')).toEqual(['custom', null]);
+    expect(result.stripped).toBe('## Title\n\n## Title');
+  });
+
+  test('multiple non-custom headings before custom heading get null backfill', () => {
+    const md = '## Title\n\n## Title\n\n## Title {#custom}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Title')).toEqual([null, null, 'custom']);
+  });
+
+  test('non-custom headings whose text never gets a custom ID stay out of the map', () => {
+    const md = '## Alpha\n\n## Alpha\n\n## Beta {#beta-id}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.has('Alpha')).toBe(false);
+    expect(result.customIds.get('Beta')).toEqual(['beta-id']);
+  });
+
+  test('formatted heading with custom ID is keyed by plain text', () => {
+    const md = '## *Intro* {#start-here}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Intro')).toEqual(['start-here']);
+    expect(result.customIds.has('*Intro*')).toBe(false);
+    expect(result.stripped).toBe('## *Intro*');
+  });
+
+  test('bold heading with custom ID is keyed by plain text', () => {
+    const md = '## **Bold Title** {#bold-id}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Bold Title')).toEqual(['bold-id']);
+  });
+
+  test('inline code heading with custom ID is keyed by plain text', () => {
+    const md = '## `Config` options {#config-opts}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Config options')).toEqual(['config-opts']);
+  });
+
+  test('formatted heading without custom ID matches formatted heading with custom ID', () => {
+    const md = '## *Intro*\n\n## *Intro* {#custom}';
+    const result = extractAndStripCustomIds(md);
+    expect(result.customIds.get('Intro')).toEqual([null, 'custom']);
   });
 });

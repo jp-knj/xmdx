@@ -24,9 +24,14 @@ pub struct DirectiveOpening {
 }
 
 impl DirectiveOpening {
-    /// Convert to opening Aside JSX tag.
+    /// Convert to opening JSX tag, defaulting to `<Aside>`.
     pub fn to_aside_start(&self) -> String {
-        let mut tag = String::from("<Aside data-mf-source=\"directive\"");
+        self.to_component_start("Aside")
+    }
+
+    /// Convert to opening JSX tag using the given component name.
+    pub fn to_component_start(&self, component_name: &str) -> String {
+        let mut tag = format!("<{} data-mf-source=\"directive\"", component_name);
 
         // type attribute is always injected/overwritten.
         write!(tag, " type=\"{}\"", self.name).ok();
@@ -47,9 +52,14 @@ impl DirectiveOpening {
         tag
     }
 
-    /// Convert to closing Aside JSX tag.
+    /// Convert to closing JSX tag, defaulting to `</Aside>`.
     pub fn to_aside_end(&self) -> String {
-        "</Aside>".to_string()
+        self.to_component_end("Aside")
+    }
+
+    /// Convert to closing JSX tag using the given component name.
+    pub fn to_component_end(&self, component_name: &str) -> String {
+        format!("</{}>", component_name)
     }
 }
 
@@ -58,6 +68,17 @@ impl DirectiveOpening {
 /// Returns `Some(DirectiveOpening)` if the line is a valid supported directive,
 /// or `None` if it's not a directive or not a supported type.
 pub fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
+    parse_opening_directive_with(line, None)
+}
+
+/// Parse an opening directive line, optionally using a custom set of supported names.
+///
+/// When `custom_names` is `None`, the default built-in set is used.
+/// When `Some(names)` is provided, only those directive names are recognized.
+pub fn parse_opening_directive_with(
+    line: &str,
+    custom_names: Option<&[&str]>,
+) -> Option<DirectiveOpening> {
     // Skip indented code blocks (4+ spaces or tab at start)
     if is_indented_code_block(line) {
         return None;
@@ -72,10 +93,10 @@ pub fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
     let after_colons = &trimmed[3..];
     let mut chars = after_colons.chars().peekable();
 
-    // Read directive name (alphabetic)
+    // Read directive name (alphabetic + hyphen for user-defined directives)
     let mut name = String::new();
     while let Some(&ch) = chars.peek() {
-        if ch.is_ascii_alphabetic() {
+        if ch.is_ascii_alphabetic() || ch == '-' {
             name.push(ch.to_ascii_lowercase());
             chars.next();
         } else {
@@ -83,7 +104,10 @@ pub fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
         }
     }
 
-    if name.is_empty() || !is_supported_name(&name) {
+    // Strip leading/trailing hyphens from directive name
+    let name = name.trim_matches('-').to_string();
+
+    if name.is_empty() || !is_supported_name_with(&name, custom_names) {
         return None;
     }
 
@@ -213,11 +237,48 @@ pub fn is_directive_closer(line: &str) -> bool {
     line.trim() == ":::"
 }
 
+/// Default built-in directive names recognized when no custom list is provided.
+pub const DEFAULT_DIRECTIVE_NAMES: &[&str] =
+    &["note", "tip", "info", "caution", "warning", "danger"];
+
 fn is_supported_name(name: &str) -> bool {
-    matches!(
-        name,
-        "note" | "tip" | "info" | "caution" | "warning" | "danger"
-    )
+    DEFAULT_DIRECTIVE_NAMES.contains(&name)
+}
+
+/// Check if a directive name is supported, using a custom set of names if provided.
+fn is_supported_name_with(name: &str, custom_names: Option<&[&str]>) -> bool {
+    match custom_names {
+        Some(names) => names.contains(&name),
+        None => is_supported_name(name),
+    }
+}
+
+/// Configuration for directive rewriting, supporting user-defined directives.
+#[derive(Debug, Clone, Default)]
+pub struct DirectiveConfig {
+    /// Custom directive names to recognize. When empty, the default built-in set is used.
+    pub custom_names: Vec<String>,
+    /// Mapping from directive name to component name. Falls back to "Aside".
+    pub component_map: std::collections::HashMap<String, String>,
+}
+
+impl DirectiveConfig {
+    /// Get the component name for a directive, defaulting to "Aside".
+    pub fn component_for(&self, directive: &str) -> &str {
+        self.component_map
+            .get(directive)
+            .map(|s| s.as_str())
+            .unwrap_or("Aside")
+    }
+
+    /// Get the custom names as a slice of &str, or None to use defaults.
+    fn custom_names_slice(&self) -> Option<Vec<&str>> {
+        if self.custom_names.is_empty() {
+            None
+        } else {
+            Some(self.custom_names.iter().map(|s| s.as_str()).collect())
+        }
+    }
 }
 
 /// Rewrite directive syntax to Aside JSX tags.
@@ -255,6 +316,18 @@ fn is_supported_name(name: &str) -> bool {
 /// A tuple of (rewritten_content, directive_count) where directive_count is the
 /// number of directives that were rewritten.
 pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
+    rewrite_directives(input, &DirectiveConfig::default())
+}
+
+/// Rewrite directive syntax to JSX component tags using the given configuration.
+///
+/// This is the configurable version of `rewrite_directives_to_asides`.
+/// When `config.custom_names` is empty, the default built-in directive names are used.
+/// Component names are looked up from `config.component_map`, defaulting to "Aside".
+pub fn rewrite_directives(input: &str, config: &DirectiveConfig) -> (String, usize) {
+    let custom_names = config.custom_names_slice();
+    let custom_names_ref = custom_names.as_deref();
+
     let mut fence_state = FenceState::default();
     let mut output = String::new();
     let mut count = 0usize;
@@ -323,7 +396,7 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
             }
         }
 
-        let opening = parse_opening_directive(line).or_else(|| {
+        let opening = parse_opening_directive_with(line, custom_names_ref).or_else(|| {
             // In list context, directive lines are often indented one extra space
             // beyond the list content indent (e.g. 4 spaces after "1. ").
             // Try parsing again after removing the list indent prefix so these
@@ -334,7 +407,7 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
                 && !indent.is_empty()
                 && line.starts_with(indent)
             {
-                return parse_opening_directive(&line[indent.len()..]);
+                return parse_opening_directive_with(&line[indent.len()..], custom_names_ref);
             }
             None
         });
@@ -351,7 +424,8 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
             }
 
             directive_stack.push((opening.clone(), indent.clone()));
-            let start_tag = opening.to_aside_start();
+            let component = config.component_for(&opening.name);
+            let start_tag = opening.to_component_start(component);
             writeln!(output, "{}{}", indent, start_tag).ok();
             prev_line_blank = false;
             continue;
@@ -360,7 +434,8 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
         if is_directive_closer(line)
             && let Some((opened, indent)) = directive_stack.pop()
         {
-            let end_tag = opened.to_aside_end();
+            let component = config.component_for(&opened.name);
+            let end_tag = opened.to_component_end(component);
             writeln!(output, "{}{}", indent, end_tag).ok();
 
             // Insert blank line after if in list context
@@ -387,8 +462,9 @@ pub fn rewrite_directives_to_asides(input: &str) -> (String, usize) {
     }
 
     // For any unclosed directives, close them at the end to avoid broken output.
-    while let Some((_, indent)) = directive_stack.pop() {
-        writeln!(output, "{}</Aside>", indent).ok();
+    while let Some((opened, indent)) = directive_stack.pop() {
+        let component = config.component_for(&opened.name);
+        writeln!(output, "{}</{}>", indent, component).ok();
     }
 
     (output, count)
@@ -467,6 +543,59 @@ mod tests {
     #[test]
     fn unsupported_directive_returns_none() {
         assert!(parse_opening_directive(":::unknown").is_none());
+    }
+
+    #[test]
+    fn custom_directive_name_recognized() {
+        let custom = &["note", "custom-box"][..];
+        let opening = parse_opening_directive_with(":::custom-box[Title]", Some(custom));
+        assert!(opening.is_some());
+        let opening = opening.unwrap();
+        assert_eq!(opening.name, "custom-box");
+        assert_eq!(opening.bracket_title, Some("Title".to_string()));
+    }
+
+    #[test]
+    fn custom_directive_rejects_unlisted() {
+        let custom = &["note"][..];
+        assert!(parse_opening_directive_with(":::tip", Some(custom)).is_none());
+    }
+
+    #[test]
+    fn rewrite_directives_with_custom_component() {
+        let mut config = DirectiveConfig::default();
+        config
+            .custom_names
+            .extend(["note", "custom-box"].iter().map(|s| s.to_string()));
+        config
+            .component_map
+            .insert("custom-box".to_string(), "MyBox".to_string());
+
+        let input = ":::custom-box[Hello]\nContent\n:::";
+        let (out, count) = rewrite_directives(input, &config);
+        assert_eq!(count, 1);
+        assert!(out.contains("<MyBox"), "Expected <MyBox>, got:\n{}", out);
+        assert!(out.contains("type=\"custom-box\""));
+        assert!(out.contains("title=\"Hello\""));
+        assert!(out.contains("</MyBox>"), "Expected </MyBox>, got:\n{}", out);
+    }
+
+    #[test]
+    fn rewrite_directives_default_component_for_unknown_mapping() {
+        let mut config = DirectiveConfig::default();
+        config
+            .custom_names
+            .extend(["note", "custom-box"].iter().map(|s| s.to_string()));
+        // No component mapping for custom-box, should fall back to Aside
+
+        let input = ":::custom-box\nContent\n:::";
+        let (out, count) = rewrite_directives(input, &config);
+        assert_eq!(count, 1);
+        assert!(
+            out.contains("<Aside"),
+            "Expected <Aside> fallback, got:\n{}",
+            out
+        );
     }
 
     #[test]

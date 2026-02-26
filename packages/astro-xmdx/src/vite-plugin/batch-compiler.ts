@@ -7,20 +7,20 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { build as esbuildBuild, type BuildResult } from 'esbuild';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
-import { runParallelEsbuild } from './esbuild-pool.js';
-import { DiskCache } from './disk-cache.js';
-import { wrapMdxModule } from './mdx-wrapper.js';
+import { batchTransformJsx } from './jsx-transform.js';
+import { runParallelJsxTransform } from './jsx-worker-pool.js';
+import { DiskCache } from './cache/disk-cache.js';
+import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
 import type { XmdxBinding, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
 import type { Transform } from '../pipeline/types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ShikiManager } from './shiki-manager.js';
-import type { ExpressiveCodeManager } from './expressive-code-manager.js';
+import type { ShikiManager } from './highlighting/shiki-manager.js';
+import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
 import type {
@@ -28,7 +28,7 @@ import type {
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
-} from './cache-types.js';
+} from './cache/types.js';
 import { debugLog, debugTime, debugTimeEnd } from './load-profiler.js';
 
 const require = createRequire(import.meta.url);
@@ -265,9 +265,9 @@ export async function batchCompileFiles(
   return { md: mdStats, mdx: mdxStats };
 }
 
-export async function batchEsbuildTransform(
+export async function batchJsxTransform(
   jsxInputs: Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }>,
-  esbuildCache: Map<string, EsbuildCacheEntry>,
+  jsxCache: Map<string, EsbuildCacheEntry>,
   warn: (message: string) => void
 ): Promise<boolean | null> {
   if (jsxInputs.length === 0) return false;
@@ -277,75 +277,31 @@ export async function batchEsbuildTransform(
   try {
     if (useParallel) {
       try {
-        debugLog(`Using parallel esbuild workers for ${jsxInputs.length} files`);
-        const parallelResults = await runParallelEsbuild(
+        debugLog(`Using parallel JSX transform workers for ${jsxInputs.length} files`);
+        const parallelResults = await runParallelJsxTransform(
           jsxInputs.map((input) => ({ id: input.id, jsx: input.jsx }))
         );
         for (const [id, result] of parallelResults) {
-          esbuildCache.set(id, { code: result.code, map: result.map as SourceMapInput });
+          jsxCache.set(id, { code: result.code, map: result.map as SourceMapInput });
         }
         usedParallel = true;
       } catch (workerErr) {
-        debugLog(`Worker esbuild failed, falling back to single-threaded: ${workerErr}`);
+        debugLog(`Worker JSX transform failed, falling back to single-threaded: ${workerErr}`);
       }
     }
 
     if (!usedParallel) {
-      const entryMap = new Map<string, { id: string; jsx: string }>();
-      for (let i = 0; i < jsxInputs.length; i++) {
-        const entry = `entry${i}.jsx`;
-        const input = jsxInputs[i]!;
-        entryMap.set(entry, { id: input.id, jsx: input.jsx });
-      }
-
-      const result: BuildResult = await esbuildBuild({
-        write: false,
-        bundle: false,
-        format: 'esm',
-        sourcemap: 'external',
-        loader: { '.jsx': 'jsx' },
-        jsx: 'transform',
-        jsxFactory: '_jsx',
-        jsxFragment: '_Fragment',
-        entryPoints: Array.from(entryMap.keys()),
-        outdir: 'out',
-        plugins: [
-          {
-            name: 'xmdx-virtual-jsx',
-            setup(build) {
-              build.onResolve({ filter: /^entry\d+\.jsx$/ }, (args) => {
-                return { path: args.path, namespace: 'xmdx-jsx' };
-              });
-              build.onResolve({ filter: /.*/ }, (args) => {
-                return { path: args.path, external: true };
-              });
-              build.onLoad({ filter: /.*/, namespace: 'xmdx-jsx' }, (args) => {
-                const entry = entryMap.get(args.path);
-                return entry ? { contents: entry.jsx, loader: 'jsx' } : null;
-              });
-            },
-          },
-        ],
-      });
-
-      for (const output of result.outputFiles || []) {
-        const basename = path.basename(output.path);
-        if (basename.endsWith('.map')) continue;
-        const entryName = basename.replace(/\.js$/, '.jsx');
-        const entry = entryMap.get(entryName);
-        if (entry) {
-          const mapOutput = result.outputFiles?.find((o) => o.path === output.path + '.map');
-          esbuildCache.set(entry.id, {
-            code: output.text,
-            map: mapOutput?.text as SourceMapInput | undefined,
-          });
-        }
+      const results = await batchTransformJsx(
+        jsxInputs.map((input) => ({ id: input.id, jsx: input.jsx }))
+      );
+      for (const [id, result] of results) {
+        jsxCache.set(id, { code: result.code, map: result.map });
       }
     }
 
     return usedParallel;
-  } catch (esbuildErr) {
-    warn(`[xmdx] Batch esbuild failed, will use individual transforms: ${esbuildErr}`);
+  } catch (transformErr) {
+    warn(`[xmdx] Batch JSX transform failed, will use individual transforms: ${transformErr}`);
     return null;
   }
 }
@@ -698,15 +654,15 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     debugTimeEnd('buildStart:pipelineProcessing');
 
     if (jsxInputs.length > 0) {
-      debugTime('buildStart:esbuild');
-      const usedParallel = await batchEsbuildTransform(jsxInputs, deps.esbuildCache, deps.warn);
+      debugTime('buildStart:jsxTransform');
+      const usedParallel = await batchJsxTransform(jsxInputs, deps.esbuildCache, deps.warn);
       if (usedParallel !== null) {
-        const esbuildEndTime = performance.now();
+        const jsxEndTime = performance.now();
         console.info(
-          `[xmdx] Batch esbuild transformed ${deps.esbuildCache.size} files in ${(esbuildEndTime - esbuildStartTime).toFixed(0)}ms` +
+          `[xmdx] Batch JSX transformed ${deps.esbuildCache.size} files in ${(jsxEndTime - esbuildStartTime).toFixed(0)}ms` +
             (usedParallel ? ' (parallel workers)' : '')
         );
-        debugTimeEnd('buildStart:esbuild');
+        debugTimeEnd('buildStart:jsxTransform');
 
         if (deps.state.diskCache) {
           debugTime('buildStart:diskCacheWrite');
@@ -714,7 +670,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
           debugTimeEnd('buildStart:diskCacheWrite');
         }
       } else {
-        debugTimeEnd('buildStart:esbuild');
+        debugTimeEnd('buildStart:jsxTransform');
       }
     }
 

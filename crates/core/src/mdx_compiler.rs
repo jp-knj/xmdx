@@ -54,6 +54,12 @@ pub struct MdxCompileOptions {
     /// Whether to rewrite JSX code blocks to HTML format for ExpressiveCode.
     /// Only set to true when ExpressiveCode is enabled.
     pub rewrite_code_blocks: bool,
+    /// Directive configuration for custom directive names and component mappings.
+    pub directive_config: Option<crate::directives::DirectiveConfig>,
+    /// Whether to wrap heading content in anchor links for self-linking.
+    pub enable_heading_autolinks: bool,
+    /// Whether to enable math syntax ($inline$ and $$block$$).
+    pub math: bool,
 }
 
 /// Compiles MDX source to JavaScript.
@@ -108,9 +114,13 @@ pub fn compile_mdx(
     let frontmatter_json = serde_json::to_string(&value)?;
     let content = source[body_start..].to_string();
 
-    // Preprocess directives (:::note, :::caution, etc.) into JSX Aside tags
+    // Preprocess directives (:::note, :::caution, etc.) into JSX component tags
     // This allows mdxjs-rs to parse the content without requiring remark-directive
-    let (content, _directive_count) = rewrite_directives_to_asides(&content);
+    let (content, _directive_count) = if let Some(ref dir_config) = opts.directive_config {
+        crate::directives::rewrite_directives(&content, dir_config)
+    } else {
+        rewrite_directives_to_asides(&content)
+    };
 
     // Extract headings from the source before compilation
     let headings = extract_headings_from_source(&content);
@@ -120,12 +130,18 @@ pub fn compile_mdx(
     let content = strip_custom_ids_from_headings(&content);
 
     // Configure mdxjs-rs options
+    let mut parse_options = MdxParseOptions::gfm();
+    if opts.math {
+        parse_options.constructs.math_flow = true;
+        parse_options.constructs.math_text = true;
+        parse_options.math_text_single_dollar = true;
+    }
     let mdx_options = Options {
         filepath: Some(filepath.to_string()),
         jsx_runtime: Some(JsxRuntime::Automatic),
         jsx_import_source: opts.jsx_import_source,
         jsx: opts.jsx,
-        parse: MdxParseOptions::gfm(),
+        parse: parse_options,
         ..Default::default()
     };
 
@@ -140,6 +156,16 @@ pub fn compile_mdx(
     // Only rewrite when ExpressiveCode is enabled, otherwise code blocks become escaped text
     let js_code = if opts.rewrite_code_blocks {
         rewrite_jsx_code_blocks(&js_code)
+    } else {
+        js_code
+    };
+
+    // Post-process: wrap heading children in <a> tags for self-linking
+    // Done at the JSX level (after compilation) so markdown formatting in headings
+    // is preserved — the source-level approach would put content inside inline JSX
+    // where markdown is not re-parsed.
+    let js_code = if opts.enable_heading_autolinks {
+        rewrite_heading_autolinks_in_jsx(&js_code, &headings)
     } else {
         js_code
     };
@@ -336,6 +362,43 @@ fn find_jsx_call_end(input: &str) -> Option<usize> {
 /// ```text
 /// _jsx("label", { children: [_jsx(_components.input, ...), _jsx("span", { children: [" ", "Text"] })] })
 /// ```
+/// Block-level JSX call patterns used to split inline vs block content in task list items.
+const BLOCK_JSX_PATTERNS: &[&str] = &[
+    "_jsx(_components.ul,",
+    "_jsxs(_components.ul,",
+    "_jsx(\"ul\",",
+    "_jsxs(\"ul\",",
+    "_jsx(_components.ol,",
+    "_jsxs(_components.ol,",
+    "_jsx(\"ol\",",
+    "_jsxs(\"ol\",",
+    "_jsx(_components.blockquote,",
+    "_jsxs(_components.blockquote,",
+    "_jsx(\"blockquote\",",
+    "_jsxs(\"blockquote\",",
+    "_jsx(_components.pre,",
+    "_jsxs(_components.pre,",
+    "_jsx(\"pre\",",
+    "_jsxs(\"pre\",",
+    "_jsx(_components.table,",
+    "_jsxs(_components.table,",
+    "_jsx(\"table\",",
+    "_jsxs(\"table\",",
+    "_jsx(_components.hr,",
+    "_jsx(\"hr\",",
+];
+
+/// Finds the start position of the first block-level JSX call in `content`.
+fn find_first_block_jsx(content: &str) -> Option<usize> {
+    let mut earliest: Option<usize> = None;
+    for pattern in BLOCK_JSX_PATTERNS {
+        if let Some(pos) = content.find(pattern) {
+            earliest = Some(earliest.map_or(pos, |e: usize| e.min(pos)));
+        }
+    }
+    earliest
+}
+
 fn rewrite_tight_task_list_children(content: &str) -> String {
     // Find the _jsx(_components.input, ...) call
     let input_patterns = ["_jsx(_components.input,", "_jsx(\"input\","];
@@ -361,14 +424,32 @@ fn rewrite_tight_task_list_children(content: &str) -> String {
     // Everything after the input call is the text content (skip leading comma/whitespace)
     let after_input = content[input_end..].trim_start();
     let after_input = after_input.strip_prefix(',').unwrap_or(after_input);
+    let after_input = after_input.trim();
 
-    // Build the span children from remaining content
-    let span_children = after_input.trim();
+    // Split at the first block-level JSX call: inline part goes into <span>,
+    // block part gets appended after the <label> call.
+    let (span_children, block_suffix) = match find_first_block_jsx(after_input) {
+        Some(split_pos) => {
+            // Walk back to find the preceding comma so the span content is clean
+            let inline_part = after_input[..split_pos]
+                .trim_end()
+                .trim_end_matches(',')
+                .trim_end();
+            let block_part = after_input[split_pos..].trim();
+            (inline_part, Some(block_part))
+        }
+        None => (after_input, None),
+    };
 
-    format!(
+    let label = format!(
         "_jsx(\"label\", {{ children: [{}, _jsx(\"span\", {{ children: [{}] }})] }})",
         input_jsx, span_children
-    )
+    );
+
+    match block_suffix {
+        Some(block) => format!("{}, {}", label, block),
+        None => label,
+    }
 }
 
 /// Rewrites children of a loose task list item (where items are wrapped in `<p>`).
@@ -886,9 +967,11 @@ fn strip_custom_ids_from_headings(source: &str) -> String {
     let mut fence_state: Option<(char, usize)> = None;
 
     for line in source.lines() {
-        // Track fenced code blocks
         let trimmed = line.trim();
-        if let Some((marker, len)) = parse_fence_marker(trimmed) {
+
+        // Track fenced code blocks — parse_fence_marker rejects lines with
+        // 4+ leading spaces (indented code blocks per CommonMark).
+        if let Some((marker, len)) = parse_fence_marker(line) {
             if let Some((open_marker, open_len)) = fence_state {
                 if marker == open_marker && len >= open_len {
                     fence_state = None;
@@ -968,10 +1051,9 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     for line in source.lines() {
         let trimmed = line.trim();
 
-        // Check for fence markers FIRST, even on indented lines.
-        // Fenced code blocks can be indented (e.g., inside JSX/HTML elements like <TabItem>),
-        // and we need to track them correctly to avoid misinterpreting headings.
-        if let Some((marker, len)) = parse_fence_marker(trimmed) {
+        // Track fenced code blocks — parse_fence_marker rejects lines with
+        // 4+ leading spaces (indented code blocks per CommonMark).
+        if let Some((marker, len)) = parse_fence_marker(line) {
             if let Some((open_marker, open_len)) = fence_state {
                 // Inside a code block - check if this closes it
                 if marker == open_marker && len >= open_len {
@@ -985,15 +1067,8 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
             continue;
         }
 
-        // Inside a fenced code block - skip all lines (headings inside code blocks don't count)
-        if fence_state.is_some() {
-            continue;
-        }
-
-        // Skip indented code blocks (4+ spaces or tab) before parsing
-        // Per CommonMark, these are code blocks and should not be parsed as headings
-        // Note: This only applies to lines that are NOT fence markers (already handled above)
-        if is_indented_code_block(line) {
+        // Inside a fenced code block or indented code block - skip
+        if fence_state.is_some() || is_indented_code_block(line) {
             continue;
         }
 
@@ -1016,15 +1091,35 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     headings
 }
 
-/// Parses a fence marker, returning (char, length) if valid.
-/// A valid fence marker is 3+ consecutive backticks or tildes at the start of a line.
+/// Parses a fence marker from an *original* (non-trimmed) line, returning
+/// `(marker_char, marker_len)` if valid per CommonMark rules:
+///   - Up to 3 spaces of leading indentation are allowed.
+///   - 4+ spaces makes the line an indented code block, not a fence.
+///   - The marker itself must be 3+ consecutive backticks or tildes.
 fn parse_fence_marker(line: &str) -> Option<(char, usize)> {
-    let first = line.chars().next()?;
+    let mut chars = line.chars();
+    let mut leading_spaces = 0;
+
+    // Skip up to 3 leading spaces
+    loop {
+        match chars.clone().next() {
+            Some(' ') if leading_spaces < 3 => {
+                chars.next();
+                leading_spaces += 1;
+            }
+            Some('\t') => return None, // tab at start → indented code
+            _ => break,
+        }
+    }
+
+    // 4+ leading spaces would have been caught by is_indented_code_block,
+    // but guard here too for safety.
+    let first = chars.next()?;
     if first != '`' && first != '~' {
         return None;
     }
 
-    let count = line.chars().take_while(|&c| c == first).count();
+    let count = 1 + chars.take_while(|&c| c == first).count();
     if count >= 3 {
         Some((first, count))
     } else {
@@ -1354,6 +1449,405 @@ fn parse_atx_heading(line: &str) -> Option<AtxHeading> {
         text: decode_html_entities(&strip_inline_markdown(text)),
         custom_id: custom_id.map(|s| s.to_string()),
     })
+}
+
+/// Extracts plain text from a JSX children expression.
+///
+/// Dispatches to the appropriate extractor based on the expression type:
+/// - String literal (`"..."`) → `extract_js_string`
+/// - Array (`[...]`) → `extract_text_from_jsx_array`
+/// - JSX call (`_jsx`/`_jsxs(...)`) → `extract_text_from_single_jsx_call`
+fn extract_text_from_jsx_children(children_value: &str) -> Option<String> {
+    let trimmed = children_value.trim();
+    if trimmed.starts_with('"') {
+        extract_js_string(trimmed)
+    } else if trimmed.starts_with('[') {
+        extract_text_from_jsx_array(trimmed)
+    } else if trimmed.starts_with("_jsx") {
+        extract_text_from_single_jsx_call(trimmed)
+    } else {
+        None
+    }
+}
+
+/// Extracts concatenated plain text from a JSX children array like `["Hello ", _jsx("code", { children: "world" })]`.
+///
+/// Iterates comma-separated elements at bracket-depth 0, extracting text from
+/// string literals and recursing into `_jsx`/`_jsxs` calls.
+fn extract_text_from_jsx_array(arr: &str) -> Option<String> {
+    let trimmed = arr.trim();
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return None;
+    }
+    let inner = &trimmed[1..trimmed.len() - 1];
+    let mut result = String::new();
+    let bytes = inner.as_bytes();
+    let mut depth = 0i32; // tracks (), [], {}
+    let mut elem_start = 0;
+
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
+            b',' if depth == 0 => {
+                let elem = inner[elem_start..i].trim();
+                if !elem.is_empty()
+                    && let Some(text) = extract_text_from_jsx_children(elem)
+                {
+                    result.push_str(&text);
+                }
+                elem_start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    // Last element
+    let elem = inner[elem_start..].trim();
+    if !elem.is_empty()
+        && let Some(text) = extract_text_from_jsx_children(elem)
+    {
+        result.push_str(&text);
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+/// Extracts plain text from a single `_jsx("tag", { children: ... })` or `_jsxs(...)` call.
+///
+/// Skips past the tag argument, finds the `children:` key in the props object,
+/// extracts its value, and recurses via `extract_text_from_jsx_children`.
+fn extract_text_from_single_jsx_call(call: &str) -> Option<String> {
+    let trimmed = call.trim();
+    // Must start with _jsx( or _jsxs(
+    let after_prefix = if let Some(rest) = trimmed.strip_prefix("_jsxs(") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("_jsx(") {
+        rest
+    } else {
+        return None;
+    };
+
+    // Skip past the first argument (tag name) by finding the comma at depth 0
+    let bytes = after_prefix.as_bytes();
+    let mut depth = 0i32;
+    let mut i = 0;
+    let mut first_comma = None;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None; // malformed
+                }
+            }
+            b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
+            b',' if depth == 0 => {
+                first_comma = Some(i);
+                break;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let comma_pos = first_comma?;
+    let props_area = &after_prefix[comma_pos + 1..];
+
+    // Find `children:` in the props area
+    let children_needle = "children:";
+    let props_bytes = props_area.as_bytes();
+    let needle_bytes = children_needle.as_bytes();
+    let mut depth_tracker = 0i32;
+    let mut j = 0;
+    let mut children_start = None;
+    while j < props_bytes.len() {
+        match props_bytes[j] {
+            b'{' => depth_tracker += 1,
+            b'}' => {
+                if depth_tracker == 0 {
+                    break;
+                }
+                depth_tracker -= 1;
+            }
+            b'"' | b'\'' | b'`' => skip_js_string_literal(props_bytes, &mut j),
+            _ if j + needle_bytes.len() <= props_bytes.len()
+                && &props_bytes[j..j + needle_bytes.len()] == needle_bytes =>
+            {
+                children_start = Some(j + needle_bytes.len());
+                break;
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+
+    let start = children_start?;
+    let children_rest = props_area[start..].trim_start();
+    let value_end = find_expression_end(children_rest);
+    let children_value = &children_rest[..value_end];
+
+    extract_text_from_jsx_children(children_value)
+}
+
+/// Rewrites heading JSX calls in compiled output to wrap children in `<a>` tags.
+///
+/// This post-processes the compiled JavaScript to add autolinks to headings,
+/// preserving markdown formatting (bold, italic, code, etc.) that was already
+/// compiled to JSX by mdxjs-rs.
+///
+/// Scans for heading JSX patterns like:
+/// - `_jsx(_components.h1, { ... children: EXPR ... })`
+/// - `_jsxs(_components.h2, { ... children: EXPR ... })`
+/// - `_jsx("h1", { ... children: EXPR ... })`
+/// - `_jsxs("h2", { ... children: EXPR ... })`
+///
+/// For each heading found, matches it against the `headings` array by content
+/// (depth + text), falling back to sequential index when text extraction fails.
+/// This correctly skips setext headings that aren't in the extracted headings list.
+fn rewrite_heading_autolinks_in_jsx(code: &str, headings: &[MdxHeading]) -> String {
+    if headings.is_empty() {
+        return code.to_string();
+    }
+
+    // Build patterns for all heading levels (h1-h6)
+    let heading_patterns: Vec<String> = (1..=6u8)
+        .flat_map(|n| {
+            vec![
+                format!("_jsx(_components.h{},", n),
+                format!("_jsxs(_components.h{},", n),
+                format!("_jsx(\"h{}\",", n),
+                format!("_jsxs(\"h{}\",", n),
+            ]
+        })
+        .collect();
+
+    // Build a map from "depth:text" -> list of (slug, used) for content-based matching.
+    use std::collections::HashMap;
+    let mut heading_map: HashMap<String, Vec<(&str, bool)>> = HashMap::new();
+    for h in headings {
+        heading_map
+            .entry(format!("{}:{}", h.depth, h.text))
+            .or_default()
+            .push((&h.slug, false));
+    }
+    let mut unmatched_count = headings.len();
+    // Sequential fallback index for when text extraction fails
+    let mut fallback_idx = 0;
+
+    let mut result = String::with_capacity(code.len() + 256);
+    let mut remaining = code;
+
+    while !remaining.is_empty() && unmatched_count > 0 {
+        // Find the earliest heading pattern match
+        let mut earliest_match: Option<(usize, usize, u8)> = None; // (position, pattern_len, depth)
+        for pattern in &heading_patterns {
+            if let Some(pos) = remaining.find(pattern.as_str()) {
+                let is_closer = earliest_match
+                    .as_ref()
+                    .is_none_or(|(best_pos, _, _)| pos < *best_pos);
+                if is_closer {
+                    // Extract depth from pattern (the digit char)
+                    let depth = pattern
+                        .chars()
+                        .find(|c| c.is_ascii_digit())
+                        .and_then(|c| c.to_digit(10))
+                        .unwrap_or(0) as u8;
+                    earliest_match = Some((pos, pattern.len(), depth));
+                }
+            }
+        }
+
+        let Some((match_pos, pattern_len, depth)) = earliest_match else {
+            break;
+        };
+
+        // Output everything before this heading call + the pattern itself
+        result.push_str(&remaining[..match_pos + pattern_len]);
+        remaining = &remaining[match_pos + pattern_len..];
+
+        // Now we need to find `children:` inside the props object and extract its value.
+        // Use scoped search within the props object (track brace depth).
+        let children_needle = b"children:";
+        let bytes = remaining.as_bytes();
+        let mut scoped_offset = None;
+        {
+            let mut depth_tracker = 0i32;
+            let mut i = 0;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'{' => depth_tracker += 1,
+                    b'}' => {
+                        if depth_tracker == 0 {
+                            break; // left props object
+                        }
+                        depth_tracker -= 1;
+                    }
+                    b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
+                    _ if depth_tracker >= 0
+                        && i + children_needle.len() <= bytes.len()
+                        && &bytes[i..i + children_needle.len()] == children_needle =>
+                    {
+                        scoped_offset = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+
+        let Some(children_offset) = scoped_offset else {
+            // No children found, skip this heading
+            continue;
+        };
+
+        // Output up to and including "children:"
+        result.push_str(&remaining[..children_offset + "children:".len()]);
+        remaining = &remaining[children_offset + "children:".len()..];
+
+        // Skip whitespace after "children:"
+        let trimmed = remaining.trim_start();
+        let ws_len = remaining.len() - trimmed.len();
+        result.push_str(&remaining[..ws_len]);
+        remaining = trimmed;
+
+        // Now find the extent of the children value.
+        let children_value_end = find_expression_end(remaining);
+        let children_value = &remaining[..children_value_end];
+        remaining = &remaining[children_value_end..];
+
+        // Skip wrapping if children already contain an anchor element,
+        // to avoid producing invalid nested <a> elements.
+        let has_nested_anchor = children_value.contains("_jsx(\"a\"")
+            || children_value.contains("_jsxs(\"a\"")
+            || children_value.contains("_jsx(_components.a")
+            || children_value.contains("_jsxs(_components.a");
+
+        if has_nested_anchor {
+            result.push_str(children_value);
+            // Still need to mark it as matched if it corresponds to a heading
+            if let Some(extracted) = extract_text_from_jsx_children(children_value) {
+                let key = format!("{}:{}", depth, extracted);
+                if let Some(entries) = heading_map.get_mut(&key)
+                    && let Some(entry) = entries.iter_mut().find(|(_, used)| !*used)
+                {
+                    entry.1 = true;
+                    unmatched_count -= 1;
+                }
+            }
+            continue;
+        }
+
+        // Try content-based matching: extract text from children, look up in heading_map
+        let slug = if let Some(extracted) = extract_text_from_jsx_children(children_value) {
+            let key = format!("{}:{}", depth, extracted);
+            if let Some(entries) = heading_map.get_mut(&key) {
+                if let Some(entry) = entries.iter_mut().find(|(_, used)| !*used) {
+                    entry.1 = true;
+                    unmatched_count -= 1;
+                    Some(entry.0)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            // Fallback: sequential match by depth when text extraction fails
+            let mut found = None;
+            while fallback_idx < headings.len() {
+                if headings[fallback_idx].depth == depth {
+                    let h = &headings[fallback_idx];
+                    let key = format!("{}:{}", h.depth, h.text);
+                    if let Some(entries) = heading_map.get_mut(&key)
+                        && let Some(entry) = entries.iter_mut().find(|(_, used)| !*used)
+                    {
+                        entry.1 = true;
+                        unmatched_count -= 1;
+                        found = Some(entry.0);
+                        fallback_idx += 1;
+                        break;
+                    }
+                    fallback_idx += 1;
+                    break;
+                }
+                fallback_idx += 1;
+            }
+            found
+        };
+
+        if let Some(slug) = slug {
+            // Wrap: _jsx("a", { href: "#slug", children: ORIGINAL })
+            result.push_str("_jsx(\"a\", { href: \"#");
+            result.push_str(slug);
+            result.push_str("\", children: ");
+            result.push_str(children_value);
+            result.push_str(" })");
+        } else {
+            // No matching heading found (e.g., setext heading not in extracted list)
+            result.push_str(children_value);
+        }
+    }
+
+    // Append the rest
+    result.push_str(remaining);
+    result
+}
+
+/// Finds the end of a JavaScript expression value in a props object.
+///
+/// Starting at the beginning of a value (after `children: `), finds where the
+/// value ends — the position of the next `,` or `}` at depth 0.
+fn find_expression_end(input: &str) -> usize {
+    let bytes = input.as_bytes();
+    let mut depth_parens = 0i32; // ()
+    let mut depth_brackets = 0i32; // []
+    let mut depth_braces = 0i32; // {}
+    let mut i = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' => depth_parens += 1,
+            b')' => {
+                depth_parens -= 1;
+                if depth_parens < 0 {
+                    // We've exited the enclosing _jsx() call
+                    return i;
+                }
+            }
+            b'[' => depth_brackets += 1,
+            b']' => {
+                depth_brackets -= 1;
+                if depth_brackets < 0 {
+                    return i;
+                }
+            }
+            b'{' => depth_braces += 1,
+            b'}' => {
+                if depth_braces == 0 {
+                    // We've hit the closing brace of the props object
+                    return i;
+                }
+                depth_braces -= 1;
+            }
+            b',' if depth_parens == 0 && depth_brackets == 0 && depth_braces == 0 => {
+                return i;
+            }
+            b'"' | b'\'' | b'`' => skip_js_string_literal(bytes, &mut i),
+            _ => {}
+        }
+        i += 1;
+    }
+    input.len()
 }
 
 #[cfg(test)]
@@ -2013,6 +2507,60 @@ This should NOT be converted to an Aside.
     }
 
     #[test]
+    fn test_compile_mdx_task_list_nested() {
+        // Nested sub-lists should NOT be inside the span call
+        let source = r#"
+- [x] Task item
+  - Sub item
+"#;
+
+        let result = compile_mdx(source, "test.mdx", None);
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        assert!(
+            output.code.contains("\"label\""),
+            "Expected label wrapper in output, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("\"span\""),
+            "Expected span wrapper in output, got: {}",
+            output.code
+        );
+        // The nested ul should appear as a sibling of the label, not inside span.
+        // Verify the span's own children bracket doesn't contain ul.
+        if let Some(span_pos) = output.code.find("\"span\"")
+            && let Some(children_offset) = output.code[span_pos..].find("children: [")
+        {
+            let bracket_start = span_pos + children_offset + "children: [".len();
+            let mut depth: i32 = 1;
+            let mut end = bracket_start;
+            for (i, ch) in output.code[bracket_start..].char_indices() {
+                match ch {
+                    '[' => depth += 1,
+                    ']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = bracket_start + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let span_children_content = &output.code[bracket_start..end];
+            assert!(
+                !span_children_content.contains("_components.ul")
+                    && !span_children_content.contains("\"ul\""),
+                "Nested ul should not be inside span children, got: {}",
+                span_children_content
+            );
+        }
+    }
+
+    #[test]
     fn test_custom_element_in_list_structure() {
         // Test if custom elements like <mf-aside> preserve list structure
         // compared to standard HTML elements like <aside> which break lists
@@ -2423,13 +2971,15 @@ Content here.
     fn test_heading_after_indented_code_block_in_jsx() {
         // Regression test: fenced code blocks indented inside JSX (e.g. <TabItem>)
         // must be tracked correctly so headings after them are still extracted.
+        // Per CommonMark, fence markers allow up to 3 spaces of indentation;
+        // 4+ spaces makes the line an indented code block, not a fence.
         let source = r#"
-    ```ts title="src/middleware.ts"
-    import { defineMiddleware } from 'astro:middleware';
-    export const onRequest = defineMiddleware(async (context, next) => {
-      return next();
-    });
-  ```
+   ```ts title="src/middleware.ts"
+   import { defineMiddleware } from 'astro:middleware';
+   export const onRequest = defineMiddleware(async (context, next) => {
+     return next();
+   });
+   ```
   </TabItem>
 </Tabs>
 
@@ -2449,6 +2999,39 @@ Some text.
         );
         assert_eq!(headings[0].text, "locals");
         assert_eq!(headings[1].text, "preferredLocale");
+    }
+
+    #[test]
+    fn test_indented_fence_markers_are_not_fences() {
+        // Lines indented with 4+ spaces are indented code blocks per CommonMark,
+        // not fenced code blocks — even if the trimmed content starts with ```/~~~.
+        // They must not open fence_state or suppress subsequent headings.
+        let source = r#"
+Some text.
+
+    ```
+    this is indented code, not a fenced block
+    ```
+
+## Real Heading
+
+More text.
+
+    ~~~
+    also indented code
+    ~~~
+
+## Another Heading
+"#;
+        let headings = extract_headings_from_source(source);
+        assert_eq!(
+            headings.len(),
+            2,
+            "Expected 2 headings, got {}",
+            headings.len()
+        );
+        assert_eq!(headings[0].text, "Real Heading");
+        assert_eq!(headings[1].text, "Another Heading");
     }
 
     #[test]
@@ -2505,5 +3088,245 @@ Some text.
         assert_eq!(decode_html_entities("a&unknown;b"), "a&unknown;b");
         // Lone ampersand
         assert_eq!(decode_html_entities("a & b"), "a & b");
+    }
+
+    #[test]
+    fn test_heading_autolinks_preserve_formatting() {
+        // Heading autolinks should wrap children at JSX level, preserving formatting
+        let source = r#"---
+title: Test
+---
+
+## *Intro*
+
+### **Bold** heading
+"#;
+
+        let options = MdxCompileOptions {
+            enable_heading_autolinks: true,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // Should contain autolink <a> wrapper
+        assert!(
+            output.code.contains("\"a\"") && output.code.contains("#intro"),
+            "Expected autolink anchor with #intro, got: {}",
+            output.code
+        );
+
+        // Italic formatting should be preserved (not literal *Intro*)
+        assert!(
+            output.code.contains("\"em\""),
+            "Expected <em> (italic) in output — formatting should be preserved, got: {}",
+            output.code
+        );
+
+        // Bold formatting should be preserved
+        assert!(
+            output.code.contains("\"strong\""),
+            "Expected <strong> (bold) in output — formatting should be preserved, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_plain_text() {
+        // Basic heading with plain text
+        let source = r#"
+## Hello World
+"#;
+
+        let options = MdxCompileOptions {
+            enable_heading_autolinks: true,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        assert!(
+            output.code.contains("\"a\"") && output.code.contains("#hello-world"),
+            "Expected autolink anchor, got: {}",
+            output.code
+        );
+        assert!(
+            output.code.contains("Hello World"),
+            "Expected heading text, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_disabled() {
+        let source = r#"
+## Hello
+"#;
+
+        let options = MdxCompileOptions {
+            enable_heading_autolinks: false,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+        // Should NOT have autolink wrapper (no "a" with href to heading slug)
+        assert!(
+            !output.code.contains("#hello"),
+            "Should not contain autolink when disabled, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_skip_when_heading_contains_link() {
+        // Heading with a markdown link — should NOT wrap in another <a>
+        let source = r#"
+## Check the [docs](https://example.com) page
+"#;
+
+        let options = MdxCompileOptions {
+            enable_heading_autolinks: true,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // Should contain the inline link
+        assert!(
+            output.code.contains("https://example.com"),
+            "Expected inline link URL, got: {}",
+            output.code
+        );
+
+        // Should NOT have an autolink wrapper with #slug href
+        // (that would create nested <a> elements)
+        assert!(
+            !output.code.contains("#check-the-docs-page"),
+            "Should not wrap heading with link in autolink, got: {}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_setext_before_atx_same_depth() {
+        // Setext h2 followed by ATX h2 — only ATX should get the slug
+        let headings = vec![MdxHeading {
+            depth: 2,
+            slug: "atx-heading".to_string(),
+            text: "ATX Heading".to_string(),
+        }];
+
+        let code = r#"_jsx("h2", { children: "Setext Heading" }), _jsx("h2", { children: "ATX Heading" })"#;
+        let result = rewrite_heading_autolinks_in_jsx(code, &headings);
+
+        // Setext heading should NOT get the slug
+        assert!(
+            !result.contains("\"#atx-heading\", children: \"Setext Heading\""),
+            "Setext heading should not steal the ATX slug, got: {}",
+            result
+        );
+        // ATX heading SHOULD get the slug
+        assert!(
+            result.contains("\"#atx-heading\", children: \"ATX Heading\""),
+            "ATX heading should get its slug, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_setext_h1_with_atx_h2() {
+        // Setext h1 + ATX h2 — different depths, ATX h2 should get its slug
+        let headings = vec![MdxHeading {
+            depth: 2,
+            slug: "my-section".to_string(),
+            text: "My Section".to_string(),
+        }];
+
+        let code = r#"_jsx("h1", { children: "Title" }), _jsx("h2", { children: "My Section" })"#;
+        let result = rewrite_heading_autolinks_in_jsx(code, &headings);
+
+        // h1 should NOT get any slug (not in headings list)
+        assert!(
+            !result.contains("\"#my-section\", children: \"Title\""),
+            "h1 should not get h2 slug, got: {}",
+            result
+        );
+        // h2 should get its slug
+        assert!(
+            result.contains("\"#my-section\", children: \"My Section\""),
+            "h2 should get its slug, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_duplicate_text() {
+        // Two identical ATX headings should each get their distinct slugs
+        let headings = vec![
+            MdxHeading {
+                depth: 2,
+                slug: "section".to_string(),
+                text: "Section".to_string(),
+            },
+            MdxHeading {
+                depth: 2,
+                slug: "section-1".to_string(),
+                text: "Section".to_string(),
+            },
+        ];
+
+        let code = r#"_jsx("h2", { children: "Section" }), _jsx("h2", { children: "Section" })"#;
+        let result = rewrite_heading_autolinks_in_jsx(code, &headings);
+
+        // First should get "section", second should get "section-1"
+        assert!(
+            result.contains("\"#section\", children: \"Section\""),
+            "First heading should get 'section' slug, got: {}",
+            result
+        );
+        assert!(
+            result.contains("\"#section-1\", children: \"Section\""),
+            "Second heading should get 'section-1' slug, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_heading_autolinks_setext_does_not_steal_slug() {
+        // Full integration test: setext heading before ATX heading
+        let source = "Setext H2\n---------\n\n## ATX H2\n";
+
+        let options = MdxCompileOptions {
+            enable_heading_autolinks: true,
+            ..Default::default()
+        };
+
+        let result = compile_mdx(source, "test.mdx", Some(options));
+        assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // The extracted headings should only contain the ATX heading
+        assert_eq!(output.headings.len(), 1);
+        assert_eq!(output.headings[0].text, "ATX H2");
+        assert_eq!(output.headings[0].slug, "atx-h2");
+
+        // The ATX heading should have the autolink
+        assert!(
+            output.code.contains("#atx-h2"),
+            "ATX heading should have autolink slug, got: {}",
+            output.code
+        );
     }
 }

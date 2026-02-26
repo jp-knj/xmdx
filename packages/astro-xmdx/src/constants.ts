@@ -17,6 +17,7 @@ export const OUTPUT_EXTENSION = '.xmdx.jsx';
 /**
  * esbuild configuration for JSX transformation.
  * Used to transform JSX syntax into function calls compatible with Astro's runtime.
+ * @deprecated Will be removed when Vite 8 becomes the minimum supported version.
  */
 export const ESBUILD_JSX_CONFIG = {
   loader: 'jsx' as const,
@@ -25,6 +26,21 @@ export const ESBUILD_JSX_CONFIG = {
   jsxFragment: '_Fragment',
   target: 'es2020' as const,
   minify: false,
+} as const;
+
+/**
+ * OXC configuration for JSX transformation (Vite 8+).
+ * Equivalent to ESBUILD_JSX_CONFIG but using OXC's option schema.
+ * In Vite 8, esbuild.jsx='transform' maps to oxc.jsx={runtime:'classic'}.
+ */
+export const OXC_JSX_CONFIG: Record<string, unknown> = {
+  lang: 'jsx',
+  jsx: {
+    runtime: 'classic',
+    pragma: '_jsx',
+    pragmaFrag: '_Fragment',
+  },
+  sourcemap: true,
 } as const;
 
 /**
