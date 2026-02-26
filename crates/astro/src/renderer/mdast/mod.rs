@@ -2115,9 +2115,10 @@ Inner ref[^1].
         let blocks = to_blocks(input, &options).unwrap();
         // Inline math produces a Component block (not HTML) so Astro
         // instantiates MathInline as a real component instead of inert HTML.
-        let has_math_inline = blocks.blocks.iter().any(
-            |b| matches!(b, RenderBlock::Component { name, .. } if name == "MathInline"),
-        );
+        let has_math_inline = blocks
+            .blocks
+            .iter()
+            .any(|b| matches!(b, RenderBlock::Component { name, .. } if name == "MathInline"));
         assert!(
             has_math_inline,
             "Should have MathInline component block: {:?}",

@@ -425,7 +425,6 @@ fn children_contain_link(children: &[Node]) -> bool {
     false
 }
 
-
 /// Renders heading children, stripping the trailing `{#...}` from the deepest last Text descendant.
 fn render_heading_children(children: &[Node], ctx: &mut Context) {
     if children.is_empty() {
