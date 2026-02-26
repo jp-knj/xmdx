@@ -198,7 +198,7 @@ jobs:
 
       - name: Prepare package.json (add optionalDependencies)
         working-directory: crates/napi
-        run: npx napi prepublish -t npm
+        run: npx napi prepublish -t npm --no-gh-release
 
       - name: Determine npm tag
         id: npm-tag
