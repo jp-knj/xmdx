@@ -1270,7 +1270,11 @@ fn strip_inline_markdown(text: &str) -> String {
                         chars.next();
                         break;
                     }
-                    result.push(chars.next().unwrap());
+                    if let Some(c) = chars.next() {
+                        result.push(c);
+                    } else {
+                        break;
+                    }
                 }
             }
             '*' | '_' => {
@@ -1301,8 +1305,10 @@ fn strip_inline_markdown(text: &str) -> String {
                                 content.push(marker);
                             }
                         }
+                    } else if let Some(c) = chars.next() {
+                        content.push(c);
                     } else {
-                        content.push(chars.next().unwrap());
+                        break;
                     }
                 }
 
@@ -1318,7 +1324,11 @@ fn strip_inline_markdown(text: &str) -> String {
                         chars.next();
                         break;
                     }
-                    alt.push(chars.next().unwrap());
+                    if let Some(c) = chars.next() {
+                        alt.push(c);
+                    } else {
+                        break;
+                    }
                 }
                 // Skip (url) part
                 if chars.peek() == Some(&'(') {
@@ -1347,7 +1357,11 @@ fn strip_inline_markdown(text: &str) -> String {
                         chars.next();
                         break;
                     }
-                    link_text.push(chars.next().unwrap());
+                    if let Some(c) = chars.next() {
+                        link_text.push(c);
+                    } else {
+                        break;
+                    }
                 }
                 // Skip (url) part if present
                 if chars.peek() == Some(&'(') {
@@ -1939,6 +1953,36 @@ More content.
 
         // Escaped characters
         assert_eq!(strip_inline_markdown(r"\*not italic\*"), "*not italic*");
+    }
+
+    #[test]
+    fn test_strip_inline_markdown_edge_cases() {
+        // Empty / formatting-only inputs
+        assert_eq!(strip_inline_markdown("**"), "");
+        assert_eq!(strip_inline_markdown("***"), "");
+        assert_eq!(strip_inline_markdown("[]"), "");
+        assert_eq!(strip_inline_markdown("![]()"), "");
+        assert_eq!(strip_inline_markdown("``"), "");
+
+        // Deeply nested formatting
+        assert_eq!(strip_inline_markdown("[**bold link**](url)"), "bold link");
+        assert_eq!(
+            strip_inline_markdown("**bold with `code` and *italic***"),
+            "bold with code and italic"
+        );
+
+        // Unclosed markers (must not panic)
+        assert_eq!(strip_inline_markdown("**unclosed"), "unclosed");
+        assert_eq!(strip_inline_markdown("[unclosed"), "unclosed");
+        assert_eq!(strip_inline_markdown("`unclosed"), "unclosed");
+
+        // Whitespace-only content
+        assert_eq!(strip_inline_markdown("**   **"), "   ");
+        assert_eq!(strip_inline_markdown("[   ](url)"), "   ");
+
+        // Mismatched markers
+        assert_eq!(strip_inline_markdown("**bold*"), "bold");
+        assert_eq!(strip_inline_markdown("*italic**"), "italic");
     }
 
     #[test]
