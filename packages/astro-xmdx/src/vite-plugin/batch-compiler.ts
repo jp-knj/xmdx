@@ -15,7 +15,7 @@ import { runParallelJsxTransform } from './jsx-worker-pool.js';
 import { DiskCache } from './cache/disk-cache.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
-import type { XmdxBinding, XmdxPluginOptions } from './types.js';
+import type { XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
 import type { Transform } from '../pipeline/types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
@@ -207,10 +207,9 @@ export async function batchReadAndDetectFallbacks(
 }
 
 export async function batchCompileFiles(
-  binding: XmdxBinding,
+  compiler: XmdxCompiler,
   mdInputs: BatchInput[],
   mdxInputs: BatchInput[],
-  compilerOptions: Record<string, unknown>,
   moduleCompilationCache: Map<string, CachedModuleResult>,
   mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
@@ -220,9 +219,8 @@ export async function batchCompileFiles(
 ): Promise<BatchCompileStatsResult> {
   let mdStats: BatchStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
   if (mdInputs.length > 0) {
-    const mdBatchResult = binding.compileBatchToModule(mdInputs, {
+    const mdBatchResult = compiler.compileBatchToModule(mdInputs, {
       continueOnError: true,
-      config: compilerOptions,
     });
     mdStats = mdBatchResult.stats;
 
@@ -235,16 +233,15 @@ export async function batchCompileFiles(
         });
       } else if (result.error) {
         fallbackFiles.add(result.id);
-        fallbackReasons.set(result.id, result.error);
+        fallbackReasons.set(result.id, result.error.message);
       }
     }
   }
 
   let mdxStats: BatchStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
   if (mdxInputs.length > 0) {
-    const mdxBatchResult = binding.compileMdxBatch(mdxInputs, {
+    const mdxBatchResult = compiler.compileMdxBatch(mdxInputs, {
       continueOnError: true,
-      config: compilerOptions,
     });
     mdxStats = mdxBatchResult.stats;
 
@@ -257,7 +254,7 @@ export async function batchCompileFiles(
         });
       } else if (result.error) {
         fallbackFiles.add(result.id);
-        fallbackReasons.set(result.id, result.error);
+        fallbackReasons.set(result.id, result.error.message);
       }
     }
   }
@@ -610,11 +607,11 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     debugLog(`Separated: ${mdInputs.length} MD files, ${mdxInputs.length} MDX files`);
 
     const binding = deps.providedBinding ?? (await deps.loadBinding());
+    const compiler = binding.createCompiler(deps.compilerOptions);
     const stats = await batchCompileFiles(
-      binding,
+      compiler,
       mdInputs,
       mdxInputs,
-      deps.compilerOptions,
       deps.moduleCompilationCache,
       deps.mdxCompilationCache,
       deps.fallbackFiles,

@@ -24,6 +24,7 @@ use crate::transform::jsx_normalize::{
 };
 use crate::transform::smartypants::apply_smartypants;
 use render::render_node;
+use xmdx_core::MarkflowError;
 
 /// Rendering options for the mdast renderer.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -110,7 +111,7 @@ impl Default for Options {
 /// };
 /// let blocks = to_blocks(input, &options).unwrap();
 /// ```
-pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String> {
+pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, MarkflowError> {
     // 1. Preprocess directives if enabled
     let preprocessed = if options.enable_directives {
         directives::preprocess_directives(input)
@@ -166,7 +167,7 @@ pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String>
     };
 
     let tree = markdown::to_mdast(&parsed_input, &parse_options)
-        .map_err(|e| format!("Markdown parse error: {}", e))?;
+        .map_err(|e| MarkflowError::parse_error(format!("Markdown parse error: {}", e), 1, 1))?;
 
     // 7. Traverse the AST and render to blocks
     let mut ctx = Context::new(options);

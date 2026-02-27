@@ -307,15 +307,15 @@ export async function loadCacheMiss(
   const isMdx = filename.endsWith('.mdx');
 
   if (isMdx) {
-    const binding = await deps.loadBinding();
-    const mdxBatchResult = binding.compileMdxBatch(
+    const mdxCompiler = await deps.getCompiler();
+    const mdxBatchResult = mdxCompiler.compileMdxBatch(
       [{ id: filename, source: processedSource }],
-      { continueOnError: false, config: deps.compilerOptions }
+      { continueOnError: false }
     );
 
     const mdxResult = mdxBatchResult.results[0];
     if (mdxResult?.error) {
-      throw new Error(`MDX compilation failed: ${mdxResult.error}`);
+      throw new Error(`MDX compilation failed: ${mdxResult.error.message}`);
     }
     if (!mdxResult?.result) {
       throw new Error(`MDX compilation returned no result for ${filename}`);

@@ -1,7 +1,17 @@
 //! Batch processing types and utilities for parallel compilation.
 
-use crate::types::{CompileIrResult, CompilerConfig, MdxCompileResult};
+use crate::types::{CompileIrResult, MdxCompileResult};
 use napi_derive::napi;
+
+/// Structured batch error with a machine-readable code and human-readable message.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct BatchError {
+    /// Error category for programmatic handling (e.g., "PARSE_ERROR", "RENDER_ERROR").
+    pub code: String,
+    /// Human-readable error message.
+    pub message: String,
+}
 
 /// Input for batch processing - represents a single file to compile.
 #[napi(object)]
@@ -23,8 +33,8 @@ pub struct BatchResult {
     pub id: String,
     /// Compilation result (present on success).
     pub result: Option<CompileIrResult>,
-    /// Error message (present on failure).
-    pub error: Option<String>,
+    /// Structured error (present on failure).
+    pub error: Option<BatchError>,
 }
 
 /// Statistics for batch processing.
@@ -49,8 +59,6 @@ pub struct BatchOptions {
     pub max_threads: Option<u32>,
     /// Whether to continue processing after an error. Defaults to true.
     pub continue_on_error: Option<bool>,
-    /// Compiler configuration to use for all files.
-    pub config: Option<CompilerConfig>,
 }
 
 /// Result of batch processing containing all results and statistics.
@@ -71,8 +79,8 @@ pub struct MdxBatchResult {
     pub id: String,
     /// Compilation result (present on success).
     pub result: Option<MdxCompileResult>,
-    /// Error message (present on failure).
-    pub error: Option<String>,
+    /// Structured error (present on failure).
+    pub error: Option<BatchError>,
 }
 
 /// Result of MDX batch processing containing all results and statistics.
@@ -94,8 +102,8 @@ pub struct ModuleBatchResult {
     pub id: String,
     /// Compilation result with complete module code (present on success).
     pub result: Option<crate::types::CompileResult>,
-    /// Error message (present on failure).
-    pub error: Option<String>,
+    /// Structured error (present on failure).
+    pub error: Option<BatchError>,
 }
 
 /// Result of module batch processing containing all results and statistics.
