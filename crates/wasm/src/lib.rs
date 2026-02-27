@@ -2,10 +2,10 @@ use serde::Serialize;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 use xmdx_astro::MdastOptions;
-use xmdx_core::DEFAULT_DIRECTIVE_NAMES;
 use xmdx_astro::code_fence::collect_root_statements;
 use xmdx_astro::codegen::{AstroModuleOptions, DirectiveMappingResult, blocks_to_jsx_string};
 use xmdx_astro::renderer::mdast::to_blocks;
+use xmdx_core::DEFAULT_DIRECTIVE_NAMES;
 
 // ============================================================================
 // Compiler Config
@@ -74,12 +74,11 @@ fn build_directive_mapper(
         .map(|names| names.iter().map(|n| n.to_ascii_lowercase()).collect())
         .unwrap_or_default();
 
-    if custom_names.is_empty() && component_map.is_empty() {
-        return None;
-    }
-
     // Merge with defaults
-    let mut all_names: Vec<String> = DEFAULT_DIRECTIVE_NAMES.iter().map(|s| s.to_string()).collect();
+    let mut all_names: Vec<String> = DEFAULT_DIRECTIVE_NAMES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for name in &custom_names {
         if !all_names.contains(name) {
             all_names.push(name.clone());

@@ -113,7 +113,7 @@ impl DirectiveOpening {
 
         // Title resolution: bracket > attribute (attributes already stripped of title when bracket present).
         if let Some(title) = self.bracket_title.as_ref() {
-            write!(tag, " title=\"{}\"", title).ok();
+            write!(tag, " title=\"{}\"", title.replace('"', "&quot;")).ok();
         }
 
         tag.push('>');

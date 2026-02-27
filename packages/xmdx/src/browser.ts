@@ -16,19 +16,17 @@ interface WasmModule {
   };
 }
 
-let wasmModule: WasmModule | null = null;
-let initialized = false;
+let initPromise: Promise<WasmModule> | null = null;
 
 async function loadWasm(): Promise<WasmModule> {
-  if (!wasmModule) {
-    wasmModule = await import('../wasm/xmdx_wasm.js') as WasmModule;
+  if (!initPromise) {
+    initPromise = (async () => {
+      const mod = await import('../wasm/xmdx_wasm.js') as WasmModule;
+      await mod.default();
+      return mod;
+    })();
   }
-  if (!initialized) {
-    // Initialize WASM module
-    await wasmModule.default();
-    initialized = true;
-  }
-  return wasmModule;
+  return initPromise;
 }
 
 /**

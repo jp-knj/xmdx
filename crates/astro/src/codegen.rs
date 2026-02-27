@@ -898,7 +898,27 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
         push_other_as_li(&mut items, before);
 
         let after_ol = &rest[start..];
-        if let Some(end_idx) = after_ol.find("</ol>") {
+        // Find the matching </ol> by tracking nesting depth
+        let mut depth = 0;
+        let mut end_idx = None;
+        let mut search_pos = 0;
+        while search_pos < after_ol.len() {
+            if after_ol[search_pos..].starts_with("<ol") {
+                depth += 1;
+                search_pos += 3;
+            } else if after_ol[search_pos..].starts_with("</ol>") {
+                depth -= 1;
+                if depth == 0 {
+                    end_idx = Some(search_pos);
+                    break;
+                }
+                search_pos += 5;
+            } else {
+                search_pos += 1;
+            }
+        }
+
+        if let Some(end_idx) = end_idx {
             let body_start = after_ol
                 .find('>')
                 .map(|i| i + 1)

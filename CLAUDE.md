@@ -84,9 +84,9 @@ Maps MDX component names to implementations with schema validation. Ships with b
 ## CI
 
 GitHub Actions workflows (`.github/workflows/`):
-1. **`ci.yml`** — Build, lint, and test: `cargo fmt`, `cargo clippy`, `cargo test` (excludes xmdx-napi)
-2. **`napi-build.yml`** — Test NAPI bindings: builds NAPI, runs `cargo test -p xmdx-napi` and `bun test`
-3. **`publish-packages.yml`** — Publish packages to npm
+1. **`ci.yml`** — Build, lint, and test: `cargo fmt`, `cargo clippy`, `cargo test` (excludes xmdx-napi). Also runs WASM build + edge/parity tests.
+2. **`napi-build.yml`** — Test NAPI bindings: builds NAPI, runs `cargo test -p xmdx-napi` and `bun test`. Includes E2E Starlight build job.
+3. **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
 
 ## Key Conventions
 

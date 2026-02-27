@@ -22,7 +22,6 @@
     "prepublishOnly": "napi prepublish -t npm",
     "build": "napi build --platform --release --esm",
     "build:napi": "pnpm run build",
-    "smoke:napi": "node ../../scripts/smoke-napi.mjs",
     "test": "bun test"
   },
   "devDependencies": {
@@ -49,6 +48,6 @@
     "url": "https://github.com/jp-knj/xmdx"
   },
   "engines": {
-    "node": ">= 10"
+    "node": ">= 18"
   }
 }
