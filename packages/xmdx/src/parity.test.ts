@@ -36,7 +36,8 @@ if (!existsSync(wasmPath)) {
       // hasUserDefaultExport must match
       expect(wasm.hasUserDefaultExport).toBe(napi.hasUserDefaultExport);
 
-      // Both code outputs should contain the same key markers
+      // Code comparison uses marker containment rather than exact equality because
+      // NAPI and WASM outputs may differ in whitespace or minor formatting details.
       for (const marker of ['Fragment', 'createComponent', 'export const frontmatter']) {
         expect(wasm.code).toContain(marker);
         expect(napi.code).toContain(marker);

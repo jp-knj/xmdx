@@ -21,7 +21,7 @@ if (!existsSync(wasmBinaryPath) || !existsSync(wasmJsPath)) {
     });
   }
 
-  if (Miniflare!) {
+  if (Miniflare != null) {
     const workerScript = `
 import wasmModule from './xmdx.wasm';
 import { initSync, compile } from './xmdx_wasm.js';
