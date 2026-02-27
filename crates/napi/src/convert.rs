@@ -1,5 +1,5 @@
 use crate::types::{BlockOptions, NapiHeadingEntry, NapiRenderBlock, ParseBlocksResult};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use xmdx_astro::{BlocksResult, HeadingEntry, MdastOptions, PropValue, RenderBlock};
 
 /// Converts `BlockOptions` to `MdastOptions`.
@@ -10,12 +10,16 @@ pub fn to_mdast_options(opts: Option<BlockOptions>) -> MdastOptions {
             enable_smartypants: o.enable_smartypants.unwrap_or(false),
             enable_lazy_images: o.enable_lazy_images.unwrap_or(false),
             allow_raw_html: o.allow_raw_html.unwrap_or(true),
+            enable_heading_autolinks: o.enable_heading_autolinks.unwrap_or(false),
+            enable_math: o.enable_math.unwrap_or(false),
         },
         None => MdastOptions {
             enable_directives: false,
             enable_smartypants: false,
             enable_lazy_images: false,
             allow_raw_html: true,
+            enable_heading_autolinks: false,
+            enable_math: false,
         },
     }
 }
@@ -60,10 +64,10 @@ fn convert_render_block(block: &RenderBlock) -> NapiRenderBlock {
     }
 }
 
-/// Converts props HashMap<String, PropValue> to HashMap<String, String>.
+/// Converts props BTreeMap<String, PropValue> to HashMap<String, String>.
 ///
 /// Values are JSON-encoded so the JS side can distinguish literals from expressions.
-fn convert_props(props: &HashMap<String, PropValue>) -> HashMap<String, String> {
+fn convert_props(props: &BTreeMap<String, PropValue>) -> HashMap<String, String> {
     props
         .iter()
         .map(|(k, v)| {

@@ -29,5 +29,7 @@ pub use slug::{Slugger, extract_custom_id, slugify};
 
 pub use code_fence::{FencePhase, FenceState, LineParseOutcome, advance_fence_state};
 pub use directives::{
-    DirectiveOpening, is_directive_closer, parse_opening_directive, rewrite_directives_to_asides,
+    DEFAULT_DIRECTIVE_NAMES, DirectiveConfig, DirectiveOpening, is_directive_closer,
+    parse_opening_directive, parse_opening_directive_with, rewrite_directives,
+    rewrite_directives_to_asides,
 };
