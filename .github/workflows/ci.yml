@@ -85,7 +85,7 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli@0.2.105
+        run: cargo install wasm-bindgen-cli@0.2.108
 
       - name: Build WASM
         run: cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release
