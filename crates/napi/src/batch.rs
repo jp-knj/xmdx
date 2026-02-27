@@ -59,6 +59,9 @@ pub struct BatchOptions {
     pub max_threads: Option<u32>,
     /// Whether to continue processing after an error. Defaults to true.
     pub continue_on_error: Option<bool>,
+    /// Compiler configuration for standalone batch functions.
+    /// Ignored by class methods which use `self.config` instead.
+    pub config: Option<crate::types::CompilerConfig>,
 }
 
 /// Result of batch processing containing all results and statistics.

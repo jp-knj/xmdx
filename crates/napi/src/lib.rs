@@ -59,6 +59,48 @@ pub fn parse_frontmatter(content: String) -> napi::Result<FrontmatterResult> {
     }
 }
 
+/// Compiles multiple files in parallel and returns IR results.
+///
+/// Standalone convenience function that creates a temporary compiler from
+/// `options.config` and delegates to `XmdxCompiler::compileBatch`.
+#[napi(js_name = "compileBatch")]
+pub fn compile_batch(
+    inputs: Vec<batch::BatchInput>,
+    options: Option<batch::BatchOptions>,
+) -> napi::Result<batch::BatchProcessingResult> {
+    let config = options.as_ref().and_then(|o| o.config.clone());
+    let compiler = compiler::XmdxCompiler::new(config);
+    compiler.compile_batch(inputs, options)
+}
+
+/// Compiles multiple files in parallel and returns complete Astro modules.
+///
+/// Standalone convenience function that creates a temporary compiler from
+/// `options.config` and delegates to `XmdxCompiler::compileBatchToModule`.
+#[napi(js_name = "compileBatchToModule")]
+pub fn compile_batch_to_module(
+    inputs: Vec<batch::BatchInput>,
+    options: Option<batch::BatchOptions>,
+) -> napi::Result<batch::ModuleBatchProcessingResult> {
+    let config = options.as_ref().and_then(|o| o.config.clone());
+    let compiler = compiler::XmdxCompiler::new(config);
+    compiler.compile_batch_to_module(inputs, options)
+}
+
+/// Compiles multiple MDX files in parallel using mdxjs-rs.
+///
+/// Standalone convenience function that creates a temporary compiler from
+/// `options.config` and delegates to `XmdxCompiler::compileMdxBatch`.
+#[napi(js_name = "compileMdxBatch")]
+pub fn compile_mdx_batch(
+    inputs: Vec<batch::BatchInput>,
+    options: Option<batch::BatchOptions>,
+) -> napi::Result<batch::MdxBatchProcessingResult> {
+    let config = options.as_ref().and_then(|o| o.config.clone());
+    let compiler = compiler::XmdxCompiler::new(config);
+    compiler.compile_mdx_batch(inputs, options)
+}
+
 /// Converts a core RenderBlock to an NAPI RenderBlock.
 fn convert_render_block(block: xmdx_astro::renderer::mdast::RenderBlock) -> RenderBlock {
     use xmdx_astro::renderer::mdast;

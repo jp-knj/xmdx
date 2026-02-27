@@ -2,6 +2,7 @@ use serde::Serialize;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 use xmdx_astro::MdastOptions;
+use xmdx_core::DEFAULT_DIRECTIVE_NAMES;
 use xmdx_astro::code_fence::collect_root_statements;
 use xmdx_astro::codegen::{AstroModuleOptions, DirectiveMappingResult, blocks_to_jsx_string};
 use xmdx_astro::renderer::mdast::to_blocks;
@@ -46,7 +47,7 @@ fn build_mdast_options(cfg: &WasmCompilerConfig) -> MdastOptions {
         enable_directives: cfg.enable_directives.unwrap_or(true),
         enable_smartypants: cfg.enable_smartypants.unwrap_or(false),
         enable_lazy_images: cfg.enable_lazy_images.unwrap_or(true),
-        allow_raw_html: cfg.allow_raw_html.unwrap_or(false),
+        allow_raw_html: cfg.allow_raw_html.unwrap_or(true),
         enable_heading_autolinks: cfg.enable_heading_autolinks.unwrap_or(false),
         enable_math: cfg.math.unwrap_or(false),
     }
@@ -78,8 +79,7 @@ fn build_directive_mapper(
     }
 
     // Merge with defaults
-    let default_names = ["note", "tip", "caution", "danger"];
-    let mut all_names: Vec<String> = default_names.iter().map(|s| s.to_string()).collect();
+    let mut all_names: Vec<String> = DEFAULT_DIRECTIVE_NAMES.iter().map(|s| s.to_string()).collect();
     for name in &custom_names {
         if !all_names.contains(name) {
             all_names.push(name.clone());

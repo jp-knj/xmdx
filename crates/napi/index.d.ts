@@ -87,6 +87,11 @@ export interface BatchOptions {
   maxThreads?: number
   /** Whether to continue processing after an error. Defaults to true. */
   continueOnError?: boolean
+  /**
+   * Compiler configuration for standalone batch functions.
+   * Ignored by class methods which use `self.config` instead.
+   */
+  config?: CompilerConfig
 }
 
 /** Result of batch processing containing all results and statistics. */
@@ -135,6 +140,25 @@ export interface BlockOptions {
   enableMath?: boolean
 }
 
+/**
+ * Compiles multiple files in parallel and returns IR results.
+ *
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileBatch`.
+ */
+export declare function compileBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): BatchProcessingResult
+
+/**
+ * Compiles multiple files in parallel and returns complete Astro modules.
+ *
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileBatchToModule`.
+ */
+export declare function compileBatchToModule(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): ModuleBatchProcessingResult
+
+/** Compiles Markdown/MDX and returns a neutral IR. */
+export declare function compileIr(source: string, filepath: string, options?: FileOptions | undefined | null, config?: CompilerConfig | undefined | null): CompileIrResult
+
 /** Neutral IR returned when Astro-compat codegen is disabled. */
 export interface CompileIrResult {
   /** Rendered JSX output (string form). */
@@ -160,6 +184,14 @@ export interface CompileIrResult {
   /** Whether user provided their own `export default` statement. */
   hasUserDefaultExport: boolean
 }
+
+/**
+ * Compiles multiple MDX files in parallel using mdxjs-rs.
+ *
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileMdxBatch`.
+ */
+export declare function compileMdxBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): MdxBatchProcessingResult
 
 /** Options passed to the compiler constructor. */
 export interface CompilerConfig {

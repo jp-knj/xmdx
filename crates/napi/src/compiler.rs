@@ -515,7 +515,8 @@ pub fn create_compiler(config: Option<CompilerConfig>) -> XmdxCompiler {
 }
 
 /// Compiles Markdown/MDX and returns a neutral IR.
-pub(crate) fn compile_ir(
+#[napi(js_name = "compileIr")]
+pub fn compile_ir(
     source: String,
     filepath: String,
     options: Option<FileOptions>,
@@ -556,8 +557,7 @@ pub(crate) fn compile_ir(
         // When custom names are configured, only map those names.
         // Otherwise use the default built-in set.
         let is_known = if directive_config.custom_names.is_empty() {
-            let defaults = ["note", "tip", "caution", "danger"];
-            defaults.contains(&name)
+            xmdx_core::DEFAULT_DIRECTIVE_NAMES.contains(&name)
         } else {
             directive_config.custom_names.iter().any(|n| n == name)
         };
