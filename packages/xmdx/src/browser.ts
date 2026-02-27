@@ -8,7 +8,7 @@ import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
 
 interface WasmModule {
   default: () => Promise<unknown>;
-  compile: (source: string, filepath: string) => {
+  compile: (source: string, filepath: string, config: Record<string, unknown>) => {
     code: string;
     frontmatter_json: string;
     headings: HeadingEntry[];
@@ -61,7 +61,7 @@ export async function compile(
   options: CompileOptions = {}
 ): Promise<CompileResult> {
   const wasm = await loadWasm();
-  const result = wasm.compile(source, options.filepath ?? 'input.mdx');
+  const result = wasm.compile(source, options.filepath ?? 'input.mdx', {});
 
   return {
     code: result.code,
