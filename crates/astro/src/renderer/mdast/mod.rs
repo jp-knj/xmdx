@@ -1976,6 +1976,42 @@ export const authClient = createAuthClient();
     }
 
     #[test]
+    fn test_heading_autolink_skips_when_heading_contains_footnote_ref() {
+        let input = "## Title[^1]\n\n[^1]: A footnote.\n";
+        let options = Options {
+            enable_heading_autolinks: true,
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // The heading should contain the footnote ref anchor
+        assert!(
+            all_html.contains("<sup><a href=\"#user-content-fn-1\""),
+            "Should render the footnote reference link, got: {}",
+            all_html
+        );
+
+        // Should NOT have a wrapping autolink <a> (which would nest anchors)
+        // The only <a> tags should be the footnote ref and backref, not an autolink wrapper
+        assert!(
+            !all_html.contains("<a href=\"#title1\">"),
+            "Should not have autolink wrapper around heading with footnote ref, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
     fn test_footnote_inside_jsx_component_children() {
         // Regression test: footnote references and definitions inside JSX component
         // children (e.g. <Aside>) must bubble up to the parent context so the
