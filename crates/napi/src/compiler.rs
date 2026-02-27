@@ -14,7 +14,11 @@ use xmdx_astro::codegen::{DirectiveMappingResult, blocks_to_jsx_string};
 use xmdx_astro::{MdastOptions, code_fence, to_blocks};
 use xmdx_core::{MarkflowError, MdxCompileOptions, compile_mdx};
 
-const ASTRO_DEFAULT_RUNTIME: &str = "astro/runtime/server/index.js";
+/// Default JSX import source for MDX compilation.
+/// mdxjs-rs appends `/jsx-runtime` to this value (per the JSX automatic
+/// runtime convention), so it must be a bare package name, not a full
+/// module path.
+const ASTRO_JSX_IMPORT_SOURCE: &str = "astro";
 
 #[derive(Debug, Clone)]
 pub(crate) struct InternalCompilerConfig {
@@ -29,7 +33,7 @@ impl InternalCompilerConfig {
         let cfg = config.unwrap_or_default();
         let jsx_import_source = cfg
             .jsx_import_source
-            .unwrap_or_else(|| ASTRO_DEFAULT_RUNTIME.to_string());
+            .unwrap_or_else(|| ASTRO_JSX_IMPORT_SOURCE.to_string());
         let enable_heading_autolinks = cfg.enable_heading_autolinks.unwrap_or(false);
         let enable_math = cfg.math.unwrap_or(false);
 

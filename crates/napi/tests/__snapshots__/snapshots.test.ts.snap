@@ -886,7 +886,7 @@ exports[`snapshot: custom heading IDs 2`] = `
 `;
 
 exports[`snapshot: simple MDX compilation 1`] = `
-"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/runtime/server/index.js/jsx-runtime";
+"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/jsx-runtime";
 function _createMdxContent(props) {
     const _components = Object.assign({
         h1: "h1",
@@ -953,7 +953,7 @@ exports[`snapshot: simple MDX compilation 2`] = `
 `;
 
 exports[`snapshot: MDX with task lists 1`] = `
-"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/runtime/server/index.js/jsx-runtime";
+"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/jsx-runtime";
 function _createMdxContent(props) {
     const _components = Object.assign({
         h1: "h1",
@@ -1006,7 +1006,7 @@ export default MDXContent;
 `;
 
 exports[`snapshot: MDX with directives 1`] = `
-"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/runtime/server/index.js/jsx-runtime";
+"import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/jsx-runtime";
 function _createMdxContent(props) {
     const _components = Object.assign({
         h1: "h1",
