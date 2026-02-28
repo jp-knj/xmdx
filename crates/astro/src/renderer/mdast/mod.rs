@@ -166,11 +166,10 @@ pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, Markflo
         ..markdown::ParseOptions::default()
     };
 
-    let tree = markdown::to_mdast(&parsed_input, &parse_options)
-        .map_err(|e| {
-            let loc = xmdx_core::parse::message_location(&e);
-            MarkflowError::parse_error(format!("Markdown parse error: {}", e), loc.line, loc.column)
-        })?;
+    let tree = markdown::to_mdast(&parsed_input, &parse_options).map_err(|e| {
+        let loc = xmdx_core::parse::message_location(&e);
+        MarkflowError::parse_error(format!("Markdown parse error: {}", e), loc.line, loc.column)
+    })?;
 
     // 7. Traverse the AST and render to blocks
     let mut ctx = Context::new(options);

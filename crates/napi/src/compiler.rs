@@ -20,7 +20,6 @@ use xmdx_core::{MarkflowError, MdxCompileOptions, compile_mdx};
 /// module path.
 const ASTRO_JSX_IMPORT_SOURCE: &str = "astro";
 
-
 #[derive(Debug, Clone)]
 pub(crate) struct InternalCompilerConfig {
     pub(crate) jsx_import_source: String,
@@ -146,7 +145,11 @@ impl XmdxCompiler {
         )?;
 
         let jsx_src = &self.config.jsx_import_source;
-        let jsx_import_source = if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+        let jsx_import_source = if jsx_src == "astro" {
+            None
+        } else {
+            Some(jsx_src.as_str())
+        };
         compile_document_from_ir(ir, jsx_import_source)
     }
 
@@ -295,8 +298,11 @@ impl XmdxCompiler {
         let failed = AtomicU32::new(0);
 
         let jsx_src = &self.config.jsx_import_source;
-        let jsx_import_source: Option<&str> =
-            if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+        let jsx_import_source: Option<&str> = if jsx_src == "astro" {
+            None
+        } else {
+            Some(jsx_src.as_str())
+        };
 
         let process_input = |input: BatchInput| -> ModuleBatchResult {
             let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
@@ -718,6 +724,10 @@ pub(crate) fn compile_document(
     }
 
     let jsx_src = &config.jsx_import_source;
-    let jsx_import_source = if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+    let jsx_import_source = if jsx_src == "astro" {
+        None
+    } else {
+        Some(jsx_src.as_str())
+    };
     compile_document_from_ir(ir, jsx_import_source)
 }

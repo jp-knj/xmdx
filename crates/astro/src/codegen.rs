@@ -2168,9 +2168,6 @@ mod tests {
         // Non-ASCII text outside <ol> gets wrapped in <li>
         let input3 = "résumé <ol><li>item</li></ol> 🎉";
         let result3 = normalize_wrap_in_ol(input3);
-        assert_eq!(
-            result3,
-            "<ol><li>résumé</li><li>item</li><li>🎉</li></ol>"
-        );
+        assert_eq!(result3, "<ol><li>résumé</li><li>item</li><li>🎉</li></ol>");
     }
 }
