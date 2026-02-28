@@ -46,8 +46,8 @@ async function resolveTransformFn(): Promise<TransformFn> {
     // transformWithOxc not available
   }
 
-  // Fallback to transformWithEsbuild
-  const { transformWithEsbuild } = _require('vite');
+  // Fallback to transformWithEsbuild (use dynamic import for ESM-only Vite 5+)
+  const { transformWithEsbuild } = await import('vite');
   resolvedTransform = async (code, filename, _options) => {
     const result = await transformWithEsbuild(code, filename, ESBUILD_JSX_CONFIG);
     return {

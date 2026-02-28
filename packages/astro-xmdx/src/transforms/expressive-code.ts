@@ -256,8 +256,9 @@ export function stripExpressiveCodeImport(
 ): string {
   if (!code) return code;
   const name = config.component;
-  // If the component is still referenced as a JSX tag, keep the import
-  if (code.includes(`<${name} `) || code.includes(`<${name}/`)) {
+  // If the component is still referenced as a JSX tag, keep the import.
+  // Check space, slash, and newline to catch multiline JSX like <Code\n  code={...} />.
+  if (code.includes(`<${name} `) || code.includes(`<${name}/`) || code.includes(`<${name}\n`)) {
     return code;
   }
   // Remove the import line injected by injectExpressiveCodeComponent

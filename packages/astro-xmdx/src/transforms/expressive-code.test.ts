@@ -393,6 +393,12 @@ describe('stripExpressiveCodeImport', () => {
     expect(result).not.toContain("import { Code as MyCode }");
   });
 
+  test('preserves import when <Code> tag spans multiple lines', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<Code\n  code={"hello"}\n  lang="js"\n/>`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).toContain("import { Code }");
+  });
+
   test('no-ops on empty string', () => {
     expect(stripExpressiveCodeImport('', defaultConfig)).toBe('');
   });
