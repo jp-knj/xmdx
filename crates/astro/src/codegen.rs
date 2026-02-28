@@ -861,6 +861,35 @@ fn normalize_slot_by_registry(
     }
 }
 
+/// Checks whether `<ol` at byte position `pos` in `bytes` is a real tag
+/// (followed by `>`, whitespace, or end-of-string).
+fn is_ol_tag_at_bytes(bytes: &[u8], pos: usize) -> bool {
+    bytes[pos..].starts_with(b"<ol")
+        && matches!(
+            bytes.get(pos + 3),
+            None | Some(b'>' | b' ' | b'\t' | b'\n' | b'\r')
+        )
+}
+
+/// Finds the next real `<ol` tag start in `s` (skipping substring occurrences
+/// inside attributes/text like `data-label="<ol"`).
+fn find_ol_tag(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut start = 0;
+    while start < bytes.len() {
+        if let Some(rel) = bytes[start..].windows(3).position(|w| w == b"<ol") {
+            let abs = start + rel;
+            if is_ol_tag_at_bytes(bytes, abs) {
+                return Some(abs);
+            }
+            start = abs + 3;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
 /// Normalizes slot content by wrapping in a single `<ol>` element.
 ///
 /// This is used for components like Steps that require ordered list structure.
@@ -868,10 +897,10 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
     let trimmed = slot_html.trim();
 
     // If it is already a single <ol> ... </ol> with no siblings, keep it.
-    if trimmed.starts_with("<ol") && trimmed.ends_with("</ol>") {
+    if is_ol_tag_at_bytes(trimmed.as_bytes(), 0) && trimmed.ends_with("</ol>") {
         let first_ol = trimmed.find("<ol").unwrap_or(0);
         let last_close = trimmed.rfind("</ol>").unwrap_or(trimmed.len());
-        let has_extra_ol = trimmed[first_ol + 3..last_close].contains("<ol");
+        let has_extra_ol = find_ol_tag(&trimmed[first_ol + 3..last_close]).is_some();
         let trailing = trimmed[last_close + 5..].trim(); // 5 = len("</ol>")
         let leading = trimmed[..first_ol].trim();
         if !has_extra_ol && leading.is_empty() && trailing.is_empty() {
@@ -893,7 +922,7 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
     let mut items = String::new();
     let mut rest = trimmed;
 
-    while let Some(start) = rest.find("<ol") {
+    while let Some(start) = find_ol_tag(rest) {
         let before = &rest[..start];
         push_other_as_li(&mut items, before);
 
@@ -906,7 +935,7 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
         let mut end_idx = None;
         let mut search_pos = 0;
         while search_pos < after_ol_bytes.len() {
-            if after_ol_bytes[search_pos..].starts_with(b"<ol") {
+            if is_ol_tag_at_bytes(after_ol_bytes, search_pos) {
                 depth += 1;
                 search_pos += 3;
             } else if after_ol_bytes[search_pos..].starts_with(b"</ol>") {
@@ -1000,6 +1029,9 @@ pub struct AstroModuleOptions<'a> {
     pub layout_import: Option<&'a str>,
     /// Whether the user provided their own `export default`.
     pub has_user_default_export: bool,
+    /// Custom JSX import source (default: "astro").
+    /// Controls the `from '…/jsx-runtime'` import specifier.
+    pub jsx_import_source: Option<&'a str>,
 }
 
 /// Builder for constructing Astro-compatible JavaScript modules.
@@ -1028,6 +1060,7 @@ pub struct AstroModuleBuilder<'a> {
     layout_path: Option<&'a str>,
     has_user_default_export: bool,
     include_runtime_imports: bool,
+    jsx_import_source: Option<&'a str>,
 }
 
 impl<'a> AstroModuleBuilder<'a> {
@@ -1044,6 +1077,7 @@ impl<'a> AstroModuleBuilder<'a> {
             layout_path: None,
             has_user_default_export: false,
             include_runtime_imports: false,
+            jsx_import_source: None,
         }
     }
 
@@ -1117,6 +1151,12 @@ impl<'a> AstroModuleBuilder<'a> {
         self
     }
 
+    /// Sets the JSX import source (e.g., "preact" to emit `from 'preact/jsx-runtime'`).
+    pub fn with_jsx_import_source(mut self, source: Option<&'a str>) -> Self {
+        self.jsx_import_source = source;
+        self
+    }
+
     /// Creates a builder from AstroModuleOptions for backwards compatibility.
     pub fn from_options(options: &AstroModuleOptions<'a>) -> Self {
         let mut builder = Self::new(options.filepath)
@@ -1135,6 +1175,8 @@ impl<'a> AstroModuleBuilder<'a> {
         if let Some(layout) = options.layout_import {
             builder = builder.with_layout(layout);
         }
+
+        builder = builder.with_jsx_import_source(options.jsx_import_source);
 
         builder
     }
@@ -1176,9 +1218,11 @@ impl<'a> AstroModuleBuilder<'a> {
     }
 
     fn write_runtime_imports(&self, code: &mut String) {
+        let source = self.jsx_import_source.unwrap_or("astro");
         let _ = writeln!(
             code,
-            "import {{ Fragment, jsx as __jsx }} from 'astro/jsx-runtime';"
+            "import {{ Fragment, jsx as __jsx }} from '{}/jsx-runtime';",
+            source
         );
         let _ = writeln!(code, "const _Fragment = Fragment;");
         let _ = writeln!(
@@ -1745,6 +1789,7 @@ mod tests {
             url: None,
             layout_import: None,
             has_user_default_export: false,
+            jsx_import_source: None,
         };
 
         let code = generate_astro_module(&options);
@@ -1769,6 +1814,7 @@ mod tests {
             url: None,
             layout_import: Some("../layouts/Base.astro"),
             has_user_default_export: false,
+            jsx_import_source: None,
         };
 
         let code = generate_astro_module(&options);
@@ -1789,6 +1835,7 @@ mod tests {
             url: None,
             layout_import: None,
             has_user_default_export: true,
+            jsx_import_source: None,
         };
 
         let code = generate_astro_module(&options);
@@ -1808,6 +1855,7 @@ mod tests {
             url: None,
             layout_import: None,
             has_user_default_export: false,
+            jsx_import_source: None,
         };
 
         let code = generate_astro_module(&options);
@@ -1821,6 +1869,27 @@ mod tests {
             export_pos < component_pos,
             "User exports should appear before xmdxContent"
         );
+    }
+
+    #[test]
+    fn test_generate_astro_module_custom_jsx_import_source() {
+        let options = AstroModuleOptions {
+            jsx: "<p>Hello</p>",
+            hoisted_imports: &[],
+            hoisted_exports: &[],
+            frontmatter_json: "{}",
+            headings_json: "[]",
+            filepath: "/test.md",
+            url: None,
+            layout_import: None,
+            has_user_default_export: false,
+            jsx_import_source: Some("preact"),
+        };
+
+        let code = generate_astro_module(&options);
+
+        assert!(code.contains("from 'preact/jsx-runtime';"));
+        assert!(!code.contains("astro/jsx-runtime"));
     }
 
     #[test]
@@ -2024,6 +2093,22 @@ mod tests {
             "&#125; should become JSX expression, got: {}",
             result
         ); // &#125; → {"}"}
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_ignores_ol_in_attributes() {
+        // `<ol` inside an attribute value must not be treated as a nested tag
+        let input = r#"<ol data-label="<ol"><li>item</li></ol>"#;
+        let result = normalize_wrap_in_ol(input);
+        // Single <ol> passthrough — should be returned as-is
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_with_class_attribute() {
+        let input = r#"<ol class="steps"><li>step 1</li></ol>"#;
+        let result = normalize_wrap_in_ol(input);
+        assert_eq!(result, input);
     }
 
     #[test]

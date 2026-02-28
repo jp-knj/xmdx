@@ -5,7 +5,10 @@ import {
   rewriteSetHtmlCodeBlocks,
   rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
+  stripExpressiveCodeImport,
+  renderExpressiveCodeBlocks,
 } from './expressive-code.js';
+import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
 
 describe('decodeHtmlEntities', () => {
   test('returns value as-is when empty', () => {
@@ -322,5 +325,138 @@ describe('rewriteJsStringCodeBlocks', () => {
     const result = rewriteJsStringCodeBlocks(code, 'MyCode');
     expect(result.code).toBe('<MyCode code={"hello"} />');
     expect(result.changed).toBe(true);
+  });
+
+  test('handles mdxjs-rs output with rewrite_code_blocks enabled', () => {
+    // Simulates mdxjs-rs JSX output when rewrite_code_blocks is true:
+    // _jsx("pre", { ... }) gets rewritten to string literal "<pre class=..."
+    const code = '_jsx(_components.pre, {children: "<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-sh\\">npm install astro</code></pre>"})';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toContain('<Code code={"npm install astro"} lang="sh" />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('handles multiple JS string code blocks in mdxjs-rs output', () => {
+    const code = [
+      '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-js\\">const a = 1;</code></pre>"',
+      '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-ts\\">const b: number = 2;</code></pre>"',
+    ].join('\n');
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toContain('<Code code={"const a = 1;"} lang="js" />');
+    expect(result.code).toContain('<Code code={"const b: number = 2;"} lang="ts" />');
+    expect(result.changed).toBe(true);
+  });
+});
+
+describe('_Fragment availability in MDX wrapper', () => {
+  test('wrapMdxModule output includes _Fragment alias for ExpressiveCode compatibility', async () => {
+    // Import wrapMdxModule to verify it produces _Fragment binding
+    const { wrapMdxModule } = await import('../vite-plugin/mdx-wrapper/index.js');
+    const { createRegistry } = await import('xmdx/registry');
+    const registry = createRegistry([]);
+
+    const mdxCode = `function MDXContent(props) { return <p>Hello</p>; }
+export default MDXContent;`;
+
+    const wrapped = wrapMdxModule(mdxCode, {
+      frontmatter: {},
+      headings: [],
+      registry,
+    }, 'test.mdx');
+
+    // _Fragment must be bound so renderExpressiveCodeBlocks output resolves
+    expect(wrapped).toContain('const _Fragment = Fragment;');
+    expect(wrapped).toContain("import { Fragment } from 'astro/jsx-runtime';");
+  });
+});
+
+describe('stripExpressiveCodeImport', () => {
+  const defaultConfig = { component: 'Code', moduleId: 'astro-expressive-code/components' };
+
+  test('removes import when no <Code /> remains', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<_Fragment set:html={"<figure>...</figure>"} />`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).not.toContain("import { Code }");
+    expect(result).toContain('<_Fragment');
+  });
+
+  test('preserves import when <Code /> is still referenced', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"hello"} lang="js" />`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).toContain("import { Code }");
+  });
+
+  test('handles custom component name', () => {
+    const config = { component: 'MyCode', moduleId: 'my-ec/components' };
+    const code = `import { Code as MyCode } from 'my-ec/components';\n\n<_Fragment set:html={"rendered"} />`;
+    const result = stripExpressiveCodeImport(code, config);
+    expect(result).not.toContain("import { Code as MyCode }");
+  });
+
+  test('no-ops on empty string', () => {
+    expect(stripExpressiveCodeImport('', defaultConfig)).toBe('');
+  });
+});
+
+describe('renderExpressiveCodeBlocks', () => {
+  function mockEcManager(opts: {
+    enabled?: boolean;
+    renderFn?: (code: string, lang?: string) => Promise<string | null>;
+  } = {}): ExpressiveCodeManager {
+    return {
+      enabled: opts.enabled ?? true,
+      render: opts.renderFn ?? (async (code: string) =>
+        `<figure class="expressive-code"><pre><code>${code}</code></pre></figure>`
+      ),
+    } as unknown as ExpressiveCodeManager;
+  }
+
+  test('pre-renders Code component to Fragment set:html', async () => {
+    const code = `<Code code={"console.log('hello')"} lang="js" />`;
+    const ecm = mockEcManager();
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain('<_Fragment set:html={');
+    expect(result.code).toContain('expressive-code');
+    expect(result.code).not.toContain('<Code');
+  });
+
+  test('returns unchanged when no Code components present', async () => {
+    const code = '<div><p>Hello world</p></div>';
+    const ecm = mockEcManager();
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('gracefully handles render returning null', async () => {
+    const code = '<Code code={"test"} lang="js" />';
+    const ecm = mockEcManager({ renderFn: async () => null });
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('skips when ecManager is not enabled', async () => {
+    const code = '<Code code={"test"} lang="js" />';
+    const ecm = mockEcManager({ enabled: false });
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('full flow: inject import → pre-render all → strip dead import', async () => {
+    const config = { component: 'Code', moduleId: 'astro-expressive-code/components' };
+    // Simulate transform pipeline: start with code that has a Code component + import
+    let code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"console.log('hi')"} lang="js" />`;
+    const ecm = mockEcManager();
+    // Pre-render all Code components
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(true);
+    expect(result.code).not.toContain('<Code ');
+    // Strip the now-dead import
+    const final = stripExpressiveCodeImport(result.code, config);
+    expect(final).not.toContain("import { Code }");
+    expect(final).toContain('<_Fragment set:html={');
   });
 });

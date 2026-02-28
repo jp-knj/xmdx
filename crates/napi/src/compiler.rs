@@ -20,11 +20,13 @@ use xmdx_core::{MarkflowError, MdxCompileOptions, compile_mdx};
 /// module path.
 const ASTRO_JSX_IMPORT_SOURCE: &str = "astro";
 
+
 #[derive(Debug, Clone)]
 pub(crate) struct InternalCompilerConfig {
     pub(crate) jsx_import_source: String,
     pub(crate) enable_heading_autolinks: bool,
     pub(crate) enable_math: bool,
+    pub(crate) rewrite_code_blocks: bool,
     pub(crate) directive_config: xmdx_core::DirectiveConfig,
 }
 
@@ -36,6 +38,7 @@ impl InternalCompilerConfig {
             .unwrap_or_else(|| ASTRO_JSX_IMPORT_SOURCE.to_string());
         let enable_heading_autolinks = cfg.enable_heading_autolinks.unwrap_or(false);
         let enable_math = cfg.math.unwrap_or(false);
+        let rewrite_code_blocks = cfg.rewrite_code_blocks.unwrap_or(false);
 
         // Build directive config from custom names and component map
         let mut directive_config = xmdx_core::DirectiveConfig::default();
@@ -69,6 +72,7 @@ impl InternalCompilerConfig {
             jsx_import_source,
             enable_heading_autolinks,
             enable_math,
+            rewrite_code_blocks,
             directive_config,
         }
     }
@@ -97,6 +101,7 @@ impl InternalCompilerConfig {
             jsx_import_source: Some(self.jsx_import_source.clone()),
             enable_heading_autolinks: Some(self.enable_heading_autolinks),
             math: Some(self.enable_math),
+            rewrite_code_blocks: Some(self.rewrite_code_blocks),
             custom_directive_names,
             directive_component_map,
             ..CompilerConfig::default()
@@ -140,7 +145,9 @@ impl XmdxCompiler {
             Some(self.config.to_compiler_config()),
         )?;
 
-        compile_document_from_ir(ir)
+        let jsx_src = &self.config.jsx_import_source;
+        let jsx_import_source = if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+        compile_document_from_ir(ir, jsx_import_source)
     }
 
     /// Compiles multiple Markdown/MDX files in parallel using Rayon.
@@ -287,12 +294,16 @@ impl XmdxCompiler {
         let succeeded = AtomicU32::new(0);
         let failed = AtomicU32::new(0);
 
+        let jsx_src = &self.config.jsx_import_source;
+        let jsx_import_source: Option<&str> =
+            if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+
         let process_input = |input: BatchInput| -> ModuleBatchResult {
             let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
             match compile_ir(input.source, filepath, None, config.clone()) {
                 Ok(ir) => {
                     // Convert IR to complete module
-                    match compile_document_from_ir(ir) {
+                    match compile_document_from_ir(ir, jsx_import_source) {
                         Ok(result) => {
                             succeeded.fetch_add(1, Ordering::Relaxed);
                             ModuleBatchResult {
@@ -414,7 +425,7 @@ impl XmdxCompiler {
         let mdx_options = MdxCompileOptions {
             jsx_import_source: Some(self.config.jsx_import_source.clone()),
             jsx: false,
-            rewrite_code_blocks: false,
+            rewrite_code_blocks: self.config.rewrite_code_blocks,
             directive_config,
             enable_heading_autolinks: self.config.enable_heading_autolinks,
             math: self.config.enable_math,
@@ -422,9 +433,10 @@ impl XmdxCompiler {
 
         let process_input = |input: BatchInput| -> MdxBatchResult {
             let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
-            let is_mdx = filepath.ends_with(".mdx");
 
-            if !is_mdx {
+            // Only validate extension when an explicit filepath was provided.
+            // Opaque IDs (cache keys, UUIDs) without filepath are trusted as MDX.
+            if input.filepath.is_some() && !filepath.ends_with(".mdx") {
                 failed.fetch_add(1, Ordering::Relaxed);
                 return MdxBatchResult {
                     id: input.id,
@@ -625,7 +637,7 @@ pub fn compile_ir(
         file_path: effective_path,
         url: options.url.clone(),
         layout_import,
-        runtime_import: internal.jsx_import_source,
+        runtime_import: internal.jsx_import_source.clone(),
         diagnostics,
         has_user_default_export,
     })
@@ -649,7 +661,10 @@ fn with_path(err: MarkflowError, path: &str) -> MarkflowError {
     }
 }
 
-pub(crate) fn compile_document_from_ir(ir: CompileIrResult) -> napi::Result<CompileResult> {
+pub(crate) fn compile_document_from_ir(
+    ir: CompileIrResult,
+    jsx_import_source: Option<&str>,
+) -> napi::Result<CompileResult> {
     let hoisted_imports = super::dedupe_imports(
         ir.hoisted_imports
             .iter()
@@ -669,6 +684,7 @@ pub(crate) fn compile_document_from_ir(ir: CompileIrResult) -> napi::Result<Comp
         &hoisted_imports,
         &hoisted_exports,
         &headings_json,
+        jsx_import_source,
     )?;
     let imports = super::build_import_list(ir.layout_import.as_deref(), Path::new(&ir.file_path));
 
@@ -701,5 +717,7 @@ pub(crate) fn compile_document(
             }));
     }
 
-    compile_document_from_ir(ir)
+    let jsx_src = &config.jsx_import_source;
+    let jsx_import_source = if jsx_src == "astro" { None } else { Some(jsx_src.as_str()) };
+    compile_document_from_ir(ir, jsx_import_source)
 }

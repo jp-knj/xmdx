@@ -246,9 +246,40 @@ export function injectExpressiveCodeComponent(
   return insertAfterImports(code, importLine);
 }
 
-// PERF: Pre-compiled regex pattern for Code/ExpressiveCode components
-const CODE_COMPONENT_PATTERN =
-  /<(Code|ExpressiveCode)\s+code=\{([^}]+)\}(?:\s+lang="([^"]+)")?(?:\s+[^>]*)?\s*\/>/g;
+/**
+ * Strips the dead ExpressiveCode import when all `<Code />` components
+ * have been pre-rendered to `<_Fragment set:html={...} />`.
+ */
+export function stripExpressiveCodeImport(
+  code: string,
+  config: ExpressiveCodeConfig
+): string {
+  if (!code) return code;
+  const name = config.component;
+  // If the component is still referenced as a JSX tag, keep the import
+  if (code.includes(`<${name} `) || code.includes(`<${name}/`)) {
+    return code;
+  }
+  // Remove the import line injected by injectExpressiveCodeComponent
+  const pattern =
+    name === 'Code'
+      ? new RegExp(
+          `^import \\{ Code \\} from '${escapeRegExp(config.moduleId)}';\\n?`,
+          'm'
+        )
+      : new RegExp(
+          `^import \\{ Code as ${escapeRegExp(name)} \\} from '${escapeRegExp(config.moduleId)}';\\n?`,
+          'm'
+        );
+  return code.replace(pattern, '');
+}
+
+/**
+ * Escapes special regex characters in a string for use in `new RegExp(...)`.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Pre-renders ExpressiveCode components at build time.
@@ -263,19 +294,25 @@ const CODE_COMPONENT_PATTERN =
  *
  * @param code - The JSX code containing Code components
  * @param ecManager - The ExpressiveCode manager instance
+ * @param componentName - The configured component name (default: 'Code')
  * @returns Transformed code with pre-rendered HTML
  */
 export async function renderExpressiveCodeBlocks(
   code: string,
-  ecManager: ExpressiveCodeManager
+  ecManager: ExpressiveCodeManager,
+  componentName = 'Code'
 ): Promise<RewriteResult> {
   // Quick bail-out checks
   if (!code || !ecManager.enabled || !code.includes('code={')) {
     return { code, changed: false };
   }
 
-  // Find all Code/ExpressiveCode component instances
-  CODE_COMPONENT_PATTERN.lastIndex = 0;
+  // Build pattern dynamically to match the configured component name
+  const pattern = new RegExp(
+    `<(${escapeRegExp(componentName)}|ExpressiveCode)\\s+code=\\{([^}]+)\\}(?:\\s+lang="([^"]+)")?(?:\\s+[^>]*)?\\s*\\/>`,
+    'g'
+  );
+
   const matches: Array<{
     fullMatch: string;
     index: number;
@@ -284,7 +321,7 @@ export async function renderExpressiveCodeBlocks(
   }> = [];
 
   let match: RegExpExecArray | null;
-  while ((match = CODE_COMPONENT_PATTERN.exec(code)) !== null) {
+  while ((match = pattern.exec(code)) !== null) {
     matches.push({
       fullMatch: match[0],
       index: match.index,
