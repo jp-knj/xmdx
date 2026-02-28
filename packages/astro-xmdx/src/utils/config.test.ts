@@ -82,6 +82,25 @@ describe('resolveExpressiveCodeConfig', () => {
     });
   });
 
+  it('should return null when enabled is false', () => {
+    expect(resolveExpressiveCodeConfig({ enabled: false })).toBe(null);
+  });
+
+  it('should return null when enabled is false with other options', () => {
+    expect(
+      resolveExpressiveCodeConfig({ enabled: false, component: 'Code' })
+    ).toBe(null);
+  });
+
+  it('should return config when enabled is true', () => {
+    const result = resolveExpressiveCodeConfig({ enabled: true });
+
+    expect(result).toEqual({
+      component: EXPRESSIVE_CODE_COMPONENT,
+      moduleId: EXPRESSIVE_CODE_MODULE,
+    });
+  });
+
   it('should ignore empty string component', () => {
     const result = resolveExpressiveCodeConfig({
       component: '',

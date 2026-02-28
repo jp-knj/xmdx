@@ -25,6 +25,7 @@ async function loadWasm(): Promise<WasmModule> {
       await mod.default();
       return mod;
     })();
+    initPromise.catch(() => { initPromise = null; });
   }
   return initPromise;
 }

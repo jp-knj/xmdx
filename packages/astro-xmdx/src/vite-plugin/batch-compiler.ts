@@ -607,7 +607,10 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     debugLog(`Separated: ${mdInputs.length} MD files, ${mdxInputs.length} MDX files`);
 
     const binding = deps.providedBinding ?? (await deps.loadBinding());
-    const compiler = binding.createCompiler(deps.compilerOptions);
+    const createCompiler = binding.createCompiler
+      ? binding.createCompiler.bind(binding)
+      : (cfg: Record<string, unknown>) => new binding.XmdxCompiler!(cfg);
+    const compiler = createCompiler(deps.compilerOptions);
     const stats = await batchCompileFiles(
       compiler,
       mdInputs,

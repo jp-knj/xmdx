@@ -80,6 +80,7 @@ export function resolveExpressiveCodeConfig(
     };
   }
   if (typeof config === 'object') {
+    if (config.enabled === false) return null;
     const configuredComponent = config.component ?? config.componentName;
     const configuredModule = config.module ?? config.importSource;
     const component =

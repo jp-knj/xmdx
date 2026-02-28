@@ -47,7 +47,7 @@ fn build_mdast_options(cfg: &WasmCompilerConfig) -> MdastOptions {
         enable_directives: cfg.enable_directives.unwrap_or(true),
         enable_smartypants: cfg.enable_smartypants.unwrap_or(false),
         enable_lazy_images: cfg.enable_lazy_images.unwrap_or(true),
-        allow_raw_html: cfg.allow_raw_html.unwrap_or(true),
+        allow_raw_html: cfg.allow_raw_html.unwrap_or(false),
         enable_heading_autolinks: cfg.enable_heading_autolinks.unwrap_or(false),
         enable_math: cfg.math.unwrap_or(false),
     }
@@ -196,10 +196,7 @@ pub fn compile(source: &str, filepath: &str, config: JsValue) -> Result<JsValue,
 
     let headings_json = serde_json::to_string(&headings).unwrap_or_else(|_| "[]".to_string());
 
-    // 5. Determine JSX import source
-    let jsx_import_source = cfg.jsx_import_source.as_deref();
-
-    // 6. Generate module code
+    // 5. Generate module code with jsx_import_source threaded through codegen
     let code = xmdx_astro::codegen::generate_astro_module(&AstroModuleOptions {
         jsx: &jsx_body,
         hoisted_imports: &hoisted_imports,
@@ -210,14 +207,8 @@ pub fn compile(source: &str, filepath: &str, config: JsValue) -> Result<JsValue,
         url: None,
         layout_import: None,
         has_user_default_export,
+        jsx_import_source: cfg.jsx_import_source.as_deref(),
     });
-
-    // If a custom jsx_import_source is specified, replace the default import
-    let code = if let Some(source) = jsx_import_source {
-        code.replace("astro/runtime/server/index.js", source)
-    } else {
-        code
-    };
 
     // 7. Build result
     let result = CompileResult {
