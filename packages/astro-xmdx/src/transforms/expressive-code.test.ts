@@ -349,13 +349,15 @@ describe('rewriteJsStringCodeBlocks', () => {
 });
 
 describe('_Fragment availability in MDX wrapper', () => {
-  test('wrapMdxModule output includes _Fragment alias for ExpressiveCode compatibility', async () => {
-    // Import wrapMdxModule to verify it produces _Fragment binding
+  test('wrapMdxModule output resolves _Fragment via mdxjs-rs import', async () => {
+    // Import wrapMdxModule to verify _Fragment is available from mdxjs-rs output
     const { wrapMdxModule } = await import('../vite-plugin/mdx-wrapper/index.js');
     const { createRegistry } = await import('xmdx/registry');
     const registry = createRegistry([]);
 
-    const mdxCode = `function MDXContent(props) { return <p>Hello</p>; }
+    // Realistic mdxjs-rs output always starts with the jsx-runtime import
+    const mdxCode = `import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/jsx-runtime";
+function MDXContent(props) { return _jsx("p", { children: "Hello" }); }
 export default MDXContent;`;
 
     const wrapped = wrapMdxModule(mdxCode, {
@@ -364,8 +366,10 @@ export default MDXContent;`;
       registry,
     }, 'test.mdx');
 
-    // _Fragment must be bound so renderExpressiveCodeBlocks output resolves
-    expect(wrapped).toContain('const _Fragment = Fragment;');
+    // _Fragment is bound via the mdxjs-rs import, not a separate const
+    expect(wrapped).toContain('Fragment as _Fragment');
+    expect(wrapped).not.toContain('const _Fragment = Fragment;');
+    // Fragment (without underscore) is still imported for componentsObject
     expect(wrapped).toContain("import { Fragment } from 'astro/jsx-runtime';");
   });
 });

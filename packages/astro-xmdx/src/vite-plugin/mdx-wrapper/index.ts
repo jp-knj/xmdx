@@ -78,7 +78,6 @@ export function wrapMdxModule(
 
   return `import { createComponent, renderJSX } from 'astro/runtime/server/index.js';
 import { Fragment } from 'astro/jsx-runtime';
-const _Fragment = Fragment;
 ${componentImports}
 
 // MDX compiled content
