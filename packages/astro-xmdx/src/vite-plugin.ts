@@ -22,6 +22,7 @@ import {
   VIRTUAL_MODULE_PREFIX,
   OUTPUT_EXTENSION,
   STARLIGHT_LAYER_ORDER,
+  EC_STYLES_MODULE_ID,
   EC_STYLES_VIRTUAL_ID,
 } from './constants.js';
 // Import from extracted vite-plugin modules
@@ -177,8 +178,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         const result = await renderExpressiveCodeBlocks(ctx.code, ecManager, expressiveCode.component);
         if (!result.changed) return ctx;
         let code = stripExpressiveCodeImport(result.code, expressiveCode);
-        if (!code.includes(EC_STYLES_VIRTUAL_ID)) {
-          code = `import '${EC_STYLES_VIRTUAL_ID}';\n${code}`;
+        if (!code.includes(EC_STYLES_MODULE_ID)) {
+          code = `import '${EC_STYLES_MODULE_ID}';\n${code}`;
         }
         return { ...ctx, code };
       }
@@ -304,7 +305,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     },
 
     async resolveId(sourceId, importer) {
-      if (sourceId === EC_STYLES_VIRTUAL_ID) return sourceId;
+      if (sourceId === EC_STYLES_MODULE_ID) return EC_STYLES_VIRTUAL_ID;
       if (sourceId.startsWith(VIRTUAL_MODULE_PREFIX)) {
         return sourceId;
       }

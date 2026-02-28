@@ -18,7 +18,7 @@
  * Returns a `CompileResult` containing the generated module code, frontmatter,
  * and heading metadata.
  */
-export function compile(source: string, filepath: string, config: any): any;
+export function compile(source: string, filepath: string, config?: any): any;
 
 /**
  * Parses markdown into structured RenderBlock objects using the mdast v2 renderer.

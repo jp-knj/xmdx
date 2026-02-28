@@ -68,7 +68,13 @@ export const DEFAULT_IGNORE_PATTERNS = ['node_modules/**', 'dist/**'] as const;
 export const STARLIGHT_LAYER_ORDER = '@layer starlight.base, starlight.reset, starlight.core, starlight.content, starlight.components, starlight.utils;';
 
 /**
+ * Public specifier for ExpressiveCode collected CSS styles.
+ * Used in generated import statements — does NOT include the \0 prefix.
+ */
+export const EC_STYLES_MODULE_ID = 'xmdx:ec-styles.css';
+
+/**
  * Virtual module ID for ExpressiveCode collected CSS styles.
- * Imported by files that contain pre-rendered EC blocks so styles are emitted.
+ * The \0-prefixed resolved ID used internally by Vite hooks.
  */
 export const EC_STYLES_VIRTUAL_ID = '\0xmdx:ec-styles.css';
