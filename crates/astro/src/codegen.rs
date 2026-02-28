@@ -898,15 +898,18 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
         push_other_as_li(&mut items, before);
 
         let after_ol = &rest[start..];
-        // Find the matching </ol> by tracking nesting depth
+        // Find the matching </ol> by tracking nesting depth.
+        // Scan on &[u8] to avoid panics when non-ASCII content
+        // (emoji, CJK, accented chars) puts search_pos mid-character.
+        let after_ol_bytes = after_ol.as_bytes();
         let mut depth = 0;
         let mut end_idx = None;
         let mut search_pos = 0;
-        while search_pos < after_ol.len() {
-            if after_ol[search_pos..].starts_with("<ol") {
+        while search_pos < after_ol_bytes.len() {
+            if after_ol_bytes[search_pos..].starts_with(b"<ol") {
                 depth += 1;
                 search_pos += 3;
-            } else if after_ol[search_pos..].starts_with("</ol>") {
+            } else if after_ol_bytes[search_pos..].starts_with(b"</ol>") {
                 depth -= 1;
                 if depth == 0 {
                     end_idx = Some(search_pos);
@@ -2021,5 +2024,28 @@ mod tests {
             "&#125; should become JSX expression, got: {}",
             result
         ); // &#125; → {"}"}
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_non_ascii() {
+        // Emoji, accented, and CJK characters must not cause panics
+        // when the byte-scanning loop advances through multi-byte UTF-8.
+        let input = "<ol><li>Héllo 🌍</li><li>世界</li></ol>";
+        let result = normalize_wrap_in_ol(input);
+        // Single <ol> passthrough — should be returned as-is
+        assert_eq!(result, input);
+
+        // Two sibling <ol>s with non-ASCII: should be merged into one
+        let input2 = "<ol><li>café ☕</li></ol><ol><li>日本語</li></ol>";
+        let result2 = normalize_wrap_in_ol(input2);
+        assert_eq!(result2, "<ol><li>café ☕</li><li>日本語</li></ol>");
+
+        // Non-ASCII text outside <ol> gets wrapped in <li>
+        let input3 = "résumé <ol><li>item</li></ol> 🎉";
+        let result3 = normalize_wrap_in_ol(input3);
+        assert_eq!(
+            result3,
+            "<ol><li>résumé</li><li>item</li><li>🎉</li></ol>"
+        );
     }
 }
