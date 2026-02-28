@@ -66,3 +66,9 @@ export const DEFAULT_IGNORE_PATTERNS = ['node_modules/**', 'dist/**'] as const;
  * Injected as inline <style> in dev mode, Head.astro overlay in build.
  */
 export const STARLIGHT_LAYER_ORDER = '@layer starlight.base, starlight.reset, starlight.core, starlight.content, starlight.components, starlight.utils;';
+
+/**
+ * Virtual module ID for ExpressiveCode collected CSS styles.
+ * Imported by files that contain pre-rendered EC blocks so styles are emitted.
+ */
+export const EC_STYLES_VIRTUAL_ID = '\0xmdx:ec-styles.css';

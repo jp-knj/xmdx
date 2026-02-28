@@ -89,7 +89,7 @@ export function rewriteExpressiveCodeBlocks(
     if (lang) {
       props.push(`lang="${lang}"`);
     }
-    return `<${componentName} ${props.join(' ')} />`;
+    return `<${componentName} ${props.join(' ')} __xmdx />`;
   });
   return { code: next, changed };
 }
@@ -152,7 +152,7 @@ export function rewriteJsStringCodeBlocks(
     if (lang) {
       props.push(`lang="${lang}"`);
     }
-    return `<${componentName} ${props.join(' ')} />`;
+    return `<${componentName} ${props.join(' ')} __xmdx />`;
   });
   return { code: next, changed };
 }
@@ -308,9 +308,11 @@ export async function renderExpressiveCodeBlocks(
     return { code, changed: false };
   }
 
-  // Build pattern dynamically to match the configured component name
+  // Build pattern dynamically to match the configured component name.
+  // Only match tags with the __xmdx marker (injected by rewrite transforms)
+  // to avoid rewriting user-authored <Code> components.
   const pattern = new RegExp(
-    `<(${escapeRegExp(componentName)}|ExpressiveCode)\\s+code=\\{([^}]+)\\}(?:\\s+lang="([^"]+)")?(?:\\s+[^>]*)?\\s*\\/>`,
+    `<(${escapeRegExp(componentName)}|ExpressiveCode)\\s+code=\\{([^}]+)\\}(?:\\s+lang="([^"]+)")?[^>]*\\s+__xmdx\\s*\\/>`,
     'g'
   );
 

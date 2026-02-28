@@ -871,20 +871,26 @@ fn is_ol_tag_at_bytes(bytes: &[u8], pos: usize) -> bool {
         )
 }
 
-/// Finds the next real `<ol` tag start in `s` (skipping substring occurrences
-/// inside attributes/text like `data-label="<ol"`).
+/// Finds the next real `<ol` tag start in `s`, skipping occurrences inside
+/// quoted attribute values (e.g. `data-label="<ol>"`).
 fn find_ol_tag(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
-    let mut start = 0;
-    while start < bytes.len() {
-        if let Some(rel) = bytes[start..].windows(3).position(|w| w == b"<ol") {
-            let abs = start + rel;
-            if is_ol_tag_at_bytes(bytes, abs) {
-                return Some(abs);
+    let mut pos = 0;
+    let mut in_quote: Option<u8> = None;
+    while pos < bytes.len() {
+        let b = bytes[pos];
+        if let Some(q) = in_quote {
+            if b == q {
+                in_quote = None;
             }
-            start = abs + 3;
+            pos += 1;
+        } else if b == b'"' || b == b'\'' {
+            in_quote = Some(b);
+            pos += 1;
+        } else if is_ol_tag_at_bytes(bytes, pos) {
+            return Some(pos);
         } else {
-            break;
+            pos += 1;
         }
     }
     None
@@ -934,8 +940,18 @@ fn normalize_wrap_in_ol(slot_html: &str) -> String {
         let mut depth = 0;
         let mut end_idx = None;
         let mut search_pos = 0;
+        let mut depth_quote: Option<u8> = None;
         while search_pos < after_ol_bytes.len() {
-            if is_ol_tag_at_bytes(after_ol_bytes, search_pos) {
+            let b = after_ol_bytes[search_pos];
+            if let Some(q) = depth_quote {
+                if b == q {
+                    depth_quote = None;
+                }
+                search_pos += 1;
+            } else if b == b'"' || b == b'\'' {
+                depth_quote = Some(b);
+                search_pos += 1;
+            } else if is_ol_tag_at_bytes(after_ol_bytes, search_pos) {
                 depth += 1;
                 search_pos += 3;
             } else if after_ol_bytes[search_pos..].starts_with(b"</ol>") {
@@ -2097,10 +2113,34 @@ mod tests {
 
     #[test]
     fn normalize_wrap_in_ol_ignores_ol_in_attributes() {
-        // `<ol` inside an attribute value must not be treated as a nested tag
-        let input = r#"<ol data-label="<ol"><li>item</li></ol>"#;
+        // `<ol>` inside a quoted attribute value must not be treated as a nested tag
+        let input = r#"<ol data-label="<ol>"><li>item</li></ol>"#;
         let result = normalize_wrap_in_ol(input);
         // Single <ol> passthrough — should be returned as-is
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_ignores_ol_in_single_quoted_attributes() {
+        let input = "<ol data-x='<ol>'><li>item</li></ol>";
+        let result = normalize_wrap_in_ol(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_ignores_closing_ol_in_attributes() {
+        // </ol> inside a quoted attribute must not decrement depth
+        let input = r#"<ol data-x="</ol>"><li>item</li></ol>"#;
+        let result = normalize_wrap_in_ol(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn normalize_wrap_in_ol_nested_with_quoted_ol() {
+        // Real nested <ol> plus a quoted <ol> in the same input
+        let input = r#"<ol><li>a</li><ol data-x="<ol>"><li>b</li></ol></ol>"#;
+        let result = normalize_wrap_in_ol(input);
+        // Already a single top-level <ol>…</ol> — passthrough
         assert_eq!(result, input);
     }
 
