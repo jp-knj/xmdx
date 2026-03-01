@@ -100,6 +100,14 @@ export interface XmdxOptions {
  * });
  * ```
  */
+function isStarlightDisabled(
+  value: XmdxOptions['starlightComponents']
+): boolean {
+  if (value === false) return true;
+  if (typeof value === 'object' && value !== null && value.enabled === false) return true;
+  return false;
+}
+
 export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
   // Handle presets if provided
   let resolvedOptions = { ...options };
@@ -194,13 +202,6 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
           if (resolvedOptions.starlightComponents === undefined) {
             resolvedOptions.starlightComponents = true;
           }
-          if (!resolvedOptions.mdx?.allowImports || resolvedOptions.mdx.allowImports.length === 0) {
-            resolvedOptions.mdx = {
-              ...resolvedOptions.mdx,
-              allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
-              ignoreCodeFences: true,
-            };
-          }
           if (resolvedOptions.expressiveCode === undefined) {
             resolvedOptions.expressiveCode = true;
           }
@@ -208,14 +209,47 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
           // Auto-register Starlight libraries when user hasn't provided their own.
           // Apply any component overrides to adjust import paths.
           if (!resolvedOptions.libraries) {
-            const effectiveStarlightLibrary = starlight.componentOverrides.size > 0
-              ? applyStarlightOverrides(starlightLibrary, starlight.componentOverrides)
-              : starlightLibrary;
-            resolvedOptions.libraries = [astroLibrary, effectiveStarlightLibrary];
+            if (!isStarlightDisabled(resolvedOptions.starlightComponents)) {
+              const rootDir = config.root ? fileURLToPath(config.root) : undefined;
+              const effectiveStarlightLibrary = starlight.componentOverrides.size > 0
+                ? applyStarlightOverrides(starlightLibrary, starlight.componentOverrides, rootDir)
+                : starlightLibrary;
+              resolvedOptions.libraries = [astroLibrary, effectiveStarlightLibrary];
+            } else {
+              resolvedOptions.libraries = [astroLibrary];
+            }
+          } else if (starlight.componentOverrides.size > 0 && !isStarlightDisabled(resolvedOptions.starlightComponents)) {
+            const rootDir = config.root ? fileURLToPath(config.root) : undefined;
+            resolvedOptions.libraries = resolvedOptions.libraries.map((lib) => {
+              if (lib.id === 'starlight') {
+                return applyStarlightOverrides(lib, starlight.componentOverrides, rootDir);
+              }
+              return lib;
+            });
           }
 
-          // Pass explicit flag so vite-plugin doesn't need to re-derive it
-          (resolvedOptions as Record<string, unknown>).starlightDetected = true;
+          // Pass explicit flag so vite-plugin doesn't need to re-derive it.
+          // Only set when starlightComponents is actually enabled — an explicit
+          // `starlightComponents: false` must suppress Starlight-specific behaviour.
+          if (!isStarlightDisabled(resolvedOptions.starlightComponents)) {
+            (resolvedOptions as Record<string, unknown>).starlightDetected = true;
+          }
+        }
+
+        // Apply Starlight import allowlist whenever starlightComponents is
+        // enabled — whether via auto-detection above or explicit user config.
+        // This must live outside the `if (starlight)` block so that users who
+        // set `starlightComponents: true` without @astrojs/starlight installed
+        // still get the allowlist instead of hitting fallback compilation.
+        if (
+          resolvedOptions.starlightComponents && !isStarlightDisabled(resolvedOptions.starlightComponents) &&
+          (!resolvedOptions.mdx?.allowImports || resolvedOptions.mdx.allowImports.length === 0)
+        ) {
+          resolvedOptions.mdx = {
+            ...resolvedOptions.mdx,
+            allowImports: [...STARLIGHT_DEFAULT_ALLOW_IMPORTS],
+            ignoreCodeFences: true,
+          };
         }
 
         updateConfig({

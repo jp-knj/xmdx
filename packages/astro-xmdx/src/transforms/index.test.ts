@@ -62,7 +62,7 @@ describe('transformExpressiveCode', () => {
       },
     });
     const result = transformExpressiveCode(ctx);
-    expect(result.code).toContain('<Code code={"const x = 1;"} lang="javascript" />');
+    expect(result.code).toContain('<Code code={"const x = 1;"} lang="javascript" __xmdx />');
   });
 
   test('uses custom component name', () => {

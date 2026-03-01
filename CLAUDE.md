@@ -1,122 +1,90 @@
 # CLAUDE.md
 
-Guidance for Claude Code instances working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Development Commands
+## Project Overview
 
-### Root-level (pnpm)
+xmdx is a high-performance streaming Markdown/MDX compiler built with Rust, designed primarily for Astro integration. It compiles MDX files into JSX-compatible Astro modules via a layered architecture: Rust core crates handle parsing/codegen, NAPI bindings expose them to Node.js, and TypeScript packages provide the Astro integration and Vite plugin.
 
-```bash
-pnpm install              # Install all dependencies
-pnpm build                # Build all packages (pnpm -r build)
-pnpm build:napi           # Build NAPI bindings only
-pnpm test                 # Run all tests (pnpm -r test)
-pnpm knip                 # Detect unused code & dependencies
+## Repository Structure
+
+This is a hybrid Rust + TypeScript monorepo managed by pnpm workspaces and Cargo workspaces.
+
+**Rust crates (`crates/`):**
+- `core` — Markdown parsing, frontmatter extraction, MDX compilation, slug generation, directive parsing
+- `astro` — Astro-specific JSX code generation and AST transforms
+- `napi` — Node.js NAPI-RS bindings with batch/parallel compilation (Rayon)
+- `wasm` — WebAssembly build via wasm-bindgen
+
+**TypeScript packages (`packages/`):**
+- `xmdx` — Core JS API; conditional exports route to NAPI (Node.js) or WASM (browser/edge). Includes component registry system.
+- `astro-xmdx` — Astro integration + Vite plugin. Contains the transform pipeline, presets (Starlight, ExpressiveCode), and all integration logic.
+- `astro-loader` — Astro Content Collections loader using xmdx
+
+**Data flow:** MDX file → Vite plugin (load handler) → NAPI binding → Rust core parse/compile → Rust astro codegen → JSX module string → Vite pipeline
+
+## Build & Test Commands
+
+### Full monorepo
+```
+pnpm install
+pnpm build          # Build all packages recursively
+pnpm test           # Run all tests recursively
+pnpm knip           # Detect unused code & dependencies
 ```
 
-### Per-package (TypeScript)
-
-```bash
-# packages/xmdx and packages/astro-xmdx
-pnpm --filter <package> build        # tsc
-pnpm --filter <package> test         # bun test
-pnpm --filter <package> test:watch   # bun test --watch
-pnpm --filter <package> typecheck    # tsc --noEmit
-
-# packages/astro-loader
-pnpm --filter @xmdx/astro-loader build   # tsdown build
-pnpm --filter @xmdx/astro-loader lint    # tsc --noEmit
+### Rust
+```
+cargo fmt --all -- --check    # Format check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --exclude xmdx-napi   # Core + astro crate tests
+cargo test -p xmdx-napi                       # NAPI crate tests (needs NAPI build first)
 ```
 
-### Running a single test file
+Rust snapshot tests use the `insta` crate. Update snapshots with `cargo insta review`.
 
-```bash
-bun test packages/astro-xmdx/src/tests/some-test.test.ts
+### NAPI bindings (`crates/napi/`)
+```
+cd crates/napi && bun install
+bun run build       # napi build --platform --release --esm
+bun test            # JS-side NAPI tests
 ```
 
-### Rust (Cargo)
-
-```bash
-cargo fmt --all -- --check                                  # Check formatting
-cargo clippy --workspace --all-targets -- -D warnings       # Lint
-cargo test --workspace --exclude xmdx-napi                  # Run tests (excluding NAPI)
-cargo test -p xmdx-napi                                     # NAPI-specific tests
+### TypeScript packages
+```
+# In packages/xmdx or packages/astro-xmdx:
+bun test                     # Run tests
+bun test --watch             # Watch mode
+bun test path/to/file.test.ts  # Single test file
+tsc --noEmit                 # Type check only
 ```
 
-## Architecture Overview
+## Architecture Details
 
-Polyglot monorepo: 4 Rust crates + 3 TypeScript packages.
+### Vite Plugin (`packages/astro-xmdx/src/vite-plugin/`)
+The Vite plugin intercepts `.mdx`/`.md` file loads. Key components:
+- `load-handler.ts` — Main Vite load hook
+- `batch-compiler.ts` — Parallel file compilation
+- `binding-loader.ts` — Manages NAPI binding lifecycle
+- `jsx-transform.ts` — JSX AST transforms
+- `jsx-worker-pool.ts` — Worker pool for parallel JSX processing
+- `cache/` — `disk-cache.ts` (build-time caching)
+- `fallback/` — `compile.ts` (@mdx-js/mdx fallback), `directive-rewriter.ts`, `rehype-heading-ids.ts`, `rehype-tasklist.ts`
+- `highlighting/` — `shiki-manager.ts`, `expressive-code-manager.ts`, `shiki-highlighter.ts`
+- `mdx-wrapper/` — `component-detection.ts`, `component-imports.ts`, `heading-id-injector.ts`, `export-normalizer.ts`
 
-### Rust Crates (`crates/`)
+### Transform Pipeline (`packages/astro-xmdx/src/pipeline/`)
+Orchestrated chain of transforms with hooks: `preprocess` → `afterParse` → `beforeInject` → `beforeOutput`. Transforms include `blocks-to-jsx`, `inject-components`, `shiki`, and `expressive-code`.
 
-| Crate | Purpose |
-|-------|---------|
-| `xmdx-core` | Parsing (MDAST), frontmatter extraction, slug generation, directive rewriting, MDX compilation via mdxjs-rs |
-| `xmdx-astro` | Astro-specific rendering: MDAST to RenderBlock IR, code generation to JSX |
-| `xmdx-napi` | Node.js bindings via NAPI-RS. Exports `compile()`, `compileMdx()`, `parseBlocks()`, batch variants. Uses Rayon for parallelism |
-| `xmdx-wasm` | WebAssembly build via wasm-bindgen for browser/edge runtimes |
+### Presets (`packages/astro-xmdx/src/presets/`)
+Preconfigured transform sets for Astro, Starlight, and ExpressiveCode. Starlight projects are auto-detected.
 
-### TypeScript Packages (`packages/`)
-
-| Package | Purpose |
-|---------|---------|
-| `xmdx` | Core JS library with Node (NAPI) and browser (WASM) entry points. Houses the component registry and preset definitions |
-| `astro-xmdx` | Astro integration: Vite plugin, transform pipeline, Starlight auto-detection, presets |
-| `astro-loader` | Astro Content Collections loader for MDX files |
-
-### Data Flow
-
-```
-.mdx file
-  -> Vite plugin load hook (astro-xmdx)
-  -> Preprocess hooks
-  -> Compilation (Rust native OR @mdx-js/mdx fallback)
-  -> Transform pipeline (ExpressiveCode, component injection, Shiki)
-  -> esbuild JSX transform
-  -> Astro-compatible module (default export + frontmatter + headings)
-```
-
-## Key Concepts
-
-### Dual Compilation Paths
-
-The Vite plugin tries the fast Rust compiler first. If it detects problematic patterns (imports not in `allowImports`, unsupported JSX), it falls back to `@mdx-js/mdx`. The same transform pipeline runs on both paths' output.
-
-- **Rust path:** `xmdx-core::parse_mdast()` -> `xmdx-astro::render` -> RenderBlock IR -> JSX codegen
-- **Fallback path:** `@mdx-js/mdx` with remark-gfm + rehype plugins -> JSX
-
-Key files: `packages/astro-xmdx/src/vite-plugin/load-handler.ts`, `packages/astro-xmdx/src/vite-plugin/jsx-module.ts`
-
-### Registry & Preset System
-
-The registry (`packages/xmdx/src/registry/`) maps component names to their module paths and handles directive-to-component mappings (e.g., `:::note` -> `<Aside>`). Presets bundle registry configurations:
-
-- `starlightPreset()` — Starlight + Astro + ExpressiveCode libraries, safe import patterns
-- `expressiveCodePreset()` — Astro + ExpressiveCode libraries
-- `astroPreset()` — Minimal Astro-only library
-
-Presets compose via `mergePresets()`.
-
-### Starlight Auto-Detection
-
-When `@astrojs/starlight` is found in the Astro config's integrations, `astro-xmdx` automatically enables Starlight components, ExpressiveCode, safe import allowlists, and applies any user-defined component overrides. No manual preset configuration required.
-
-Key file: `packages/astro-xmdx/src/utils/starlight-detection.ts`
-
-### Transform Pipeline
-
-Sequential functional composition (`packages/astro-xmdx/src/pipeline/`):
-
-1. `afterParse` user hooks
-2. `transformExpressiveCode` — rewrites code blocks to EC components
-3. `beforeInject` user hooks
-4. `transformInjectComponentsFromRegistry` — scans JSX for used components, injects missing imports
-5. `transformShikiHighlight` — syntax highlighting (skipped when EC is active)
-6. `beforeOutput` user hooks
+### Component Registry (`packages/xmdx/src/registry/`)
+Maps MDX component names to implementations with schema validation. Ships with built-in Astro and Starlight presets.
 
 ## CI Checks
 
-CI runs on push/PR to main (`.github/workflows/ci.yml`):
+CI runs on push/PR to main and next (`.github/workflows/ci.yml`):
 
 ### Rust (`rust` job)
 1. **Formatting** — `cargo fmt --all -- --check`
@@ -128,10 +96,27 @@ CI runs on push/PR to main (`.github/workflows/ci.yml`):
 5. **Rust tests** — `cargo test -p xmdx-napi`
 6. **JS tests** — `bun test` in `crates/napi`
 
+### WASM (`test-wasm` job)
+7. **Build** — `cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release`
+8. **JS glue** — `wasm-bindgen` generates JS bindings
+9. **Tests** — WASM + edge parity tests via `bun test` in `packages/xmdx`
+
 ### TypeScript (`typescript` job, depends on `napi`)
-7. **Build** — `pnpm build` (all packages)
-8. **Typecheck** — `tsc --noEmit` per package
-9. **Tests** — `pnpm test` (`bun test` per package)
+10. **Build** — `pnpm build` (all packages)
+11. **Typecheck** — `tsc --noEmit` per package
+12. **Tests** — `pnpm test` (`bun test` per package)
 
 ### Unused code (`knip` job)
-10. **Knip** — `pnpm knip` (config in `knip.json`)
+13. **Knip** — `pnpm knip` (config in `knip.json`)
+
+Additional workflows:
+- **`napi-build.yml`** — Cross-platform NAPI builds and tests. Includes E2E Starlight build job.
+- **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
+
+## Key Conventions
+
+- Do not add `Co-Authored-By` lines to commit messages
+- Rust edition 2024, TypeScript strict mode with ES2022 target and NodeNext module resolution
+- Test files are co-located with source as `*.test.ts` (TypeScript) or inline `#[cfg(test)]` modules (Rust)
+- Package exports use TypeScript source files directly (no pre-compilation step for development)
+- The `xmdx` package uses conditional exports: `node` condition → NAPI, `browser`/`edge-light`/`workerd` → WASM

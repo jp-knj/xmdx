@@ -18,6 +18,8 @@ pub struct ParseOptions {
     pub code_indented: bool,
     /// Allow raw HTML nodes in the AST.
     pub raw_html: bool,
+    /// Enable math constructs ($inline$ and $$block$$).
+    pub math: bool,
 }
 
 impl ParseOptions {
@@ -29,6 +31,7 @@ impl ParseOptions {
             frontmatter: true,
             code_indented: true,
             raw_html: false,
+            math: false,
         }
     }
 
@@ -40,6 +43,7 @@ impl ParseOptions {
             frontmatter: true,
             code_indented: false,
             raw_html: false,
+            math: false,
         }
     }
 
@@ -55,6 +59,8 @@ impl ParseOptions {
 
         if self.gfm {
             constructs.gfm_autolink_literal = true;
+            constructs.gfm_footnote_definition = true;
+            constructs.gfm_label_start_footnote = true;
             constructs.gfm_strikethrough = true;
             constructs.gfm_table = true;
             constructs.gfm_task_list_item = true;
@@ -68,8 +74,14 @@ impl ParseOptions {
             constructs.mdx_jsx_text = true;
         }
 
+        if self.math {
+            constructs.math_flow = true;
+            constructs.math_text = true;
+        }
+
         markdown::ParseOptions {
             constructs,
+            math_text_single_dollar: self.math,
             ..markdown::ParseOptions::default()
         }
     }
@@ -171,7 +183,10 @@ pub fn parse_mdast_with_options(
     })
 }
 
-fn message_location(message: &Message) -> SourceLocation {
+/// Extracts a [`SourceLocation`] from a markdown-rs [`Message`].
+///
+/// Falls back to `(1, 1)` when the message carries no position information.
+pub fn message_location(message: &Message) -> SourceLocation {
     match &message.place {
         Some(place) => match place.as_ref() {
             Place::Point(point) => SourceLocation::new(point.line, point.column),

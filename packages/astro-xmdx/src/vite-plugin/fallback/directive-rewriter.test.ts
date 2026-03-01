@@ -130,6 +130,48 @@ Real note.
     });
   });
 
+  describe('hyphenated directive names', () => {
+    test('accepts hyphenated directive name from registry', () => {
+      const hyphenRegistry = createRegistry([{
+        ...starlightLibrary,
+        directiveMappings: [
+          { directive: 'custom-box', component: 'CustomBox', injectProps: {} },
+        ],
+      }]);
+      const source = `:::custom-box
+Content inside custom box.
+:::`;
+      const result = rewriteFallbackDirectives(source, hyphenRegistry, false);
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain('<CustomBox');
+      expect(result.code).toContain('</CustomBox>');
+      expect(result.usedComponents.has('CustomBox')).toBe(true);
+    });
+
+    test('accepts hyphenated directive name with bracket title', () => {
+      const hyphenRegistry = createRegistry([{
+        ...starlightLibrary,
+        directiveMappings: [
+          { directive: 'custom-box', component: 'CustomBox', injectProps: {} },
+        ],
+      }]);
+      const source = `:::custom-box[My Title]
+Content here.
+:::`;
+      const result = rewriteFallbackDirectives(source, hyphenRegistry, false);
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain('title="My Title"');
+    });
+
+    test('rejects directive name starting with a digit', () => {
+      const source = `:::123bad
+Content.
+:::`;
+      const result = rewriteFallbackDirectives(source, null, true);
+      expect(result.changed).toBe(false);
+    });
+  });
+
   describe('registry integration', () => {
     test('uses registry directive mappings when available', () => {
       const source = `:::note
@@ -292,6 +334,45 @@ describe('injectFallbackImports', () => {
     const reactIndex = lines.findIndex((l) => l.includes('React'));
     const asideIndex = lines.findIndex((l) => l.includes('Aside'));
     expect(asideIndex).toBeGreaterThan(reactIndex);
+  });
+
+  test('default export with full file path gets /@fs/ prefix and no appended name', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Aside', modulePath: '/Users/site/src/CustomAside.astro', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Aside type="note">Content</Aside>`;
+    const usedComponents = new Set(['Aside']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Aside from '/@fs//Users/site/src/CustomAside.astro';");
+  });
+
+  test('default export without extension appends name.astro', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Aside', modulePath: '@my/components', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Aside type="note">Content</Aside>`;
+    const usedComponents = new Set(['Aside']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Aside from '@my/components/Aside.astro';");
+  });
+
+  test('default export with Windows backslash path gets /@fs/ prefix', () => {
+    const overrideRegistry = createRegistry([{
+      ...starlightLibrary,
+      components: [
+        { name: 'Widget', modulePath: 'C:\\Users\\foo\\src\\Widget.astro', exportType: 'default' },
+      ],
+    }]);
+    const source = `# Content\n\n<Widget>Content</Widget>`;
+    const usedComponents = new Set(['Widget']);
+    const result = injectFallbackImports(source, usedComponents, overrideRegistry, false);
+    expect(result).toContain("import Widget from '/@fs/C:/Users/foo/src/Widget.astro';");
   });
 
   test('handles multiple used components', () => {

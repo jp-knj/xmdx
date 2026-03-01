@@ -66,16 +66,16 @@ describe('loadXmdxBinding', () => {
   });
 
   test('loads binding from @xmdx/napi', async () => {
-    const fakeBinding = { compileBatch: mock(() => ({})) };
+    const fakeBinding = { createCompiler: mock(() => ({})) };
     mock.module('@xmdx/napi', () => fakeBinding);
 
     const binding = await loadXmdxBinding();
     expect(typeof binding).toBe('object');
-    expect('compileBatch' in binding).toBe(true);
+    expect('createCompiler' in binding).toBe(true);
   });
 
   test('caches the loaded binding promise', async () => {
-    const fakeBinding = { compileBatch: mock(() => ({})) };
+    const fakeBinding = { createCompiler: mock(() => ({})) };
     mock.module('@xmdx/napi', () => fakeBinding);
 
     const a = await loadXmdxBinding();

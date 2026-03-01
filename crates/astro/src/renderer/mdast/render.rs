@@ -3,7 +3,7 @@
 use super::context::Context;
 use super::types::{HeadingEntry, PropValue, RenderBlock, Scope};
 use markdown::mdast::Node;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use xmdx_core::slug::extract_custom_id;
 
 /// Extracts plain text from a list of AST nodes (for heading text).
@@ -83,11 +83,28 @@ fn render_list_item(item: &markdown::mdast::ListItem, ctx: &mut Context) {
             checked_str
         ));
 
+        // Partition children: inline/phrasing content (up through the first
+        // Paragraph) goes inside <label><span>, block children (nested List,
+        // Blockquote, etc.) are rendered after </label> as siblings inside <li>.
+        let mut found_paragraph = false;
+        let mut block_children = Vec::new();
         for child in &item.children {
-            render_node(child, ctx);
+            if found_paragraph {
+                block_children.push(child);
+            } else {
+                render_node(child, ctx);
+                if matches!(child, Node::Paragraph(_)) {
+                    found_paragraph = true;
+                }
+            }
         }
 
         ctx.push_raw("</span></label>");
+
+        // Render block children (nested lists, etc.) after </label>
+        for child in block_children {
+            render_node(child, ctx);
+        }
     } else {
         for child in &item.children {
             render_node(child, ctx);
@@ -185,7 +202,7 @@ fn render_jsx(
 
         let slot_children = ctx.render_children_to_blocks(children);
 
-        let mut props = HashMap::new();
+        let mut props = BTreeMap::new();
         props.insert("type".to_string(), PropValue::literal(directive_type));
         if let Some(t) = title {
             props.insert("title".to_string(), PropValue::literal(t));
@@ -200,7 +217,7 @@ fn render_jsx(
     }
 
     // 3. Extract props from JSX attributes
-    let mut props = HashMap::new();
+    let mut props = BTreeMap::new();
     for attr in attributes {
         match attr {
             markdown::mdast::AttributeContent::Property(prop) => {
@@ -333,6 +350,15 @@ fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
     let tag = format!("h{}", heading.depth);
     ctx.push_raw(&format!("<{} id=\"{}\">", tag, slug));
 
+    // Wrap heading content in an anchor if autolinks are enabled.
+    // Skip when heading already contains a link to avoid invalid nested <a> elements.
+    let autolink = ctx.heading_autolinks_enabled() && !children_contain_link(&heading.children);
+    if autolink {
+        ctx.push_raw("<a href=\"#");
+        ctx.push_raw(&slug);
+        ctx.push_raw("\">");
+    }
+
     // Render children, stripping {#id} from the last Text node if present
     if custom_id.is_some() {
         render_heading_children(&heading.children, ctx);
@@ -342,7 +368,61 @@ fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
         }
     }
 
+    if autolink {
+        ctx.push_raw("</a>");
+    }
+
     ctx.push_raw(&format!("</{}>", tag));
+}
+
+/// Returns true if any node in the tree is a Link (anchor).
+/// Used to prevent wrapping heading children in `<a>` when they already contain links,
+/// which would produce invalid nested `<a>` elements.
+fn children_contain_link(children: &[Node]) -> bool {
+    for child in children {
+        match child {
+            Node::Link(_) | Node::FootnoteReference(_) => return true,
+            Node::MdxJsxFlowElement(elem) if elem.name.as_deref() == Some("a") => {
+                return true;
+            }
+            Node::MdxJsxTextElement(elem) if elem.name.as_deref() == Some("a") => {
+                return true;
+            }
+            Node::Html(html) => {
+                let lower = html.value.to_ascii_lowercase();
+                if lower.contains("<a ") || lower.contains("<a>") {
+                    return true;
+                }
+            }
+            Node::MdxJsxFlowElement(elem) => {
+                if children_contain_link(&elem.children) {
+                    return true;
+                }
+            }
+            Node::MdxJsxTextElement(elem) => {
+                if children_contain_link(&elem.children) {
+                    return true;
+                }
+            }
+            Node::Strong(n) => {
+                if children_contain_link(&n.children) {
+                    return true;
+                }
+            }
+            Node::Emphasis(n) => {
+                if children_contain_link(&n.children) {
+                    return true;
+                }
+            }
+            Node::Delete(n) => {
+                if children_contain_link(&n.children) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Renders heading children, stripping the trailing `{#...}` from the deepest last Text descendant.
@@ -491,6 +571,43 @@ fn render_blockquote(quote: &markdown::mdast::Blockquote, ctx: &mut Context) {
     ctx.push_raw("</blockquote>");
 }
 
+/// Renders a footnote reference as a superscript link `<sup><a href="#fn-id">[n]</a></sup>`.
+///
+/// The footnote index is determined by the order references appear in the document.
+/// References link to the corresponding footnote definition.
+/// Repeated references to the same footnote get suffixed IDs (fnref-id, fnref-id-2, fnref-id-3).
+fn render_footnote_reference(fnref: &markdown::mdast::FootnoteReference, ctx: &mut Context) {
+    let id = &fnref.identifier;
+    let safe_id = ctx.get_safe_footnote_id(id);
+    let ordinal = ctx.get_or_assign_footnote_ordinal(id);
+    let ref_count = ctx.next_footnote_ref_count(id);
+    let id_suffix = if ref_count == 1 {
+        String::new()
+    } else {
+        format!("-{}", ref_count)
+    };
+
+    ctx.push_raw("<sup><a href=\"#user-content-fn-");
+    ctx.push_raw(&safe_id);
+    ctx.push_raw("\" id=\"user-content-fnref-");
+    ctx.push_raw(&safe_id);
+    ctx.push_raw(&id_suffix);
+    ctx.push_raw("\" data-footnote-ref aria-describedby=\"footnote-label\">");
+    ctx.push_raw(&ordinal.to_string());
+    ctx.push_raw("</a></sup>");
+}
+
+/// Renders a footnote definition, deferring the `<li>` wrapper and backref links to `finish()`.
+///
+/// Only the children content is rendered here. The `<li>` element and backref
+/// links are built at `finish()` time when total reference counts are known,
+/// allowing correct backref anchors for repeated footnote references.
+fn render_footnote_definition(fndef: &markdown::mdast::FootnoteDefinition, ctx: &mut Context) {
+    let id = &fndef.identifier;
+    let children_html = ctx.render_children_to_html(&fndef.children);
+    ctx.push_footnote(id.to_string(), children_html);
+}
+
 /// Recursively renders an AST node to HTML, updating the context state.
 pub fn render_node(node: &Node, ctx: &mut Context) {
     match node {
@@ -544,6 +661,18 @@ pub fn render_node(node: &Node, ctx: &mut Context) {
         }
         Node::MdxJsxTextElement(elem) => {
             render_jsx(elem.name.as_deref(), &elem.attributes, &elem.children, ctx);
+        }
+        Node::FootnoteReference(fnref) => render_footnote_reference(fnref, ctx),
+        Node::FootnoteDefinition(fndef) => render_footnote_definition(fndef, ctx),
+        Node::Math(math) => {
+            let mut props = BTreeMap::new();
+            props.insert("expr".to_string(), PropValue::literal(&math.value));
+            ctx.push_component("MathBlock", props, Vec::new());
+        }
+        Node::InlineMath(math) => {
+            let mut props = BTreeMap::new();
+            props.insert("expr".to_string(), PropValue::literal(&math.value));
+            ctx.push_component("MathInline", props, Vec::new());
         }
         _ => {
             log::warn!("Unhandled markdown node type: {:?}", node);

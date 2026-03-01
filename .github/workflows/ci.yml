@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
-    branches: [main]
+    branches: [main, next]
   workflow_dispatch:
 
 permissions:
@@ -66,6 +66,53 @@ jobs:
 
       - name: Run JS tests
         working-directory: crates/napi
+        run: bun test
+
+  test-wasm:
+    name: Test WASM Bindings
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli@0.2.108
+
+      - name: Build WASM
+        run: cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release
+
+      - name: Generate JS glue
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/xmdx_wasm.wasm --out-dir packages/xmdx/wasm --target web
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build NAPI (for parity tests)
+        working-directory: crates/napi
+        run: bun run build
+
+      - name: Run WASM + edge tests
+        working-directory: packages/xmdx
         run: bun test
 
   typescript:

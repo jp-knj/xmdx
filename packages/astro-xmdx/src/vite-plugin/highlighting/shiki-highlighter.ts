@@ -5,11 +5,11 @@
 
 import { createHash } from 'node:crypto';
 import { createHighlighter, createCssVariablesTheme } from 'shiki';
-import { SHIKI_THEME } from '../constants.js';
-import type { ShikiHighlighter } from '../transforms/shiki.js';
+import { SHIKI_THEME } from '../../constants.js';
+import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 // Re-export for convenience
-export type { ShikiHighlighter } from '../transforms/shiki.js';
+export type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 /**
  * Creates a fast hash for cache keys.

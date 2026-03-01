@@ -87,8 +87,20 @@ pub struct DirectiveOpening {
 }
 
 impl DirectiveOpening {
+    /// Convert to opening JSX tag, defaulting to `<Aside>`.
     pub(crate) fn to_aside_start(&self) -> String {
-        let mut tag = String::from("<Aside data-mf-source=\"directive\"");
+        self.to_component_start(None)
+    }
+
+    /// Convert to opening JSX tag using registry for component name lookup.
+    ///
+    /// When `registry` is `Some`, looks up the component name for this directive.
+    /// Falls back to `"Aside"` if no mapping is found or no registry is provided.
+    pub(crate) fn to_component_start(&self, registry: Option<&RegistryConfig>) -> String {
+        let component_name = registry
+            .and_then(|r| r.get_directive_component(&self.name))
+            .unwrap_or("Aside");
+        let mut tag = format!("<{} data-mf-source=\"directive\"", component_name);
 
         // type attribute is always injected/overwritten.
         write!(tag, " type=\"{}\"", self.name).ok();
@@ -101,19 +113,39 @@ impl DirectiveOpening {
 
         // Title resolution: bracket > attribute (attributes already stripped of title when bracket present).
         if let Some(title) = self.bracket_title.as_ref() {
-            write!(tag, " title=\"{}\"", title).ok();
+            write!(tag, " title=\"{}\"", title.replace('"', "&quot;")).ok();
         }
 
         tag.push('>');
         tag
     }
 
+    /// Convert to closing JSX tag, defaulting to `</Aside>`.
     pub(crate) fn to_aside_end(&self) -> String {
-        "</Aside>".to_string()
+        self.to_component_end(None)
+    }
+
+    /// Convert to closing JSX tag using registry for component name lookup.
+    pub(crate) fn to_component_end(&self, registry: Option<&RegistryConfig>) -> String {
+        let component_name = registry
+            .and_then(|r| r.get_directive_component(&self.name))
+            .unwrap_or("Aside");
+        format!("</{}>", component_name)
     }
 }
 
 pub(crate) fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
+    parse_opening_directive_with(line, None)
+}
+
+/// Parse an opening directive line, optionally using a custom set of supported names.
+///
+/// When `custom_names` is `None`, the default built-in set is used.
+/// When `Some(names)` is provided, only those directive names are recognized.
+pub(crate) fn parse_opening_directive_with(
+    line: &str,
+    custom_names: Option<&[&str]>,
+) -> Option<DirectiveOpening> {
     let trimmed = line.trim();
     if !trimmed.starts_with(":::") {
         return None;
@@ -123,10 +155,10 @@ pub(crate) fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
     let after_colons = &trimmed[3..];
     let mut chars = after_colons.chars().peekable();
 
-    // Read directive name (alphabetic)
+    // Read directive name (alphabetic + hyphen for user-defined directives)
     let mut name = String::new();
     while let Some(&ch) = chars.peek() {
-        if ch.is_ascii_alphabetic() {
+        if ch.is_ascii_alphabetic() || ch == '-' {
             name.push(ch.to_ascii_lowercase());
             chars.next();
         } else {
@@ -134,7 +166,10 @@ pub(crate) fn parse_opening_directive(line: &str) -> Option<DirectiveOpening> {
         }
     }
 
-    if name.is_empty() || !is_supported_name(&name) {
+    // Strip leading/trailing hyphens from directive name
+    let name = name.trim_matches('-').to_string();
+
+    if name.is_empty() || !is_supported_name_with(&name, custom_names) {
         return None;
     }
 
@@ -251,11 +286,20 @@ pub(crate) fn is_directive_closer(line: &str) -> bool {
     line.trim() == ":::"
 }
 
+/// Default built-in directive names recognized when no custom list is provided.
+pub const DEFAULT_DIRECTIVE_NAMES: &[&str] =
+    &["note", "tip", "info", "caution", "warning", "danger"];
+
 fn is_supported_name(name: &str) -> bool {
-    matches!(
-        name,
-        "note" | "tip" | "info" | "caution" | "warning" | "danger"
-    )
+    DEFAULT_DIRECTIVE_NAMES.contains(&name)
+}
+
+/// Check if a directive name is supported, using a custom set of names if provided.
+fn is_supported_name_with(name: &str, custom_names: Option<&[&str]>) -> bool {
+    match custom_names {
+        Some(names) => names.contains(&name),
+        None => is_supported_name(name),
+    }
 }
 
 /// Legacy string-based directive rewrite used internally by the streaming adapter for block-local transforms.

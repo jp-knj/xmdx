@@ -7,99 +7,46 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
-import { DiskCache } from './vite-plugin/disk-cache.js';
+import { DiskCache } from './vite-plugin/cache/disk-cache.js';
 import {
-  createRegistry,
   starlightLibrary,
-  astroLibrary,
-  type ComponentLibrary,
-  type Registry,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
 import { resolveExpressiveCodeConfig } from './utils/config.js';
-import { ExpressiveCodeManager } from './vite-plugin/expressive-code-manager.js';
+import { ExpressiveCodeManager } from './vite-plugin/highlighting/expressive-code-manager.js';
+import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
+import type { TransformContext } from './pipeline/types.js';
 import { detectProblematicMdxPatterns } from './utils/mdx-detection.js';
 import { stripQuery, shouldCompile } from './utils/paths.js';
 import {
   VIRTUAL_MODULE_PREFIX,
   OUTPUT_EXTENSION,
   STARLIGHT_LAYER_ORDER,
+  EC_STYLES_MODULE_ID,
+  EC_STYLES_VIRTUAL_ID,
 } from './constants.js';
-import type { XmdxPlugin, PluginHooks, TransformContext } from './types.js';
-
 // Import from extracted vite-plugin modules
 import type {
   XmdxBinding,
   XmdxCompiler,
   XmdxPluginOptions,
 } from './vite-plugin/types.js';
+import { resolveLibraries } from './vite-plugin/resolve-libraries.js';
+import { collectHooks } from './vite-plugin/collect-hooks.js';
 import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
-import { ShikiManager } from './vite-plugin/shiki-manager.js';
+import { ShikiManager } from './vite-plugin/highlighting/shiki-manager.js';
 import { createLoadProfiler } from './vite-plugin/load-profiler.js';
 import type {
   CachedMdxResult,
   CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
-} from './vite-plugin/cache-types.js';
+} from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
 
-/**
- * Resolves library configuration from options.
- * Supports both new `libraries` API and legacy `starlightComponents` option.
- */
-export function resolveLibraries(options: XmdxPluginOptions): {
-  libraries: ComponentLibrary[];
-  registry: Registry;
-} {
-  // New API: explicit libraries array
-  if (Array.isArray(options.libraries)) {
-    const registry = createRegistry(options.libraries);
-    return { libraries: options.libraries, registry };
-  }
-
-  // Legacy API: derive libraries from starlightComponents option
-  const libraries: ComponentLibrary[] = [astroLibrary];
-
-  // Add Starlight library when starlightComponents is set OR expressiveCode is enabled.
-  // ExpressiveCode in Starlight projects uses @astrojs/starlight/components for Code.
-  if (options.starlightComponents || options.expressiveCode) {
-    libraries.push(starlightLibrary);
-  }
-
-  const registry = createRegistry(libraries);
-  return { libraries, registry };
-}
-
-/**
- * Collects hooks from an array of plugins, organizing them by hook type.
- */
-function collectHooks(plugins: XmdxPlugin[]): PluginHooks {
-  const hooks: PluginHooks = {
-    afterParse: [],
-    beforeInject: [],
-    beforeOutput: [],
-    preprocess: [],
-  };
-
-  // Sort plugins: 'pre' first, then undefined, then 'post'
-  const sorted = [...plugins].sort((a, b) => {
-    const order: Record<string, number> = { pre: 0, undefined: 1, post: 2 };
-    const aOrder = order[a.enforce ?? 'undefined'] ?? 1;
-    const bOrder = order[b.enforce ?? 'undefined'] ?? 1;
-    return aOrder - bOrder;
-  });
-
-  for (const plugin of sorted) {
-    if (plugin.afterParse) hooks.afterParse.push(plugin.afterParse);
-    if (plugin.beforeInject) hooks.beforeInject.push(plugin.beforeInject);
-    if (plugin.beforeOutput) hooks.beforeOutput.push(plugin.beforeOutput);
-    if (plugin.preprocess) hooks.preprocess.push(plugin.preprocess);
-  }
-
-  return hooks;
-}
+// Preserve public API — resolveLibraries was exported from this module
+export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
 
 /**
  * Creates the Xmdx Vite plugin that intercepts `.md`/`.mdx` files
@@ -171,13 +118,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const plugins = userOptions.plugins ?? [];
   const hooks = collectHooks(plugins);
 
-  // Create pipeline once (shared across buildStart and load hooks)
-  const transformPipeline = createPipeline({
-    afterParse: hooks.afterParse,
-    beforeInject: hooks.beforeInject,
-    beforeOutput: hooks.beforeOutput,
-  });
-
   const include = userOptions.include ?? shouldCompile;
   const starlightComponents = userOptions.starlightComponents ?? false;
 
@@ -201,7 +141,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         userOptions.compiler?.jsx?.code_sample_components ?? ['Code', 'Prism'],
     },
     // Enable code block rewriting so Rust outputs <Code> components
-    // Starlight's EC integration processes these at runtime
+    // xmdx pre-renders them at build time via ExpressiveCode
     rewriteCodeBlocks: !!expressiveCode,
   };
 
@@ -227,10 +167,32 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const shikiManager = new ShikiManager(ENABLE_SHIKI || !expressiveCode);
 
   // ExpressiveCode pre-rendering manager for build-time code highlighting.
-  // When Starlight is configured, its EC integration handles rendering --
-  // skip our own engine to avoid double-processing and theme mismatches.
-  const starlightHandlesEC = hasStarlightConfigured;
-  const ecManager = new ExpressiveCodeManager(expressiveCode, starlightHandlesEC);
+  // xmdx always pre-renders code blocks — Starlight's runtime <Code> component
+  // is bypassed since xmdx replaces @astrojs/mdx and its rehype plugins.
+  const ecManager = new ExpressiveCodeManager(expressiveCode);
+
+  // EC pre-render hook: runs after transformExpressiveCode rewrites <pre><code> → <Code>,
+  // converting <Code> components to pre-rendered <_Fragment set:html={...} />.
+  const ecPreRenderHook = expressiveCode
+    ? async (ctx: TransformContext): Promise<TransformContext> => {
+        const result = await renderExpressiveCodeBlocks(ctx.code, ecManager, expressiveCode.component);
+        if (!result.changed) return ctx;
+        let code = stripExpressiveCodeImport(result.code, expressiveCode);
+        if (!code.includes(EC_STYLES_MODULE_ID)) {
+          code = `import '${EC_STYLES_MODULE_ID}';\n${code}`;
+        }
+        return { ...ctx, code };
+      }
+    : null;
+
+  // Create pipeline once (shared across buildStart and load hooks)
+  const transformPipeline = createPipeline({
+    afterParse: hooks.afterParse,
+    beforeInject: ecPreRenderHook
+      ? [ecPreRenderHook, ...hooks.beforeInject]
+      : hooks.beforeInject,
+    beforeOutput: hooks.beforeOutput,
+  });
 
   // Lazy compiler initialization to avoid Vite module runner timing issues
   const getCompiler = async (): Promise<XmdxCompiler> => {
@@ -251,7 +213,20 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     configResolved(config) {
       resolvedConfig = config;
       loadProfiler?.setRoot(config.root);
-      if (config.esbuild == null) {
+
+      // Vite 8+: use oxc config; Vite 7 and below: use esbuild config
+      const configAny = config as Record<string, unknown>;
+      if ('oxc' in configAny && configAny.oxc !== false) {
+        // Vite 8+ with OXC support
+        const oxcConfig = (configAny.oxc ?? {}) as Record<string, unknown>;
+        if (oxcConfig.jsx == null) {
+          oxcConfig.jsx = {
+            runtime: 'automatic',
+            importSource: 'astro',
+          };
+        }
+        configAny.oxc = oxcConfig;
+      } else if (config.esbuild == null) {
         (config as { esbuild: object }).esbuild = {
           jsx: 'automatic',
           jsxImportSource: 'astro',
@@ -330,6 +305,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     },
 
     async resolveId(sourceId, importer) {
+      if (sourceId === EC_STYLES_MODULE_ID) return EC_STYLES_VIRTUAL_ID;
       if (sourceId.startsWith(VIRTUAL_MODULE_PREFIX)) {
         return sourceId;
       }
@@ -394,6 +370,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     },
 
     async load(id) {
+      if (id === EC_STYLES_VIRTUAL_ID) {
+        return ecManager.getStyles() || '/* no ec styles */';
+      }
       return handleLoad(id, {
         sourceLookup,
         fallbackFiles,
