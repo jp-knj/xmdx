@@ -51,6 +51,9 @@ importers:
         specifier: 16.0.0
         version: 16.0.0
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
       tsdown:
         specifier: 0.15.0
         version: 0.15.0(oxc-resolver@11.19.1)(typescript@5.7.2)

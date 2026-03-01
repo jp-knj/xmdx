@@ -31,10 +31,11 @@
     "astro": "5.16.4"
   },
   "dependencies": {
-    "globby": "16.0.0",
-    "@xmdx/napi": "workspace:*"
+    "@xmdx/napi": "workspace:*",
+    "globby": "16.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsdown": "0.15.0",
     "typescript": "5.7.2"
   }
