@@ -28,7 +28,7 @@ markdown = "1.0.0"
 napi = { version = "3", default-features = false, features = ["napi4", "serde-json"] }
 napi-derive = "3"
 napi-build = "2"
-wasm-bindgen = "0.2.105"
+wasm-bindgen = "=0.2.108"
 wasm-bindgen-test = "0.3"
 js-sys = "0.3"
 insta = { version = "1.39.0", features = ["yaml"] }

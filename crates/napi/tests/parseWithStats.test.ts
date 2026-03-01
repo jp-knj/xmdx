@@ -1,26 +1,27 @@
 import { test, expect } from 'bun:test';
-import { compileIr, compileBatch } from '../index.js';
+import { createCompiler } from '../index.js';
 
-test('compileIr() returns an object with html and headings', () => {
+const compiler = createCompiler({});
+
+test('compile() returns an object with code and headings', () => {
   const input = '# Test Heading';
-  const result = compileIr(input, '/virtual.md');
+  const result = compiler.compile(input, '/virtual.md', {});
 
   expect(typeof result).toBe('object');
-  expect('html' in result).toBe(true);
+  expect('code' in result).toBe(true);
   expect('headings' in result).toBe(true);
 });
 
-test('compileIr() html contains correct output', () => {
+test('compile() code contains correct output', () => {
   const input = '# Test Heading';
-  const result = compileIr(input, '/virtual.md');
+  const result = compiler.compile(input, '/virtual.md', {});
 
-  expect(result.html.includes('<h1')).toBe(true);
-  expect(result.html.includes('Test Heading')).toBe(true);
+  expect(result.code.includes('Test Heading')).toBe(true);
 });
 
-test('compileIr() headings contains heading metadata', () => {
+test('compile() headings contains heading metadata', () => {
   const input = '# Test\n\n## Subheading';
-  const result = compileIr(input, '/virtual.md');
+  const result = compiler.compile(input, '/virtual.md', {});
 
   expect(Array.isArray(result.headings)).toBe(true);
   expect(result.headings.length).toBe(2);
@@ -30,32 +31,25 @@ test('compileIr() headings contains heading metadata', () => {
   expect(result.headings[1].text).toBe('Subheading');
 });
 
-test('compileIr() includes filePath in result', () => {
-  const input = '# Test';
-  const result = compileIr(input, '/path/to/file.md');
-
-  expect(result.filePath).toBe('/path/to/file.md');
-});
-
-test('compileIr() handles images', () => {
+test('compile() handles images', () => {
   const input = '![alt](image.png)';
-  const result = compileIr(input, '/virtual.md');
+  const result = compiler.compile(input, '/virtual.md', {});
 
-  expect(result.html.includes('img')).toBe(true);
-  expect(result.html.includes('image.png')).toBe(true);
+  expect(result.code.includes('img')).toBe(true);
+  expect(result.code.includes('image.png')).toBe(true);
 });
 
-test('compileIr() works with large input', () => {
+test('compile() works with large input', () => {
   const input = '# Heading\n\n' + 'Lorem ipsum dolor sit amet. '.repeat(100);
-  const result = compileIr(input, '/virtual.md');
+  const result = compiler.compile(input, '/virtual.md', {});
 
-  expect(result.html.length > input.length).toBe(true);
+  expect(result.code.length > input.length).toBe(true);
 });
 
-test('compileIr() works with empty input', () => {
-  const result = compileIr('', '/virtual.md');
+test('compile() works with empty input', () => {
+  const result = compiler.compile('', '/virtual.md', {});
 
-  expect(typeof result.html).toBe('string');
+  expect(typeof result.code).toBe('string');
 });
 
 test('compileBatch() returns processing stats with timing', () => {
@@ -63,7 +57,7 @@ test('compileBatch() returns processing stats with timing', () => {
     { id: 'file1.md', source: '# Hello' },
     { id: 'file2.md', source: '# World' },
   ];
-  const batchResult = compileBatch(inputs);
+  const batchResult = compiler.compileBatch(inputs, { continueOnError: true });
 
   expect(typeof batchResult.stats).toBe('object');
   expect(typeof batchResult.stats.processingTimeMs).toBe('number');

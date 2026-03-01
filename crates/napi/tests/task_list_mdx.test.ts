@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { createCompiler, compileBatchToModule } from '../index.js';
+import { createCompiler } from '../index.js';
 
 test('createCompiler().compile() renders MDX task lists as checklist HTML', () => {
   const compiler = createCompiler();
@@ -18,15 +18,16 @@ test('createCompiler().compile() renders MDX task lists as checklist HTML', () =
 });
 
 test('compileBatchToModule() uses same checklist output for .mdx files', () => {
+  const compiler = createCompiler({});
   const source = `import Checklist from './Checklist.astro';
 
 <Checklist>
 - [ ] Looks great!
 </Checklist>`;
 
-  const batchResult = compileBatchToModule(
+  const batchResult = compiler.compileBatchToModule(
     [{ id: '/virtual.mdx', filepath: '/virtual.mdx', source }],
-    { continueOnError: false, config: {} }
+    { continueOnError: false }
   );
 
   const compiled = batchResult.results[0]?.result?.code ?? '';

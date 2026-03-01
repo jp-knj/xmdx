@@ -381,7 +381,7 @@ fn render_heading(heading: &markdown::mdast::Heading, ctx: &mut Context) {
 fn children_contain_link(children: &[Node]) -> bool {
     for child in children {
         match child {
-            Node::Link(_) => return true,
+            Node::Link(_) | Node::FootnoteReference(_) => return true,
             Node::MdxJsxFlowElement(elem) if elem.name.as_deref() == Some("a") => {
                 return true;
             }

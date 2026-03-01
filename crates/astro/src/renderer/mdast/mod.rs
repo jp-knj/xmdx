@@ -24,6 +24,7 @@ use crate::transform::jsx_normalize::{
 };
 use crate::transform::smartypants::apply_smartypants;
 use render::render_node;
+use xmdx_core::MarkflowError;
 
 /// Rendering options for the mdast renderer.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -110,7 +111,7 @@ impl Default for Options {
 /// };
 /// let blocks = to_blocks(input, &options).unwrap();
 /// ```
-pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String> {
+pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, MarkflowError> {
     // 1. Preprocess directives if enabled
     let preprocessed = if options.enable_directives {
         directives::preprocess_directives(input)
@@ -165,8 +166,10 @@ pub fn to_blocks(input: &str, options: &Options) -> Result<BlocksResult, String>
         ..markdown::ParseOptions::default()
     };
 
-    let tree = markdown::to_mdast(&parsed_input, &parse_options)
-        .map_err(|e| format!("Markdown parse error: {}", e))?;
+    let tree = markdown::to_mdast(&parsed_input, &parse_options).map_err(|e| {
+        let loc = xmdx_core::parse::message_location(&e);
+        MarkflowError::parse_error(format!("Markdown parse error: {}", e), loc.line, loc.column)
+    })?;
 
     // 7. Traverse the AST and render to blocks
     let mut ctx = Context::new(options);
@@ -1970,6 +1973,42 @@ export const authClient = createAuthClient();
         assert!(
             all_html.contains("<a href=\"#plain-heading\">"),
             "Should have autolink wrapper, got: {}",
+            all_html
+        );
+    }
+
+    #[test]
+    fn test_heading_autolink_skips_when_heading_contains_footnote_ref() {
+        let input = "## Title[^1]\n\n[^1]: A footnote.\n";
+        let options = Options {
+            enable_heading_autolinks: true,
+            enable_directives: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        let all_html: String = blocks
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                RenderBlock::Html { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        // The heading should contain the footnote ref anchor
+        assert!(
+            all_html.contains("<sup><a href=\"#user-content-fn-1\""),
+            "Should render the footnote reference link, got: {}",
+            all_html
+        );
+
+        // Should NOT have a wrapping autolink <a> (which would nest anchors)
+        // The only <a> tags should be the footnote ref and backref, not an autolink wrapper
+        assert!(
+            !all_html.contains("<a href=\"#title1\">"),
+            "Should not have autolink wrapper around heading with footnote ref, got: {}",
             all_html
         );
     }

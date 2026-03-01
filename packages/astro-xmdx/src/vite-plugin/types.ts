@@ -10,20 +10,8 @@ import type { XmdxPlugin, MdxImportHandlingOptions } from '../types.js';
  * Native NAPI binding interface for Xmdx compiler.
  */
 export interface XmdxBinding {
-  createCompiler?: (config: Record<string, unknown>) => XmdxCompiler;
+  createCompiler: (config: Record<string, unknown>) => XmdxCompiler;
   XmdxCompiler?: new (config: Record<string, unknown>) => XmdxCompiler;
-  compileBatch: (
-    inputs: Array<{ id: string; source: string; filepath?: string }>,
-    options: { continueOnError: boolean; config: Record<string, unknown> }
-  ) => BatchCompileResult;
-  compileBatchToModule: (
-    inputs: Array<{ id: string; source: string; filepath?: string }>,
-    options: { continueOnError: boolean; config: Record<string, unknown> }
-  ) => ModuleBatchCompileResult;
-  compileMdxBatch: (
-    inputs: Array<{ id: string; source: string; filepath?: string }>,
-    options: { continueOnError: boolean; config: Record<string, unknown> }
-  ) => MdxBatchCompileResult;
   parseBlocks: (
     source: string,
     options: { enable_directives: boolean }
@@ -32,7 +20,7 @@ export interface XmdxBinding {
 }
 
 /**
- * Compiler instance for single-file compilation.
+ * Compiler instance for single-file and batch compilation.
  */
 export interface XmdxCompiler {
   compile: (
@@ -40,6 +28,18 @@ export interface XmdxCompiler {
     filename: string,
     options: { file?: string; url?: string }
   ) => CompileResult;
+  compileBatch: (
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
+    options: { continueOnError: boolean }
+  ) => BatchCompileResult;
+  compileBatchToModule: (
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
+    options: { continueOnError: boolean }
+  ) => ModuleBatchCompileResult;
+  compileMdxBatch: (
+    inputs: Array<{ id: string; source: string; filepath?: string }>,
+    options: { continueOnError: boolean }
+  ) => MdxBatchCompileResult;
 }
 
 /**
@@ -87,6 +87,14 @@ export interface BatchCompileResult {
 }
 
 /**
+ * Structured batch error with machine-readable code and human-readable message.
+ */
+export interface BatchError {
+  code: string;
+  message: string;
+}
+
+/**
  * Result from batch compilation to complete Astro modules.
  * Unlike BatchCompileResult which returns IR, this returns complete module code.
  */
@@ -109,7 +117,7 @@ export interface ModuleBatchCompileResult {
         warnings?: Array<{ line: number; message: string }>;
       };
     };
-    error?: string;
+    error?: BatchError;
   }>;
   stats: {
     succeeded: number;
@@ -133,7 +141,7 @@ export interface MdxBatchCompileResult {
       /** Extracted headings */
       headings: Array<{ depth: number; slug: string; text: string }>;
     };
-    error?: string;
+    error?: BatchError;
   }>;
   stats: {
     succeeded: number;

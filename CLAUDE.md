@@ -65,9 +65,12 @@ The Vite plugin intercepts `.mdx`/`.md` file loads. Key components:
 - `load-handler.ts` — Main Vite load hook
 - `batch-compiler.ts` — Parallel file compilation
 - `binding-loader.ts` — Manages NAPI binding lifecycle
-- `jsx-module.ts` — Generates final JSX module strings
-- `disk-cache.ts` — Build-time caching
-- `shiki-manager.ts` / `expressive-code-manager.ts` — Code highlighting
+- `jsx-transform.ts` — JSX AST transforms
+- `jsx-worker-pool.ts` — Worker pool for parallel JSX processing
+- `cache/` — `disk-cache.ts` (build-time caching)
+- `fallback/` — `compile.ts` (@mdx-js/mdx fallback), `directive-rewriter.ts`, `rehype-heading-ids.ts`, `rehype-tasklist.ts`
+- `highlighting/` — `shiki-manager.ts`, `expressive-code-manager.ts`, `shiki-highlighter.ts`
+- `mdx-wrapper/` — `component-detection.ts`, `component-imports.ts`, `heading-id-injector.ts`, `export-normalizer.ts`
 
 ### Transform Pipeline (`packages/astro-xmdx/src/pipeline/`)
 Orchestrated chain of transforms with hooks: `preprocess` → `afterParse` → `beforeInject` → `beforeOutput`. Transforms include `blocks-to-jsx`, `inject-components`, `shiki`, and `expressive-code`.
@@ -80,9 +83,10 @@ Maps MDX component names to implementations with schema validation. Ships with b
 
 ## CI
 
-GitHub Actions runs two jobs on PRs to `main`:
-1. **Build, Lint, and Test** — `cargo fmt`, `cargo clippy`, `cargo test` (excludes xmdx-napi)
-2. **Test NAPI Bindings** — Builds NAPI, runs `cargo test -p xmdx-napi` and `bun test`
+GitHub Actions workflows (`.github/workflows/`):
+1. **`ci.yml`** — Build, lint, and test: `cargo fmt`, `cargo clippy`, `cargo test` (excludes xmdx-napi). Also runs WASM build + edge/parity tests.
+2. **`napi-build.yml`** — Test NAPI bindings: builds NAPI, runs `cargo test -p xmdx-napi` and `bun test`. Includes E2E Starlight build job.
+3. **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
 
 ## Key Conventions
 

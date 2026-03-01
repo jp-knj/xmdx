@@ -5,7 +5,10 @@ import {
   rewriteSetHtmlCodeBlocks,
   rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
+  stripExpressiveCodeImport,
+  renderExpressiveCodeBlocks,
 } from './expressive-code.js';
+import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
 
 describe('decodeHtmlEntities', () => {
   test('returns value as-is when empty', () => {
@@ -60,7 +63,7 @@ describe('rewriteExpressiveCodeBlocks', () => {
   test('rewrites simple code block without language', () => {
     const code = '<pre><code>const x = 1;</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const x = 1;"} />');
+    expect(result.code).toBe('<Code code={"const x = 1;"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -68,7 +71,7 @@ describe('rewriteExpressiveCodeBlocks', () => {
     const code = '<pre><code class="language-javascript">const x = 1;</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
     expect(result.code).toBe(
-      '<Code code={"const x = 1;"} lang="javascript" />'
+      '<Code code={"const x = 1;"} lang="javascript" __xmdx />'
     );
     expect(result.changed).toBe(true);
   });
@@ -78,7 +81,7 @@ describe('rewriteExpressiveCodeBlocks', () => {
       '<pre><code class="language-js">let a = 1;</code></pre>\n\n<pre><code class="language-ts">let b: number = 2;</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
     expect(result.code).toBe(
-      '<Code code={"let a = 1;"} lang="js" />\n\n<Code code={"let b: number = 2;"} lang="ts" />'
+      '<Code code={"let a = 1;"} lang="js" __xmdx />\n\n<Code code={"let b: number = 2;"} lang="ts" __xmdx />'
     );
     expect(result.changed).toBe(true);
   });
@@ -86,42 +89,42 @@ describe('rewriteExpressiveCodeBlocks', () => {
   test('decodes HTML entities in code content', () => {
     const code = '<pre><code>&lt;div&gt;&amp;&lt;/div&gt;</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"<div>&</div>"} />');
+    expect(result.code).toBe('<Code code={"<div>&</div>"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('uses custom component name', () => {
     const code = '<pre><code>hello</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'MyCode');
-    expect(result.code).toBe('<MyCode code={"hello"} />');
+    expect(result.code).toBe('<MyCode code={"hello"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('handles multiline code', () => {
     const code = '<pre><code>line 1\nline 2\nline 3</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"line 1\\nline 2\\nline 3"} />');
+    expect(result.code).toBe('<Code code={"line 1\\nline 2\\nline 3"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('preserves code with special characters', () => {
     const code = '<pre><code>const str = "hello";</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} />');
+    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('handles pre tag with attributes', () => {
     const code = '<pre class="astro-code" tabindex="0"><code class="language-sh"># create a new project\nnpm create astro@latest</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"# create a new project\\nnpm create astro@latest"} lang="sh" />');
+    expect(result.code).toBe('<Code code={"# create a new project\\nnpm create astro@latest"} lang="sh" __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('handles pre tag with single attribute', () => {
     const code = '<pre tabindex="0"><code>simple code</code></pre>';
     const result = rewriteExpressiveCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"simple code"} />');
+    expect(result.code).toBe('<Code code={"simple code"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 });
@@ -144,7 +147,7 @@ describe('rewriteSetHtmlCodeBlocks', () => {
   test('rewrites code block inside Fragment', () => {
     const code = '<_Fragment set:html={"<pre><code>const x = 1;</code></pre>"} />';
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const x = 1;"} />');
+    expect(result.code).toBe('<Code code={"const x = 1;"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -152,7 +155,7 @@ describe('rewriteSetHtmlCodeBlocks', () => {
     const html = '<pre><code class="language-js">let a = 1;</code></pre>';
     const code = `<_Fragment set:html={${JSON.stringify(html)}} />`;
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"let a = 1;"} lang="js" />');
+    expect(result.code).toBe('<Code code={"let a = 1;"} lang="js" __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -162,8 +165,8 @@ describe('rewriteSetHtmlCodeBlocks', () => {
       <_Fragment set:html={"<pre><code>second</code></pre>"} />
     `;
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
-    expect(result.code).toContain('<Code code={"first"} />');
-    expect(result.code).toContain('<Code code={"second"} />');
+    expect(result.code).toContain('<Code code={"first"} __xmdx />');
+    expect(result.code).toContain('<Code code={"second"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -176,14 +179,14 @@ describe('rewriteSetHtmlCodeBlocks', () => {
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
     expect(result.code).toContain('<SplitCard>');
     expect(result.code).toContain('</SplitCard>');
-    expect(result.code).toContain('<Code code={"npm install"} />');
+    expect(result.code).toContain('<Code code={"npm install"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('uses custom component name', () => {
     const code = '<_Fragment set:html={"<pre><code>test</code></pre>"} />';
     const result = rewriteSetHtmlCodeBlocks(code, 'MyCodeBlock');
-    expect(result.code).toBe('<MyCodeBlock code={"test"} />');
+    expect(result.code).toBe('<MyCodeBlock code={"test"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -191,7 +194,7 @@ describe('rewriteSetHtmlCodeBlocks', () => {
     const html = '<pre><code>const str = "hello";</code></pre>';
     const code = `<_Fragment set:html={${JSON.stringify(html)}} />`;
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} />');
+    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
@@ -207,7 +210,7 @@ describe('rewriteSetHtmlCodeBlocks', () => {
     const code = `<_Fragment set:html={${JSON.stringify(html)}} />`;
     const result = rewriteSetHtmlCodeBlocks(code, 'Code');
     // When there's mixed content, the code block is replaced inline
-    expect(result.code).toContain('<Code code={"hello"} />');
+    expect(result.code).toContain('<Code code={"hello"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 });
@@ -285,42 +288,193 @@ describe('rewriteJsStringCodeBlocks', () => {
   test('rewrites simple code block from JS string literal', () => {
     const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>const x = 1;</code></pre>"';
     const result = rewriteJsStringCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const x = 1;"} />');
+    expect(result.code).toBe('<Code code={"const x = 1;"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('rewrites code block with language', () => {
     const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-javascript\\">const x = 1;</code></pre>"';
     const result = rewriteJsStringCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const x = 1;"} lang="javascript" />');
+    expect(result.code).toBe('<Code code={"const x = 1;"} lang="javascript" __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('handles escaped newlines in code content', () => {
     const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-sh\\">line1\\nline2</code></pre>"';
     const result = rewriteJsStringCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"line1\\nline2"} lang="sh" />');
+    expect(result.code).toBe('<Code code={"line1\\nline2"} lang="sh" __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('handles escaped quotes in code content', () => {
     const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>const str = \\"hello\\";</code></pre>"';
     const result = rewriteJsStringCodeBlocks(code, 'Code');
-    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} />');
+    expect(result.code).toBe('<Code code={"const str = \\"hello\\";"} __xmdx />');
     expect(result.changed).toBe(true);
   });
 
   test('preserves surrounding JavaScript code', () => {
     const code = 'const a = 1; "<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>test</code></pre>"; const b = 2;';
     const result = rewriteJsStringCodeBlocks(code, 'Code');
-    expect(result.code).toBe('const a = 1; <Code code={"test"} />; const b = 2;');
+    expect(result.code).toBe('const a = 1; <Code code={"test"} __xmdx />; const b = 2;');
     expect(result.changed).toBe(true);
   });
 
   test('uses custom component name', () => {
     const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>hello</code></pre>"';
     const result = rewriteJsStringCodeBlocks(code, 'MyCode');
-    expect(result.code).toBe('<MyCode code={"hello"} />');
+    expect(result.code).toBe('<MyCode code={"hello"} __xmdx />');
     expect(result.changed).toBe(true);
+  });
+
+  test('handles mdxjs-rs output with rewrite_code_blocks enabled', () => {
+    // Simulates mdxjs-rs JSX output when rewrite_code_blocks is true:
+    // _jsx("pre", { ... }) gets rewritten to string literal "<pre class=..."
+    const code = '_jsx(_components.pre, {children: "<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-sh\\">npm install astro</code></pre>"})';
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toContain('<Code code={"npm install astro"} lang="sh" __xmdx />');
+    expect(result.changed).toBe(true);
+  });
+
+  test('handles multiple JS string code blocks in mdxjs-rs output', () => {
+    const code = [
+      '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-js\\">const a = 1;</code></pre>"',
+      '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-ts\\">const b: number = 2;</code></pre>"',
+    ].join('\n');
+    const result = rewriteJsStringCodeBlocks(code, 'Code');
+    expect(result.code).toContain('<Code code={"const a = 1;"} lang="js" __xmdx />');
+    expect(result.code).toContain('<Code code={"const b: number = 2;"} lang="ts" __xmdx />');
+    expect(result.changed).toBe(true);
+  });
+});
+
+describe('_Fragment availability in MDX wrapper', () => {
+  test('wrapMdxModule output resolves _Fragment via mdxjs-rs import', async () => {
+    // Import wrapMdxModule to verify _Fragment is available from mdxjs-rs output
+    const { wrapMdxModule } = await import('../vite-plugin/mdx-wrapper/index.js');
+    const { createRegistry } = await import('xmdx/registry');
+    const registry = createRegistry([]);
+
+    // Realistic mdxjs-rs output always starts with the jsx-runtime import
+    const mdxCode = `import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "astro/jsx-runtime";
+function MDXContent(props) { return _jsx("p", { children: "Hello" }); }
+export default MDXContent;`;
+
+    const wrapped = wrapMdxModule(mdxCode, {
+      frontmatter: {},
+      headings: [],
+      registry,
+    }, 'test.mdx');
+
+    // _Fragment is bound via the mdxjs-rs import, not a separate const
+    expect(wrapped).toContain('Fragment as _Fragment');
+    expect(wrapped).not.toContain('const _Fragment = Fragment;');
+    // Fragment (without underscore) is still imported for componentsObject
+    expect(wrapped).toContain("import { Fragment } from 'astro/jsx-runtime';");
+  });
+});
+
+describe('stripExpressiveCodeImport', () => {
+  const defaultConfig = { component: 'Code', moduleId: 'astro-expressive-code/components' };
+
+  test('removes import when no <Code /> remains', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<_Fragment set:html={"<figure>...</figure>"} />`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).not.toContain("import { Code }");
+    expect(result).toContain('<_Fragment');
+  });
+
+  test('preserves import when <Code /> is still referenced', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"hello"} lang="js" />`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).toContain("import { Code }");
+  });
+
+  test('handles custom component name', () => {
+    const config = { component: 'MyCode', moduleId: 'my-ec/components' };
+    const code = `import { Code as MyCode } from 'my-ec/components';\n\n<_Fragment set:html={"rendered"} />`;
+    const result = stripExpressiveCodeImport(code, config);
+    expect(result).not.toContain("import { Code as MyCode }");
+  });
+
+  test('preserves import when <Code> tag spans multiple lines', () => {
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<Code\n  code={"hello"}\n  lang="js"\n/>`;
+    const result = stripExpressiveCodeImport(code, defaultConfig);
+    expect(result).toContain("import { Code }");
+  });
+
+  test('no-ops on empty string', () => {
+    expect(stripExpressiveCodeImport('', defaultConfig)).toBe('');
+  });
+});
+
+describe('renderExpressiveCodeBlocks', () => {
+  function mockEcManager(opts: {
+    enabled?: boolean;
+    renderFn?: (code: string, lang?: string) => Promise<string | null>;
+  } = {}): ExpressiveCodeManager {
+    return {
+      enabled: opts.enabled ?? true,
+      render: opts.renderFn ?? (async (code: string) =>
+        `<figure class="expressive-code"><pre><code>${code}</code></pre></figure>`
+      ),
+    } as unknown as ExpressiveCodeManager;
+  }
+
+  test('pre-renders Code component to Fragment set:html', async () => {
+    const code = `<Code code={"console.log('hello')"} lang="js" __xmdx />`;
+    const ecm = mockEcManager();
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain('<_Fragment set:html={');
+    expect(result.code).toContain('expressive-code');
+    expect(result.code).not.toContain('<Code');
+  });
+
+  test('returns unchanged when no Code components present', async () => {
+    const code = '<div><p>Hello world</p></div>';
+    const ecm = mockEcManager();
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('gracefully handles render returning null', async () => {
+    const code = '<Code code={"test"} lang="js" __xmdx />';
+    const ecm = mockEcManager({ renderFn: async () => null });
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('skips when ecManager is not enabled', async () => {
+    const code = '<Code code={"test"} lang="js" __xmdx />';
+    const ecm = mockEcManager({ enabled: false });
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
+  });
+
+  test('full flow: inject import → pre-render all → strip dead import', async () => {
+    const config = { component: 'Code', moduleId: 'astro-expressive-code/components' };
+    // Simulate transform pipeline: start with code that has a Code component + import
+    let code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"console.log('hi')"} lang="js" __xmdx />`;
+    const ecm = mockEcManager();
+    // Pre-render all Code components
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(true);
+    expect(result.code).not.toContain('<Code ');
+    // Strip the now-dead import
+    const final = stripExpressiveCodeImport(result.code, config);
+    expect(final).not.toContain("import { Code }");
+    expect(final).toContain('<_Fragment set:html={');
+  });
+
+  test('leaves user-authored Code components untouched (no __xmdx marker)', async () => {
+    const code = '<Code code={"user code"} lang="js" />';
+    const ecm = mockEcManager();
+    const result = await renderExpressiveCodeBlocks(code, ecm);
+    expect(result.changed).toBe(false);
+    expect(result.code).toBe(code);
   });
 });

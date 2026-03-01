@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 use xmdx_wasm::compile;
 
@@ -20,7 +21,7 @@ struct HeadingEntry {
 #[wasm_bindgen_test]
 fn compile_basic_markdown() {
     let source = "# Hello World\n\nThis is **bold** text.";
-    let result = compile(source, "test.mdx").expect("compile should succeed");
+    let result = compile(source, "test.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 
@@ -46,7 +47,7 @@ fn compile_basic_markdown() {
 #[wasm_bindgen_test]
 fn compile_with_frontmatter() {
     let source = "---\ntitle: My Page\ndraft: true\n---\n\n# Content";
-    let result = compile(source, "page.mdx").expect("compile should succeed");
+    let result = compile(source, "page.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 
@@ -62,7 +63,7 @@ fn compile_with_frontmatter() {
 #[wasm_bindgen_test]
 fn compile_with_imports() {
     let source = "import Button from './Button.astro';\n\n# Hello\n\n<Button />";
-    let result = compile(source, "test.mdx").expect("compile should succeed");
+    let result = compile(source, "test.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 
@@ -76,7 +77,7 @@ fn compile_with_imports() {
 #[wasm_bindgen_test]
 fn compile_with_user_default_export() {
     let source = "export default function Layout({ children }) { return children; }\n\n# Hello";
-    let result = compile(source, "test.mdx").expect("compile should succeed");
+    let result = compile(source, "test.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 
@@ -90,7 +91,7 @@ fn compile_with_user_default_export() {
 #[wasm_bindgen_test]
 fn compile_multiple_headings() {
     let source = "# First\n\n## Second\n\n### Third\n\n## Another Second";
-    let result = compile(source, "test.mdx").expect("compile should succeed");
+    let result = compile(source, "test.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 
@@ -104,7 +105,8 @@ fn compile_multiple_headings() {
 #[wasm_bindgen_test]
 fn compile_filepath_in_output() {
     let source = "# Test";
-    let result = compile(source, "/path/to/file.mdx").expect("compile should succeed");
+    let result =
+        compile(source, "/path/to/file.mdx", JsValue::NULL).expect("compile should succeed");
 
     let result: CompileResult = serde_wasm_bindgen::from_value(result).expect("deserialize result");
 

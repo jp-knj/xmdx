@@ -183,7 +183,10 @@ pub fn parse_mdast_with_options(
     })
 }
 
-fn message_location(message: &Message) -> SourceLocation {
+/// Extracts a [`SourceLocation`] from a markdown-rs [`Message`].
+///
+/// Falls back to `(1, 1)` when the message carries no position information.
+pub fn message_location(message: &Message) -> SourceLocation {
     match &message.place {
         Some(place) => match place.as_ref() {
             Place::Point(point) => SourceLocation::new(point.line, point.column),

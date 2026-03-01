@@ -14,12 +14,16 @@ import {
 import { createPipeline } from './pipeline/index.js';
 import { resolveExpressiveCodeConfig } from './utils/config.js';
 import { ExpressiveCodeManager } from './vite-plugin/highlighting/expressive-code-manager.js';
+import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
+import type { TransformContext } from './pipeline/types.js';
 import { detectProblematicMdxPatterns } from './utils/mdx-detection.js';
 import { stripQuery, shouldCompile } from './utils/paths.js';
 import {
   VIRTUAL_MODULE_PREFIX,
   OUTPUT_EXTENSION,
   STARLIGHT_LAYER_ORDER,
+  EC_STYLES_MODULE_ID,
+  EC_STYLES_VIRTUAL_ID,
 } from './constants.js';
 // Import from extracted vite-plugin modules
 import type {
@@ -114,13 +118,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const plugins = userOptions.plugins ?? [];
   const hooks = collectHooks(plugins);
 
-  // Create pipeline once (shared across buildStart and load hooks)
-  const transformPipeline = createPipeline({
-    afterParse: hooks.afterParse,
-    beforeInject: hooks.beforeInject,
-    beforeOutput: hooks.beforeOutput,
-  });
-
   const include = userOptions.include ?? shouldCompile;
   const starlightComponents = userOptions.starlightComponents ?? false;
 
@@ -144,7 +141,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         userOptions.compiler?.jsx?.code_sample_components ?? ['Code', 'Prism'],
     },
     // Enable code block rewriting so Rust outputs <Code> components
-    // Starlight's EC integration processes these at runtime
+    // xmdx pre-renders them at build time via ExpressiveCode
     rewriteCodeBlocks: !!expressiveCode,
   };
 
@@ -170,10 +167,32 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   const shikiManager = new ShikiManager(ENABLE_SHIKI || !expressiveCode);
 
   // ExpressiveCode pre-rendering manager for build-time code highlighting.
-  // When Starlight is configured, its EC integration handles rendering --
-  // skip our own engine to avoid double-processing and theme mismatches.
-  const starlightHandlesEC = hasStarlightConfigured;
-  const ecManager = new ExpressiveCodeManager(expressiveCode, starlightHandlesEC);
+  // xmdx always pre-renders code blocks — Starlight's runtime <Code> component
+  // is bypassed since xmdx replaces @astrojs/mdx and its rehype plugins.
+  const ecManager = new ExpressiveCodeManager(expressiveCode);
+
+  // EC pre-render hook: runs after transformExpressiveCode rewrites <pre><code> → <Code>,
+  // converting <Code> components to pre-rendered <_Fragment set:html={...} />.
+  const ecPreRenderHook = expressiveCode
+    ? async (ctx: TransformContext): Promise<TransformContext> => {
+        const result = await renderExpressiveCodeBlocks(ctx.code, ecManager, expressiveCode.component);
+        if (!result.changed) return ctx;
+        let code = stripExpressiveCodeImport(result.code, expressiveCode);
+        if (!code.includes(EC_STYLES_MODULE_ID)) {
+          code = `import '${EC_STYLES_MODULE_ID}';\n${code}`;
+        }
+        return { ...ctx, code };
+      }
+    : null;
+
+  // Create pipeline once (shared across buildStart and load hooks)
+  const transformPipeline = createPipeline({
+    afterParse: hooks.afterParse,
+    beforeInject: ecPreRenderHook
+      ? [ecPreRenderHook, ...hooks.beforeInject]
+      : hooks.beforeInject,
+    beforeOutput: hooks.beforeOutput,
+  });
 
   // Lazy compiler initialization to avoid Vite module runner timing issues
   const getCompiler = async (): Promise<XmdxCompiler> => {
@@ -286,6 +305,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     },
 
     async resolveId(sourceId, importer) {
+      if (sourceId === EC_STYLES_MODULE_ID) return EC_STYLES_VIRTUAL_ID;
       if (sourceId.startsWith(VIRTUAL_MODULE_PREFIX)) {
         return sourceId;
       }
@@ -350,6 +370,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     },
 
     async load(id) {
+      if (id === EC_STYLES_VIRTUAL_ID) {
+        return ecManager.getStyles() || '/* no ec styles */';
+      }
       return handleLoad(id, {
         sourceLookup,
         fallbackFiles,
