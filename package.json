@@ -7,9 +7,12 @@
     "build": "pnpm -r build",
     "build:napi": "pnpm --filter @xmdx/napi build",
     "test": "pnpm -r test",
-    "knip": "knip"
+    "knip": "knip",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "knip": "^5.85.0",
     "typescript": "^5.7.0"
   }

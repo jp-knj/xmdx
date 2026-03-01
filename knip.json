@@ -16,9 +16,9 @@
     },
     "crates/napi": {
       "project": ["**/*.{js,ts}"],
-      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"]
+      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"],
+      "ignoreBinaries": ["artifacts"]
     }
   },
-  "ignoreBinaries": ["artifacts"],
   "ignoreWorkspaces": ["examples/*"]
 }

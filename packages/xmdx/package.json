@@ -58,6 +58,8 @@
   "types": "./src/types.ts",
   "files": [
     "src",
+    "!src/**/*.test.ts",
+    "!src/edge/",
     "wasm"
   ],
   "keywords": [
@@ -75,6 +77,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jp-knj/xmdx"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@xmdx/napi": "workspace:*"
