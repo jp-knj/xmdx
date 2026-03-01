@@ -1,0 +1,9 @@
+{
+  "mode": "pre",
+  "tag": "next",
+  "initialVersions": {
+    "xmdx": "0.0.3-next.4",
+    "astro-xmdx": "0.0.3-next.17",
+    "@xmdx/astro-loader": "0.0.1"
+  }
+}

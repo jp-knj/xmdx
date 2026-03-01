@@ -7,7 +7,8 @@
     "build": "tsc",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:wasm": "cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release && wasm-bindgen ../../target/wasm32-unknown-unknown/release/xmdx_wasm.wasm --out-dir wasm --target web"
   },
   "exports": {
     ".": {
@@ -57,6 +58,8 @@
   "types": "./src/types.ts",
   "files": [
     "src",
+    "!src/**/*.test.ts",
+    "!src/edge/",
     "wasm"
   ],
   "keywords": [
@@ -75,10 +78,15 @@
     "type": "git",
     "url": "https://github.com/jp-knj/xmdx"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {
     "@xmdx/napi": "workspace:*"
   },
   "devDependencies": {
+    "miniflare": "^4.0.0",
     "typescript": "^5.7.0"
   }
 }

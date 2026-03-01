@@ -45,6 +45,30 @@ export declare class XmdxCompiler {
    * Returns a `ModuleBatchProcessingResult` containing complete module code and statistics.
    */
   compileBatchToModule(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): ModuleBatchProcessingResult
+  /**
+   * Compiles multiple MDX files in parallel using mdxjs-rs.
+   *
+   * Uses the compiler's configuration for JSX import source and directive
+   * settings. Non-MDX files are rejected with an error.
+   *
+   * # Arguments
+   *
+   * * `inputs` - Array of MDX files to compile
+   * * `options` - Optional batch processing options (thread count, error handling)
+   *
+   * # Returns
+   *
+   * Returns a `MdxBatchProcessingResult` containing individual results and statistics.
+   */
+  compileMdxBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): MdxBatchProcessingResult
+}
+
+/** Structured batch error with a machine-readable code and human-readable message. */
+export interface BatchError {
+  /** Error category for programmatic handling (e.g., "PARSE_ERROR", "RENDER_ERROR"). */
+  code: string
+  /** Human-readable error message. */
+  message: string
 }
 
 /** Input for batch processing - represents a single file to compile. */
@@ -63,7 +87,10 @@ export interface BatchOptions {
   maxThreads?: number
   /** Whether to continue processing after an error. Defaults to true. */
   continueOnError?: boolean
-  /** Compiler configuration to use for all files. */
+  /**
+   * Compiler configuration for standalone batch functions.
+   * Ignored by class methods which use `self.config` instead.
+   */
   config?: CompilerConfig
 }
 
@@ -81,8 +108,8 @@ export interface BatchResult {
   id: string
   /** Compilation result (present on success). */
   result?: CompileIrResult
-  /** Error message (present on failure). */
-  error?: string
+  /** Structured error (present on failure). */
+  error?: BatchError
 }
 
 /** Statistics for batch processing. */
@@ -114,71 +141,18 @@ export interface BlockOptions {
 }
 
 /**
- * Compiles multiple Markdown/MDX files in parallel using Rayon, returning IR.
+ * Compiles multiple files in parallel and returns IR results.
  *
- * This function processes files concurrently, leveraging all available CPU cores
- * (or a specified maximum) for faster batch compilation. Returns IR for further
- * processing in TypeScript.
- *
- * # Arguments
- *
- * * `inputs` - Array of files to compile, each with an id, source, and optional filepath
- * * `options` - Optional batch processing options (thread count, error handling, config)
- *
- * # Returns
- *
- * Returns a `BatchProcessingResult` containing individual IR results and statistics.
- *
- * # Example (JavaScript)
- *
- * ```javascript
- * const { compileBatch } = require('@xmdx/napi');
- *
- * const inputs = [
- *   { id: 'file1.mdx', source: '# Hello
-World' },
- *   { id: 'file2.mdx', source: '# Goodbye
-World' },
- * ];
- *
- * const result = compileBatch(inputs, { continueOnError: true });
- * console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
- * ```
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileBatch`.
  */
 export declare function compileBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): BatchProcessingResult
 
 /**
- * Compiles multiple Markdown/MDX files to complete Astro modules in parallel.
+ * Compiles multiple files in parallel and returns complete Astro modules.
  *
- * Unlike `compileBatch` which returns IR for further processing in TypeScript,
- * this function returns complete Astro module code ready for esbuild transformation.
- * This eliminates the need for TypeScript's `wrapHtmlInJsxModule` step.
- *
- * # Arguments
- *
- * * `inputs` - Array of files to compile, each with an id, source, and optional filepath
- * * `options` - Optional batch processing options (thread count, error handling, config)
- *
- * # Returns
- *
- * Returns a `ModuleBatchProcessingResult` containing complete module code and statistics.
- *
- * # Example (JavaScript)
- *
- * ```javascript
- * const { compileBatchToModule } = require('@xmdx/napi');
- *
- * const inputs = [
- *   { id: 'file1.md', source: '# Hello
-World' },
- *   { id: 'file2.md', source: '# Goodbye
-World' },
- * ];
- *
- * const result = compileBatchToModule(inputs, { continueOnError: true });
- * // result.results[0].result.code is a complete Astro module
- * console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
- * ```
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileBatchToModule`.
  */
 export declare function compileBatchToModule(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): ModuleBatchProcessingResult
 
@@ -214,35 +188,8 @@ export interface CompileIrResult {
 /**
  * Compiles multiple MDX files in parallel using mdxjs-rs.
  *
- * This function uses the mdxjs-rs crate for native MDX compilation with proper
- * JSX handling. It processes .mdx files with mdxjs-rs (which uses SWC internally)
- * and falls back to markdown-rs for .md files.
- *
- * # Arguments
- *
- * * `inputs` - Array of files to compile, each with an id, source, and optional filepath
- * * `options` - Optional batch processing options (thread count, error handling, config)
- *
- * # Returns
- *
- * Returns a `MdxBatchProcessingResult` containing individual results and statistics.
- *
- * # Example (JavaScript)
- *
- * ```javascript
- * const { compileMdxBatch } = require('@xmdx/napi');
- *
- * const inputs = [
- *   { id: 'file1.mdx', source: '# Hello
-
-<CustomComponent />' },
- *   { id: 'file2.md', source: '# Goodbye
-World' },
- * ];
- *
- * const result = compileMdxBatch(inputs, { continueOnError: true });
- * console.log(`Processed ${result.stats.total} files in ${result.stats.processingTimeMs}ms`);
- * ```
+ * Standalone convenience function that creates a temporary compiler from
+ * `options.config` and delegates to `XmdxCompiler::compileMdxBatch`.
  */
 export declare function compileMdxBatch(inputs: Array<BatchInput>, options?: BatchOptions | undefined | null): MdxBatchProcessingResult
 
@@ -408,8 +355,8 @@ export interface MdxBatchResult {
   id: string
   /** Compilation result (present on success). */
   result?: MdxCompileResult
-  /** Error message (present on failure). */
-  error?: string
+  /** Structured error (present on failure). */
+  error?: BatchError
 }
 
 /**
@@ -443,8 +390,8 @@ export interface ModuleBatchResult {
   id: string
   /** Compilation result with complete module code (present on success). */
   result?: CompileResult
-  /** Error message (present on failure). */
-  error?: string
+  /** Structured error (present on failure). */
+  error?: BatchError
 }
 
 /**

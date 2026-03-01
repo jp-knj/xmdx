@@ -1,8 +1,8 @@
 //! The stateful compiler and its configuration.
 
 use crate::batch::{
-    BatchInput, BatchOptions, BatchProcessingResult, BatchResult, BatchStats,
-    ModuleBatchProcessingResult, ModuleBatchResult,
+    BatchError, BatchInput, BatchOptions, BatchProcessingResult, BatchResult, BatchStats,
+    MdxBatchProcessingResult, MdxBatchResult, ModuleBatchProcessingResult, ModuleBatchResult,
 };
 use crate::types::*;
 use napi_derive::napi;
@@ -12,15 +12,20 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 use xmdx_astro::codegen::{DirectiveMappingResult, blocks_to_jsx_string};
 use xmdx_astro::{MdastOptions, code_fence, to_blocks};
-use xmdx_core::MarkflowError;
+use xmdx_core::{MarkflowError, MdxCompileOptions, compile_mdx};
 
-const ASTRO_DEFAULT_RUNTIME: &str = "astro/runtime/server/index.js";
+/// Default JSX import source for MDX compilation.
+/// mdxjs-rs appends `/jsx-runtime` to this value (per the JSX automatic
+/// runtime convention), so it must be a bare package name, not a full
+/// module path.
+const ASTRO_JSX_IMPORT_SOURCE: &str = "astro";
 
 #[derive(Debug, Clone)]
 pub(crate) struct InternalCompilerConfig {
     pub(crate) jsx_import_source: String,
     pub(crate) enable_heading_autolinks: bool,
     pub(crate) enable_math: bool,
+    pub(crate) rewrite_code_blocks: bool,
     pub(crate) directive_config: xmdx_core::DirectiveConfig,
 }
 
@@ -29,9 +34,10 @@ impl InternalCompilerConfig {
         let cfg = config.unwrap_or_default();
         let jsx_import_source = cfg
             .jsx_import_source
-            .unwrap_or_else(|| ASTRO_DEFAULT_RUNTIME.to_string());
+            .unwrap_or_else(|| ASTRO_JSX_IMPORT_SOURCE.to_string());
         let enable_heading_autolinks = cfg.enable_heading_autolinks.unwrap_or(false);
         let enable_math = cfg.math.unwrap_or(false);
+        let rewrite_code_blocks = cfg.rewrite_code_blocks.unwrap_or(false);
 
         // Build directive config from custom names and component map
         let mut directive_config = xmdx_core::DirectiveConfig::default();
@@ -65,6 +71,7 @@ impl InternalCompilerConfig {
             jsx_import_source,
             enable_heading_autolinks,
             enable_math,
+            rewrite_code_blocks,
             directive_config,
         }
     }
@@ -93,6 +100,7 @@ impl InternalCompilerConfig {
             jsx_import_source: Some(self.jsx_import_source.clone()),
             enable_heading_autolinks: Some(self.enable_heading_autolinks),
             math: Some(self.enable_math),
+            rewrite_code_blocks: Some(self.rewrite_code_blocks),
             custom_directive_names,
             directive_component_map,
             ..CompilerConfig::default()
@@ -136,7 +144,13 @@ impl XmdxCompiler {
             Some(self.config.to_compiler_config()),
         )?;
 
-        compile_document_from_ir(ir)
+        let jsx_src = &self.config.jsx_import_source;
+        let jsx_import_source = if jsx_src == "astro" {
+            None
+        } else {
+            Some(jsx_src.as_str())
+        };
+        compile_document_from_ir(ir, jsx_import_source)
     }
 
     /// Compiles multiple Markdown/MDX files in parallel using Rayon.
@@ -195,7 +209,10 @@ impl XmdxCompiler {
                     BatchResult {
                         id: input.id,
                         result: None,
-                        error: Some(e.to_string()),
+                        error: Some(BatchError {
+                            code: super::error_code_from(&e),
+                            message: e.to_string(),
+                        }),
                     }
                 }
             }
@@ -280,12 +297,19 @@ impl XmdxCompiler {
         let succeeded = AtomicU32::new(0);
         let failed = AtomicU32::new(0);
 
+        let jsx_src = &self.config.jsx_import_source;
+        let jsx_import_source: Option<&str> = if jsx_src == "astro" {
+            None
+        } else {
+            Some(jsx_src.as_str())
+        };
+
         let process_input = |input: BatchInput| -> ModuleBatchResult {
             let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
             match compile_ir(input.source, filepath, None, config.clone()) {
                 Ok(ir) => {
                     // Convert IR to complete module
-                    match compile_document_from_ir(ir) {
+                    match compile_document_from_ir(ir, jsx_import_source) {
                         Ok(result) => {
                             succeeded.fetch_add(1, Ordering::Relaxed);
                             ModuleBatchResult {
@@ -299,7 +323,10 @@ impl XmdxCompiler {
                             ModuleBatchResult {
                                 id: input.id,
                                 result: None,
-                                error: Some(e.to_string()),
+                                error: Some(BatchError {
+                                    code: super::error_code_from(&e),
+                                    message: e.to_string(),
+                                }),
                             }
                         }
                     }
@@ -309,7 +336,10 @@ impl XmdxCompiler {
                     ModuleBatchResult {
                         id: input.id,
                         result: None,
-                        error: Some(e.to_string()),
+                        error: Some(BatchError {
+                            code: super::error_code_from(&e),
+                            message: e.to_string(),
+                        }),
                     }
                 }
             }
@@ -343,6 +373,152 @@ impl XmdxCompiler {
         let elapsed = start.elapsed();
 
         Ok(ModuleBatchProcessingResult {
+            results,
+            stats: BatchStats {
+                total,
+                succeeded: succeeded.load(Ordering::Relaxed),
+                failed: failed.load(Ordering::Relaxed),
+                processing_time_ms: elapsed.as_secs_f64() * 1000.0,
+            },
+        })
+    }
+
+    /// Compiles multiple MDX files in parallel using mdxjs-rs.
+    ///
+    /// Uses the compiler's configuration for JSX import source and directive
+    /// settings. Non-MDX files are rejected with an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - Array of MDX files to compile
+    /// * `options` - Optional batch processing options (thread count, error handling)
+    ///
+    /// # Returns
+    ///
+    /// Returns a `MdxBatchProcessingResult` containing individual results and statistics.
+    #[napi(js_name = "compileMdxBatch")]
+    pub fn compile_mdx_batch(
+        &self,
+        inputs: Vec<BatchInput>,
+        options: Option<BatchOptions>,
+    ) -> napi::Result<MdxBatchProcessingResult> {
+        let start = Instant::now();
+        let opts = options.unwrap_or_default();
+        let continue_on_error = opts.continue_on_error.unwrap_or(true);
+
+        // Configure thread pool if max_threads is specified
+        let pool = if let Some(max_threads) = opts.max_threads {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(max_threads as usize)
+                .build()
+                .ok()
+        } else {
+            None
+        };
+
+        let total = inputs.len() as u32;
+        let succeeded = AtomicU32::new(0);
+        let failed = AtomicU32::new(0);
+
+        // Build MDX compile options from the compiler's config
+        let dir_config = &self.config.directive_config;
+        let directive_config =
+            if dir_config.custom_names.is_empty() && dir_config.component_map.is_empty() {
+                None
+            } else {
+                Some(dir_config.clone())
+            };
+        let mdx_options = MdxCompileOptions {
+            jsx_import_source: Some(self.config.jsx_import_source.clone()),
+            jsx: false,
+            rewrite_code_blocks: self.config.rewrite_code_blocks,
+            directive_config,
+            enable_heading_autolinks: self.config.enable_heading_autolinks,
+            math: self.config.enable_math,
+        };
+
+        let process_input = |input: BatchInput| -> MdxBatchResult {
+            let filepath = input.filepath.clone().unwrap_or_else(|| input.id.clone());
+
+            // Only validate extension when an explicit filepath was provided.
+            // Opaque IDs (cache keys, UUIDs) without filepath are trusted as MDX.
+            if input.filepath.is_some() && !filepath.ends_with(".mdx") {
+                failed.fetch_add(1, Ordering::Relaxed);
+                return MdxBatchResult {
+                    id: input.id,
+                    result: None,
+                    error: Some(BatchError {
+                        code: "INVALID_FILE_TYPE".to_string(),
+                        message: format!(
+                            "compileMdxBatch only supports .mdx files. Use compileBatch for '{}' instead.",
+                            filepath
+                        ),
+                    }),
+                };
+            }
+
+            match compile_mdx(&input.source, &filepath, Some(mdx_options.clone())) {
+                Ok(output) => {
+                    succeeded.fetch_add(1, Ordering::Relaxed);
+                    MdxBatchResult {
+                        id: input.id,
+                        result: Some(MdxCompileResult {
+                            code: output.code,
+                            frontmatter_json: output.frontmatter_json,
+                            headings: output
+                                .headings
+                                .into_iter()
+                                .map(|h| HeadingEntry {
+                                    depth: h.depth,
+                                    slug: h.slug,
+                                    text: h.text,
+                                })
+                                .collect(),
+                        }),
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    failed.fetch_add(1, Ordering::Relaxed);
+                    let napi_err = napi::Error::from_reason(e.to_string());
+                    MdxBatchResult {
+                        id: input.id,
+                        result: None,
+                        error: Some(BatchError {
+                            code: super::error_code_from(&napi_err),
+                            message: e.to_string(),
+                        }),
+                    }
+                }
+            }
+        };
+
+        let results: Vec<MdxBatchResult> = if continue_on_error {
+            if let Some(pool) = pool {
+                pool.install(|| inputs.into_par_iter().map(process_input).collect())
+            } else {
+                inputs.into_par_iter().map(process_input).collect()
+            }
+        } else {
+            let mut results = Vec::with_capacity(inputs.len());
+            let mut had_error = false;
+
+            for input in inputs {
+                if had_error {
+                    break;
+                }
+                let result = process_input(input);
+                if result.error.is_some() {
+                    had_error = true;
+                }
+                results.push(result);
+            }
+            results
+        };
+
+        let elapsed = start.elapsed();
+
+        Ok(MdxBatchProcessingResult {
             results,
             stats: BatchStats {
                 total,
@@ -394,12 +570,8 @@ pub fn compile_ir(
         enable_math: internal.enable_math,
         ..Default::default()
     };
-    let blocks_result = to_blocks(&body_without_imports, &mdast_options).map_err(|err| {
-        super::convert_error(with_path(
-            MarkflowError::parse_error(err, 1, 1),
-            &effective_path,
-        ))
-    })?;
+    let blocks_result = to_blocks(&body_without_imports, &mdast_options)
+        .map_err(|err| super::convert_error(with_path(err, &effective_path)))?;
 
     // Convert blocks to JSX module string with directive mapping
     let directive_config = &internal.directive_config;
@@ -407,8 +579,7 @@ pub fn compile_ir(
         // When custom names are configured, only map those names.
         // Otherwise use the default built-in set.
         let is_known = if directive_config.custom_names.is_empty() {
-            let defaults = ["note", "tip", "caution", "danger"];
-            defaults.contains(&name)
+            xmdx_core::DEFAULT_DIRECTIVE_NAMES.contains(&name)
         } else {
             directive_config.custom_names.iter().any(|n| n == name)
         };
@@ -472,7 +643,7 @@ pub fn compile_ir(
         file_path: effective_path,
         url: options.url.clone(),
         layout_import,
-        runtime_import: internal.jsx_import_source,
+        runtime_import: internal.jsx_import_source.clone(),
         diagnostics,
         has_user_default_export,
     })
@@ -484,11 +655,22 @@ fn with_path(err: MarkflowError, path: &str) -> MarkflowError {
             message: format!("{} ({})", message, path),
             location,
         },
+        MarkflowError::RenderError { message, location } => MarkflowError::RenderError {
+            message: format!("{} ({})", message, path),
+            location,
+        },
+        MarkflowError::UnknownComponent { name, location } => MarkflowError::UnknownComponent {
+            name: format!("{} ({})", name, path),
+            location,
+        },
         other => other,
     }
 }
 
-pub(crate) fn compile_document_from_ir(ir: CompileIrResult) -> napi::Result<CompileResult> {
+pub(crate) fn compile_document_from_ir(
+    ir: CompileIrResult,
+    jsx_import_source: Option<&str>,
+) -> napi::Result<CompileResult> {
     let hoisted_imports = super::dedupe_imports(
         ir.hoisted_imports
             .iter()
@@ -508,6 +690,7 @@ pub(crate) fn compile_document_from_ir(ir: CompileIrResult) -> napi::Result<Comp
         &hoisted_imports,
         &hoisted_exports,
         &headings_json,
+        jsx_import_source,
     )?;
     let imports = super::build_import_list(ir.layout_import.as_deref(), Path::new(&ir.file_path));
 
@@ -540,5 +723,11 @@ pub(crate) fn compile_document(
             }));
     }
 
-    compile_document_from_ir(ir)
+    let jsx_src = &config.jsx_import_source;
+    let jsx_import_source = if jsx_src == "astro" {
+        None
+    } else {
+        Some(jsx_src.as_str())
+    };
+    compile_document_from_ir(ir, jsx_import_source)
 }

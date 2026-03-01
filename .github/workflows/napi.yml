@@ -1,4 +1,4 @@
-name: NAPI Build
+name: NAPI
 
 on:
   push:
@@ -6,12 +6,12 @@ on:
     tags: ['v*']
     paths:
       - 'crates/**'
-      - '.github/workflows/napi-build.yml'
+      - '.github/workflows/napi.yml'
   pull_request:
     branches: [main, next]
     paths:
       - 'crates/**'
-      - '.github/workflows/napi-build.yml'
+      - '.github/workflows/napi.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,54 +31,40 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             build: pnpm build --target x86_64-apple-darwin
-
           - host: macos-latest
             target: aarch64-apple-darwin
             build: pnpm build --target aarch64-apple-darwin
-
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: pnpm build --target x86_64-pc-windows-msvc
-
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             build: pnpm build --target x86_64-unknown-linux-gnu --use-napi-cross
-
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             build: pnpm build --target x86_64-unknown-linux-musl --cross-compile
-
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             build: pnpm build --target aarch64-unknown-linux-gnu --use-napi-cross
-
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             build: pnpm build --target aarch64-unknown-linux-musl --cross-compile
 
-    name: Build - ${{ matrix.settings.target }}
+    name: "Build: ${{ matrix.settings.target }}"
     runs-on: ${{ matrix.settings.host }}
     defaults:
       run:
         working-directory: crates/napi
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.settings.target }}
 
@@ -86,34 +72,27 @@ jobs:
         if: contains(matrix.settings.target, 'musl')
         uses: mlugg/setup-zig@v2
 
-      - name: Cache Rust
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: crates/napi -> target
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: ${{ matrix.settings.build }}
+      - run: pnpm install --frozen-lockfile
+      - run: ${{ matrix.settings.build }}
         shell: bash
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
           path: crates/napi/*.node
           if-no-files-found: error
 
   test:
-    name: Test - ${{ matrix.settings.target }} - Node ${{ matrix.node }}
+    name: "Test: ${{ matrix.settings.target }} (node@${{ matrix.node }})"
     needs: build
     strategy:
       fail-fast: false
       matrix:
         settings:
-          # Note: x86_64-apple-darwin tests skipped - no x86_64 macOS runners available
-          # The binary is still built and tested locally by users
           - host: macos-latest
             target: aarch64-apple-darwin
           - host: windows-latest
@@ -127,55 +106,67 @@ jobs:
         working-directory: crates/napi
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
           path: crates/napi
 
-      - name: Run tests
-        run: pnpm test
+      - run: pnpm test
 
-  publish:
-    name: Publish
+  e2e:
+    name: "Test (E2E): Starlight Build"
+    needs: build
     runs-on: ubuntu-latest
-    needs:
-      - test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
-          version: 9
+          node-version: 22
+          cache: pnpm
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 20
+          name: bindings-x86_64-unknown-linux-gnu
+          path: crates/napi
+
+      - name: Build Starlight example
+        working-directory: examples/starlight
+        run: pnpm build
+
+      - name: Verify build output
+        working-directory: examples/starlight
+        run: |
+          test -d dist
+          PAGE_COUNT=$(find dist -name '*.html' -type f | wc -l)
+          echo "Generated $PAGE_COUNT HTML pages"
+          test "$PAGE_COUNT" -ge 1
+
+  publish:
+    name: Publish (NAPI)
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
@@ -183,54 +174,36 @@ jobs:
         working-directory: crates/napi
         run: pnpm install --frozen-lockfile
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: crates/napi/artifacts
 
-      - name: Create npm dirs
+      - name: Prepare & publish
         working-directory: crates/napi
-        run: npx napi create-npm-dirs
-
-      - name: Move artifacts
-        working-directory: crates/napi
-        run: pnpm artifacts
-
-      - name: Prepare package.json (add optionalDependencies)
-        working-directory: crates/napi
-        run: npx napi prepublish -t npm --no-gh-release --dry-run
-
-      - name: Determine npm tag
-        id: npm-tag
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/next" ]]; then
-            echo "tag=next" >> $GITHUB_OUTPUT
+          npx napi create-npm-dirs
+          pnpm artifacts
+          npx napi prepublish -t npm --no-gh-release --dry-run
+
+          REF="${GITHUB_REF##*/}"
+          if [[ "$REF" == *"-next"* || "$REF" == *"-alpha"* || "$REF" == *"-beta"* || "$REF" == *"-rc"* ]]; then
+            TAG="next"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            TAG="latest"
           fi
 
-      - name: Publish
-        working-directory: crates/napi
-        run: |
-          TAG="${{ steps.npm-tag.outputs.tag }}"
           PKG_NAME=$(node -p "require('./package.json').name")
           PKG_VERSION=$(node -p "require('./package.json').version")
 
-          # Publish platform-specific packages first
           for dir in npm/*/; do
             cd "$dir"
             PLATFORM_PKG=$(node -p "require('./package.json').name")
-            if ! npm publish --access public --provenance --tag "$TAG" 2>&1; then
-              echo "Platform package already published, adding tag..."
+            npm publish --access public --provenance --tag "$TAG" 2>&1 || \
               npm dist-tag add "${PLATFORM_PKG}@${PKG_VERSION}" "$TAG" || true
-            fi
             cd -
           done
 
-          # Publish main package (skip prepublish GitHub release upload)
-          if ! npm publish --access public --provenance --tag "$TAG" --ignore-scripts 2>&1; then
-            echo "Main package already published, adding tag..."
+          npm publish --access public --provenance --tag "$TAG" --ignore-scripts 2>&1 || \
             npm dist-tag add "${PKG_NAME}@${PKG_VERSION}" "$TAG" || true
-          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

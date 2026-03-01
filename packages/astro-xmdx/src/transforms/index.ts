@@ -126,6 +126,7 @@ export {
   rewriteSetHtmlCodeBlocks,
   rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
+  stripExpressiveCodeImport,
 } from './expressive-code.js';
 export {
   injectAstroComponents,
