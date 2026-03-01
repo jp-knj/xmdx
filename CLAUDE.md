@@ -30,6 +30,7 @@ This is a hybrid Rust + TypeScript monorepo managed by pnpm workspaces and Cargo
 pnpm install
 pnpm build          # Build all packages recursively
 pnpm test           # Run all tests recursively
+pnpm knip           # Detect unused code & dependencies
 ```
 
 ### Rust
@@ -81,12 +82,36 @@ Preconfigured transform sets for Astro, Starlight, and ExpressiveCode. Starlight
 ### Component Registry (`packages/xmdx/src/registry/`)
 Maps MDX component names to implementations with schema validation. Ships with built-in Astro and Starlight presets.
 
-## CI
+## CI Checks
 
-GitHub Actions workflows (`.github/workflows/`):
-1. **`ci.yml`** — Build, lint, and test: `cargo fmt`, `cargo clippy`, `cargo test` (excludes xmdx-napi). Also runs WASM build + edge/parity tests.
-2. **`napi-build.yml`** — Test NAPI bindings: builds NAPI, runs `cargo test -p xmdx-napi` and `bun test`. Includes E2E Starlight build job.
-3. **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
+CI runs on push/PR to main and next (`.github/workflows/ci.yml`):
+
+### Rust (`rust` job)
+1. **Formatting** — `cargo fmt --all -- --check`
+2. **Linting** — `cargo clippy --workspace --all-targets -- -D warnings`
+3. **Tests** — `cargo test --workspace --exclude xmdx-napi`
+
+### NAPI (`napi` job)
+4. **Build** — builds NAPI binding via `bun run build` in `crates/napi`
+5. **Rust tests** — `cargo test -p xmdx-napi`
+6. **JS tests** — `bun test` in `crates/napi`
+
+### WASM (`test-wasm` job)
+7. **Build** — `cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release`
+8. **JS glue** — `wasm-bindgen` generates JS bindings
+9. **Tests** — WASM + edge parity tests via `bun test` in `packages/xmdx`
+
+### TypeScript (`typescript` job, depends on `napi`)
+10. **Build** — `pnpm build` (all packages)
+11. **Typecheck** — `tsc --noEmit` per package
+12. **Tests** — `pnpm test` (`bun test` per package)
+
+### Unused code (`knip` job)
+13. **Knip** — `pnpm knip` (config in `knip.json`)
+
+Additional workflows:
+- **`napi-build.yml`** — Cross-platform NAPI builds and tests. Includes E2E Starlight build job.
+- **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
 
 ## Key Conventions
 
