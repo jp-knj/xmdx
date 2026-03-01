@@ -7,103 +7,81 @@ on:
     branches: [main, next]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  rust:
-    name: Rust (fmt, clippy, test)
+  lint-rust:
+    name: Lint (Rust)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
 
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run tests
-        run: cargo test --workspace --exclude xmdx-napi
-
-  napi:
-    name: NAPI Bindings
+  test-rust:
+    name: Test (Rust)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --exclude xmdx-napi
 
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
+  test-napi:
+    name: Test (NAPI)
+    runs-on: ubuntu-latest
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Install dependencies
+      - name: Install & build
         working-directory: crates/napi
-        run: bun install
+        run: bun install && bun run build
 
-      - name: Build NAPI binding
-        working-directory: crates/napi
-        run: bun run build
-
-      - name: Run Rust tests
-        run: cargo test -p xmdx-napi
+      - run: cargo test -p xmdx-napi
 
       - name: Run JS tests
         working-directory: crates/napi
         run: bun test
 
   test-wasm:
-    name: Test WASM Bindings
+    name: Test (WASM)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-
-      - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli@0.2.108
-
-      - name: Build WASM
-        run: cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release
-
-      - name: Generate JS glue
-        run: wasm-bindgen target/wasm32-unknown-unknown/release/xmdx_wasm.wasm --out-dir packages/xmdx/wasm --target web
-
+      - uses: swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: cargo install wasm-bindgen-cli@0.2.108
+      - run: cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release
+      - run: wasm-bindgen target/wasm32-unknown-unknown/release/xmdx_wasm.wasm --out-dir packages/xmdx/wasm --target web
+      - run: pnpm install --frozen-lockfile
 
       - name: Build NAPI (for parity tests)
         working-directory: crates/napi
@@ -113,71 +91,58 @@ jobs:
         working-directory: packages/xmdx
         run: bun test
 
-  typescript:
-    name: TypeScript (build, test, typecheck)
+  build-ts:
+    name: Build (TypeScript)
     runs-on: ubuntu-latest
-    needs: [napi]
+    needs: [test-napi]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - run: pnpm build:napi
+      - run: pnpm build
+      - run: pnpm --filter xmdx typecheck
+      - run: pnpm --filter astro-xmdx typecheck
+      - run: pnpm --filter @xmdx/astro-loader lint
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+  test-ts:
+    name: Test (TypeScript)
+    runs-on: ubuntu-latest
+    needs: [build-ts]
 
-      - name: Install dependencies
-        run: pnpm install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Build NAPI binding
-        run: pnpm build:napi
+      - run: pnpm install
+      - run: pnpm build:napi
+      - run: pnpm build
+      - run: pnpm test
 
-      - name: Build packages
-        run: pnpm build
-
-      - name: Typecheck (xmdx)
-        run: pnpm --filter xmdx typecheck
-
-      - name: Typecheck (astro-xmdx)
-        run: pnpm --filter astro-xmdx typecheck
-
-      - name: Typecheck (astro-loader)
-        run: pnpm --filter @xmdx/astro-loader lint
-
-      - name: Run tests
-        run: pnpm test
-
-  knip:
-    name: Unused code detection
+  lint-knip:
+    name: Lint (Knip)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Run knip
-        run: pnpm knip
+      - run: pnpm install
+      - run: pnpm knip

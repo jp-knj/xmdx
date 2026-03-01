@@ -82,36 +82,28 @@ Preconfigured transform sets for Astro, Starlight, and ExpressiveCode. Starlight
 ### Component Registry (`packages/xmdx/src/registry/`)
 Maps MDX component names to implementations with schema validation. Ships with built-in Astro and Starlight presets.
 
-## CI Checks
+## CI
 
-CI runs on push/PR to main and next (`.github/workflows/ci.yml`):
+GitHub Actions workflows (`.github/workflows/`):
 
-### Rust (`rust` job)
-1. **Formatting** — `cargo fmt --all -- --check`
-2. **Linting** — `cargo clippy --workspace --all-targets -- -D warnings`
-3. **Tests** — `cargo test --workspace --exclude xmdx-napi`
+### `ci.yml` — Lint & Test
+- **Lint (Rust)** — `cargo fmt` + `cargo clippy`
+- **Test (Rust)** — `cargo test` (excludes xmdx-napi)
+- **Test (NAPI)** — builds NAPI binding, runs Rust + JS tests
+- **Test (WASM)** — builds WASM, runs edge/parity tests
+- **Build (TypeScript)** — `pnpm build` + `tsc --noEmit` per package
+- **Test (TypeScript)** — `pnpm test` (`bun test` per package)
+- **Lint (Knip)** — `pnpm knip` (config in `knip.json`)
 
-### NAPI (`napi` job)
-4. **Build** — builds NAPI binding via `bun run build` in `crates/napi`
-5. **Rust tests** — `cargo test -p xmdx-napi`
-6. **JS tests** — `bun test` in `crates/napi`
+### `napi.yml` — Cross-platform NAPI builds
+- Builds 7 targets, tests on 3 platforms with Node 20/22
+- E2E Starlight build test
+- Publishes `@xmdx/napi` on `v*` tags
 
-### WASM (`test-wasm` job)
-7. **Build** — `cargo build -p xmdx-wasm --target wasm32-unknown-unknown --release`
-8. **JS glue** — `wasm-bindgen` generates JS bindings
-9. **Tests** — WASM + edge parity tests via `bun test` in `packages/xmdx`
-
-### TypeScript (`typescript` job, depends on `napi`)
-10. **Build** — `pnpm build` (all packages)
-11. **Typecheck** — `tsc --noEmit` per package
-12. **Tests** — `pnpm test` (`bun test` per package)
-
-### Unused code (`knip` job)
-13. **Knip** — `pnpm knip` (config in `knip.json`)
-
-Additional workflows:
-- **`napi-build.yml`** — Cross-platform NAPI builds and tests. Includes E2E Starlight build job.
-- **`publish-packages.yml`** — Publish TypeScript packages (`xmdx`, `astro-xmdx`, `astro-loader`) to npm
+### `release.yml` — TypeScript package releases
+- Uses changesets/action to create Release PRs and publish to npm
+- `next` branch → prerelease versions (e.g. `0.0.4-next.0`)
+- `main` branch → stable versions (e.g. `0.0.4`)
 
 ## Key Conventions
 

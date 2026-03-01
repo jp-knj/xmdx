@@ -28,7 +28,7 @@
     "provenance": true
   },
   "peerDependencies": {
-    "astro": "5.16.4"
+    "astro": ">=5.0.0"
   },
   "dependencies": {
     "@xmdx/napi": "workspace:*",
