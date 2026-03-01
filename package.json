@@ -2,6 +2,7 @@
   "name": "xmdx-monorepo",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "pnpm -r build",
     "build:napi": "pnpm --filter @xmdx/napi build",
