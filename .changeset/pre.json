@@ -3,7 +3,7 @@
   "tag": "next",
   "initialVersions": {
     "xmdx": "0.0.4",
-    "astro-xmdx": "0.0.4",
+    "astro-xmdx": "0.0.5",
     "@xmdx/astro-loader": "0.0.1"
   }
 }
