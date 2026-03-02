@@ -1,0 +1,70 @@
+name: Publish (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - astro-xmdx
+          - xmdx
+      tag:
+        description: "npm dist-tag"
+        required: true
+        type: choice
+        options:
+          - latest
+          - next
+      dry-run:
+        description: "Dry run (do not actually publish)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.package }}@${{ inputs.tag }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Publish with provenance
+        run: |
+          PACKAGE_DIR="packages/${{ inputs.package }}"
+          if [ "${{ inputs.package }}" = "astro-xmdx" ]; then
+            PACKAGE_DIR="packages/astro-xmdx"
+          elif [ "${{ inputs.package }}" = "xmdx" ]; then
+            PACKAGE_DIR="packages/xmdx"
+          fi
+
+          VERSION=$(node -p "require('./${PACKAGE_DIR}/package.json').version")
+          echo "Publishing ${{ inputs.package }}@${VERSION} with tag ${{ inputs.tag }}"
+
+          DRY_RUN=""
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            DRY_RUN="--dry-run"
+          fi
+
+          cd "$PACKAGE_DIR"
+          npm publish --access public --tag ${{ inputs.tag }} --provenance ${DRY_RUN}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
