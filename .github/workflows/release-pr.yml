@@ -1,0 +1,38 @@
+name: Release PR
+
+on:
+  push:
+    branches: [main, next]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-pr:
+    name: Create Release PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create Release PR
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version
+          commit: "[ci] version"
+          title: "[ci] version"
+          # PR만 만들고 publish는 안함
+          publish: echo "skip"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
