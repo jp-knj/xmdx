@@ -1,5 +1,11 @@
 # astro-xmdx
 
+## 0.0.10-next.2
+
+### Patch Changes
+
+- bbcf4f1: Fix "Vite module runner has been closed" build crash
+
 ## 0.0.10-next.0
 
 ### Patch Changes
