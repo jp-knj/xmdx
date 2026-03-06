@@ -4,6 +4,10 @@
   "initialVersions": {
     "xmdx": "0.0.4",
     "astro-xmdx": "0.0.5",
-    "@xmdx/astro-loader": "0.0.1"
-  }
+    "@xmdx/astro-loader": "0.0.1",
+    "@xmdx/napi": "0.0.7"
+  },
+  "changesets": [
+    "next-1-release"
+  ]
 }
