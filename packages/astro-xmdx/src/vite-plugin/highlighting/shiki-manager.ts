@@ -7,7 +7,7 @@ import { createShikiHighlighter } from './shiki-highlighter.js';
 import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 export class ShikiManager {
-  private instance: Promise<ShikiHighlighter> | undefined;
+  private instance: Promise<ShikiHighlighter | null> | undefined;
   private enabled: boolean;
 
   constructor(enabled: boolean) {
@@ -23,7 +23,7 @@ export class ShikiManager {
     if (!this.instance) {
       this.instance = createShikiHighlighter();
     }
-    return this.instance.catch(() => null);
+    return this.instance.then((h) => h ?? null).catch(() => null);
   }
 
   /**
@@ -35,7 +35,7 @@ export class ShikiManager {
     if (!this.instance) {
       this.instance = createShikiHighlighter();
     }
-    return this.instance.catch(() => null);
+    return this.instance.then((h) => h ?? null).catch(() => null);
   }
 
   /**

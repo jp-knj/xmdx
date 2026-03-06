@@ -550,7 +550,15 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
   debugTime('buildStart:total');
   debugTime('buildStart:glob');
 
-  const { glob } = require('glob') as {
+  let globModule: typeof import('glob');
+  try {
+    globModule = require('glob');
+  } catch {
+    throw new Error(
+      '[xmdx] glob is required for file discovery. Please install: npm install glob'
+    );
+  }
+  const { glob } = globModule as {
     glob: (
       pattern: string,
       options: { cwd: string; ignore: string[]; absolute: boolean }

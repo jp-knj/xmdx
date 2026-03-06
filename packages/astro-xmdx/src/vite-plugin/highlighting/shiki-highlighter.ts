@@ -4,9 +4,26 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createHighlighter, createCssVariablesTheme } from 'shiki';
 import { SHIKI_THEME } from '../../constants.js';
 import type { ShikiHighlighter } from '../../transforms/shiki.js';
+
+let shikiImport: Promise<typeof import('shiki') | null> | null = null;
+
+const loadShiki = async (): Promise<typeof import('shiki') | null> => {
+  if (!shikiImport) {
+    shikiImport = (async () => {
+      try {
+        return await import('shiki');
+      } catch {
+        console.warn(
+          '[xmdx] shiki not found. Syntax highlighting disabled. Install: npm install shiki'
+        );
+        return null;
+      }
+    })();
+  }
+  return shikiImport;
+};
 
 // Re-export for convenience
 export type { ShikiHighlighter } from '../../transforms/shiki.js';
@@ -28,7 +45,14 @@ function hashCode(lang: string, code: string): string {
  *
  * @returns A function that highlights code and returns HTML
  */
-export async function createShikiHighlighter(): Promise<ShikiHighlighter> {
+export async function createShikiHighlighter(): Promise<ShikiHighlighter | null> {
+  const shiki = await loadShiki();
+  if (!shiki) {
+    return null;
+  }
+
+  const { createHighlighter, createCssVariablesTheme } = shiki;
+
   const theme = createCssVariablesTheme({
     name: SHIKI_THEME.name,
     variablePrefix: SHIKI_THEME.variablePrefix,
