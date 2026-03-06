@@ -7,5 +7,7 @@
     "@xmdx/astro-loader": "0.0.1",
     "@xmdx/napi": "0.0.7"
   },
-  "changesets": []
+  "changesets": [
+    "reduce-bundle-size"
+  ]
 }
