@@ -183,7 +183,7 @@ jobs:
         run: |
           npx napi create-npm-dirs
           pnpm artifacts
-          npx napi prepublish -t npm --no-gh-release --dry-run
+          npx napi prepublish -t npm --no-gh-release
 
           REF="${GITHUB_REF##*/}"
           if [[ "$REF" == *"-next"* || "$REF" == *"-alpha"* || "$REF" == *"-beta"* || "$REF" == *"-rc"* ]]; then
