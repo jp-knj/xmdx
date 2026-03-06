@@ -9,15 +9,14 @@
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["esbuild"]
+      "ignoreDependencies": ["esbuild", "expressive-code", "shiki"]
     },
     "packages/astro-loader": {
       "project": ["src/**/*.ts"]
     },
     "crates/napi": {
       "project": ["**/*.{js,ts}"],
-      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"],
-      "ignoreBinaries": ["artifacts"]
+      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"]
     }
   },
   "ignoreWorkspaces": ["examples/*"]
