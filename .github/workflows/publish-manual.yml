@@ -65,6 +65,6 @@ jobs:
           fi
 
           cd "$PACKAGE_DIR"
-          npm publish --access public --tag ${{ inputs.tag }} --provenance ${DRY_RUN}
+          pnpm publish --access public --tag ${{ inputs.tag }} --provenance --no-git-checks ${DRY_RUN}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
