@@ -8,6 +8,7 @@
     "@xmdx/napi": "0.0.7"
   },
   "changesets": [
-    "next-1-release"
+    "next-1-release",
+    "reduce-bundle-size"
   ]
 }
