@@ -27,27 +27,36 @@ let resolvedBatchTransform: BatchTransformFn | null = null;
 async function resolveTransformFn(): Promise<TransformFn> {
   if (resolvedTransform) return resolvedTransform;
 
-  // Try Vite 8+ transformWithOxc first
+  let vite: typeof import('vite');
   try {
-    const vite = _require('vite');
-    if (typeof vite.transformWithOxc === 'function') {
-      const transformWithOxc = vite.transformWithOxc;
-
-      resolvedTransform = async (code, filename, _options) => {
-        const result = await transformWithOxc(code, filename, OXC_JSX_CONFIG);
-        return {
-          code: result.code,
-          map: result.map,
-        };
-      };
-      return resolvedTransform;
-    }
+    vite = _require('vite');
   } catch {
-    // transformWithOxc not available
+    vite = await import('vite');
+  }
+  const viteWithOxc = vite as typeof import('vite') & {
+    transformWithOxc?: (
+      code: string,
+      filename: string,
+      options: typeof OXC_JSX_CONFIG,
+    ) => Promise<TransformResult>;
+  };
+
+  // Try Vite 8+ transformWithOxc first
+  if (typeof viteWithOxc.transformWithOxc === 'function') {
+    const transformWithOxc = viteWithOxc.transformWithOxc;
+
+    resolvedTransform = async (code, filename, _options) => {
+      const result = await transformWithOxc(code, filename, OXC_JSX_CONFIG);
+      return {
+        code: result.code,
+        map: result.map,
+      };
+    };
+    return resolvedTransform;
   }
 
-  // Fallback to transformWithEsbuild (use dynamic import for ESM-only Vite 5+)
-  const { transformWithEsbuild } = await import('vite');
+  // Fallback to transformWithEsbuild
+  const { transformWithEsbuild } = vite;
   resolvedTransform = async (code, filename, _options) => {
     const result = await transformWithEsbuild(code, filename, ESBUILD_JSX_CONFIG);
     return {
