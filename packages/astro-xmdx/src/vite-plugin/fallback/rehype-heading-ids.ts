@@ -38,10 +38,36 @@ function extractText(node: HastNode): string {
   return node.children.map(extractText).join('');
 }
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+  shy: '',
+};
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity.startsWith('#x') || entity.startsWith('#X')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return codePoint >= 0 && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : match;
+    }
+    if (entity.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return codePoint >= 0 && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : match;
+    }
+    return NAMED_HTML_ENTITIES[entity] ?? match;
+  });
+}
+
 export function slugifyHeading(text: string): string {
-  const slug = text
+  const slug = decodeHtmlEntities(text)
+    .normalize('NFKC')
+    .replace(/\u00AD/g, '')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N} _-]/gu, '')
+    .replace(/[^\p{L}\p{M}\p{N} _-]/gu, '')
     .replace(/ /g, '-');
   return slug || 'heading';
 }

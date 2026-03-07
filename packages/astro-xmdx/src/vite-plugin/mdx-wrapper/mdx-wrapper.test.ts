@@ -495,6 +495,118 @@ export default _createMdxContent;`;
       expect(result).toContain('id: "see-docs-intro"');
     });
 
+    test('single-quoted string-tag children get IDs injected', () => {
+      const mdxCode = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", {
+    children: [
+      _jsx('h2', { children: 'First' }),
+      _jsx('h2', { children: 'Second' }),
+    ]
+  });
+}
+export default _createMdxContent;`;
+
+      const headings = [
+        { depth: 2, slug: 'first', text: 'First' },
+        { depth: 2, slug: 'second', text: 'Second' },
+      ];
+
+      const registry = createRegistry([starlightLibrary]);
+      const result = wrapMdxModule(mdxCode, {
+        frontmatter: {},
+        headings,
+        registry,
+      }, 'test.mdx');
+
+      expect(result).toContain('id: "first"');
+      expect(result).toContain('id: "second"');
+    });
+
+    test('literal JSX heading before markdown heading does not steal ID', () => {
+      // In mdxjs-rs output, _components.hN = markdown heading, "hN" = literal JSX <h2>.
+      // The string-tag call should not steal the slug from the component-ref call.
+      const mdxCode = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", {
+    children: [
+      _jsx("h2", { children: "Title" }),
+      _jsx(_components.h2, { children: "Title" }),
+    ]
+  });
+}
+export default _createMdxContent;`;
+
+      const headings = [
+        { depth: 2, slug: 'title', text: 'Title' },
+      ];
+
+      const registry = createRegistry([starlightLibrary]);
+      const result = wrapMdxModule(mdxCode, {
+        frontmatter: {},
+        headings,
+        registry,
+      }, 'test.mdx');
+
+      // Find positions of each call
+      const stringTagIdx = result.indexOf('_jsx("h2"');
+      const componentRefIdx = result.indexOf('_jsx(_components.h2');
+
+      expect(stringTagIdx).toBeGreaterThan(-1);
+      expect(componentRefIdx).toBeGreaterThan(-1);
+
+      // The string-tag call must NOT get the ID
+      const regionBeforeStringTag = result.slice(Math.max(0, stringTagIdx - 80), stringTagIdx);
+      expect(regionBeforeStringTag).not.toContain('id: "title"');
+
+      // The component-ref call must get the ID
+      const regionBeforeComponentRef = result.slice(Math.max(0, componentRefIdx - 80), componentRefIdx);
+      // Check the props region after the match
+      const propsRegion = result.slice(componentRefIdx, componentRefIdx + 200);
+      expect(propsRegion).toContain('id: "title"');
+    });
+
+    test('mixed component-ref and string-tag calls with same text', () => {
+      const mdxCode = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", {
+    children: [
+      _jsx(_components.h2, { children: "A" }),
+      _jsx("h2", { children: "B" }),
+      _jsx(_components.h2, { children: "B" }),
+    ]
+  });
+}
+export default _createMdxContent;`;
+
+      const headings = [
+        { depth: 2, slug: 'a', text: 'A' },
+        { depth: 2, slug: 'b', text: 'B' },
+      ];
+
+      const registry = createRegistry([starlightLibrary]);
+      const result = wrapMdxModule(mdxCode, {
+        frontmatter: {},
+        headings,
+        registry,
+      }, 'test.mdx');
+
+      // _components.h2 "A" gets slug "a"
+      const compAIdx = result.indexOf('_jsx(_components.h2, {');
+      const compARegion = result.slice(compAIdx, compAIdx + 200);
+      expect(compARegion).toContain('id: "a"');
+
+      // string-tag "h2" "B" does NOT get slug "b" — check only up to the children prop
+      const stringBIdx = result.indexOf('_jsx("h2"');
+      const stringBRegion = result.slice(stringBIdx, result.indexOf('children: "B"', stringBIdx));
+      expect(stringBRegion).not.toContain('id: "b"');
+
+      // _components.h2 "B" gets slug "b"
+      const compBIdx = result.indexOf('_jsx(_components.h2, {', compAIdx + 1);
+      const compBRegion = result.slice(compBIdx, compBIdx + 200);
+      expect(compBRegion).toContain('id: "b"');
+    });
+
     test('HTML-in-heading via fallback', () => {
       // ## <span>text</span> compiles to array children with a JSX call.
       // extractChildrenText returns null, so fallback prefix-match assigns the slug.
@@ -531,6 +643,10 @@ describe('extractArrayInner', () => {
 
   test('simple quoted string (no regression)', () => {
     expect(extractArrayInner('["ok"]')).toBe('"ok"');
+  });
+
+  test('handles single-quoted strings', () => {
+    expect(extractArrayInner("['a]b', 'c']")).toBe("'a]b', 'c'");
   });
 
   test('brackets inside string literal', () => {
