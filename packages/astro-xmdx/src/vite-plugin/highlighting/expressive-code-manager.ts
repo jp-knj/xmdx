@@ -114,7 +114,10 @@ export class ExpressiveCodeManager {
 
       return engine;
     } catch (error) {
-      console.warn('[xmdx] Failed to initialize ExpressiveCode engine:', error);
+      console.warn(
+        '[xmdx] Failed to initialize ExpressiveCode engine. Please install: npm install expressive-code',
+        error
+      );
       return null;
     }
   }

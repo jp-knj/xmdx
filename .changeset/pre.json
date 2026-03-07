@@ -2,8 +2,13 @@
   "mode": "pre",
   "tag": "next",
   "initialVersions": {
-    "xmdx": "0.0.4",
-    "astro-xmdx": "0.0.5",
-    "@xmdx/astro-loader": "0.0.1"
-  }
+    "xmdx": "0.0.8",
+    "astro-xmdx": "0.0.9",
+    "@xmdx/astro-loader": "0.0.1",
+    "@xmdx/napi": "0.0.7"
+  },
+  "changesets": [
+    "fix-vite-module-runner",
+    "reduce-bundle-size"
+  ]
 }
