@@ -3,217 +3,343 @@
  * @module vite-plugin/heading-id-injector
  */
 
-import {
-  extractQuotedString,
-  extractArrayInner,
-  collectStringLiterals,
-} from './string-utils.js';
+import { extractArrayInner, extractQuotedString } from './string-utils.js';
 
-// PERF: Pre-compiled pattern for heading JSX calls
-const HEADING_JSX_PATTERN = /_jsxs?\(_components\.h([1-6]),\s*\{/g;
+// Match heading calls emitted as _components.hN, bare hN, or string tags like "h3".
+const HEADING_JSX_PATTERN = /_jsxs?\((?:(?:_components\.)?h([1-6])|["']h([1-6])["']),\s*\{/g;
 
 interface HeadingCall {
-  offset: number;       // offset of the full match in code
-  matchLen: number;      // length of the regex match
+  offset: number;
+  matchLen: number;
   depth: number;
-  childrenText: string | null;  // extracted text, or null if JSX children
-  slug: string | null;   // assigned slug (null = unmatched so far)
+  childrenText: string | null;
+  slug: string | null;
+  isStringTag: boolean;
 }
 
-/**
- * Extracts text from a single JSX call's children by finding the inner
- * `{ children: ... }` and recursively extracting text from it.
- *
- * Handles patterns like `_jsx(_components.em, { children: "Intro" })`.
- */
-function extractTextFromJsxChildren(jsxCall: string): string | null {
+type HeadingEntry = { depth: number; slug: string; text: string };
+
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+  shy: '',
+};
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity.startsWith('#x') || entity.startsWith('#X')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return codePoint >= 0 && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : match;
+    }
+    if (entity.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return codePoint >= 0 && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : match;
+    }
+    return NAMED_HTML_ENTITIES[entity] ?? match;
+  });
+}
+
+function normalizeHeadingText(text: string): string {
+  return decodeHtmlEntities(text)
+    .normalize('NFKC')
+    .replace(/\u00AD/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function slugifyHeadingText(text: string): string {
+  const slug = normalizeHeadingText(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N} _-]/gu, '')
+    .replace(/ /g, '-');
+  return slug || 'heading';
+}
+
+function splitTopLevelExpressions(fragment: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < fragment.length; i++) {
+    const ch = fragment[i];
+    if (quote) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+    else if (ch === ',' && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
+      parts.push(fragment.slice(start, i));
+      start = i + 1;
+    }
+  }
+
+  parts.push(fragment.slice(start));
+  return parts;
+}
+
+function extractPropValue(propsRegion: string, propName: string): string | null {
+  const propMatch = new RegExp(`\\b${propName}:\\s*`).exec(propsRegion);
+  if (!propMatch) return null;
+
+  const start = propMatch.index + propMatch[0].length;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let quote: '"' | "'" | null = null;
+  let end = propsRegion.length;
+
+  for (let i = start; i < propsRegion.length; i++) {
+    const ch = propsRegion[i];
+    if (quote) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && (ch === ',' || ch === '}')) {
+      end = i;
+      break;
+    }
+
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+  }
+
+  return propsRegion.slice(start, end).trim() || null;
+}
+
+function extractTextFromExpression(expr: string, allowPartial = false): string | null {
+  const trimmed = expr.trim();
+  if (!trimmed) return null;
+
+  const quoted = extractQuotedString(trimmed);
+  if (quoted !== null) return quoted;
+
+  if (trimmed.startsWith('[')) {
+    const inner = extractArrayInner(trimmed);
+    let text = '';
+    let sawPart = false;
+
+    for (const part of splitTopLevelExpressions(inner)) {
+      const partText = extractTextFromExpression(part, allowPartial);
+      if (partText === null) {
+        if (allowPartial) break;
+        return null;
+      }
+      text += partText;
+      sawPart = true;
+    }
+
+    return sawPart ? text : null;
+  }
+
+  if (trimmed.startsWith('_jsx')) {
+    return extractTextFromJsxChildren(trimmed, allowPartial);
+  }
+
+  return null;
+}
+
+function extractTextFromJsxChildren(jsxCall: string, allowPartial = false): string | null {
   const braceIdx = jsxCall.indexOf('{');
   if (braceIdx < 0) return null;
   const propsRegion = jsxCall.slice(braceIdx + 1);
-  const childrenMatch = /children:\s*/.exec(propsRegion);
-  if (!childrenMatch) return null;
-
-  const innerAfter = propsRegion.slice(childrenMatch.index + childrenMatch[0].length);
-
-  // String children
-  if (innerAfter.startsWith('"')) {
-    return extractQuotedString(innerAfter);
-  }
-
-  // Array children without nested JSX
-  if (innerAfter.startsWith('[')) {
-    const inner = extractArrayInner(innerAfter);
-    if (inner.includes('_jsx')) return null;
-    return collectStringLiterals(inner) || null;
-  }
-
-  // Nested JSX call (e.g., _jsx(em, { children: _jsx(strong, { children: "deep" }) }))
-  if (innerAfter.startsWith('_jsx')) {
-    return extractTextFromJsxChildren(innerAfter);
-  }
-
-  return null;
+  const childrenExpr = extractPropValue(propsRegion, 'children');
+  if (!childrenExpr) return null;
+  return extractTextFromExpression(childrenExpr, allowPartial);
 }
 
-/**
- * Extracts a plain-text string from the children value following a heading JSX call.
- *
- * Handles simple string children (`children: "Hello"`), array children
- * where we concatenate all string literals (`children: ["Hello", " ", "World"]`),
- * and single JSX-wrapping elements (`children: _jsx(_components.em, { children: "Intro" })`).
- * Returns null if children cannot be reliably extracted.
- */
 function extractChildrenText(code: string, propsStart: number): string | null {
-  const searchRegion = code.slice(propsStart, propsStart + 500);
-  const childrenMatch = /children:\s*/.exec(searchRegion);
-  if (!childrenMatch) return null;
-
-  const afterChildren = searchRegion.slice(childrenMatch.index + childrenMatch[0].length);
-
-  // Case 1: children: "simple string" (handle escaped quotes)
-  if (afterChildren.startsWith('"')) {
-    return extractQuotedString(afterChildren);
-  }
-
-  // Case 2: children: ["part1", _jsx(...), "part2", ...]
-  // Concatenate only string literals for matching.
-  if (afterChildren.startsWith('[')) {
-    const inner = extractArrayInner(afterChildren);
-    // If array contains JSX calls, tag name strings would pollute
-    // the extracted text. Fall back to sequential matching.
-    if (inner.includes('_jsx')) {
-      return null;
-    }
-    return collectStringLiterals(inner) || null;
-  }
-
-  // Case 3: children: _jsx*(_components.em, { children: "Intro" })
-  // Single JSX wrapping element (e.g., ## *Intro*, ## **Bold**)
-  if (afterChildren.startsWith('_jsx')) {
-    return extractTextFromJsxChildren(afterChildren);
-  }
-
-  return null;
+  const searchRegion = code.slice(propsStart, propsStart + 1200);
+  const childrenExpr = extractPropValue(searchRegion, 'children');
+  if (!childrenExpr) return null;
+  return extractTextFromExpression(childrenExpr);
 }
 
-/**
- * Extracts the leading string literal(s) from array children, even when JSX
- * calls are present. Returns the concatenated text of string literals that
- * appear before the first _jsx call, or null if children aren't an array.
- * This partial prefix can be used to fuzzy-match headings in the fallback path.
- *
- * Also handles single JSX call children (e.g., `_jsx(em, { children: "text" })`)
- * by extracting the inner text as the prefix.
- */
 function extractChildrenPrefix(code: string, propsStart: number): string | null {
-  const searchRegion = code.slice(propsStart, propsStart + 500);
-  const childrenMatch = /children:\s*/.exec(searchRegion);
-  if (!childrenMatch) return null;
-  const afterChildren = searchRegion.slice(childrenMatch.index + childrenMatch[0].length);
+  const searchRegion = code.slice(propsStart, propsStart + 1200);
+  const childrenExpr = extractPropValue(searchRegion, 'children');
+  if (!childrenExpr) return null;
+  return extractTextFromExpression(childrenExpr, true);
+}
 
-  // Single JSX call children — extract inner text as prefix
-  if (afterChildren.startsWith('_jsx')) {
-    return extractTextFromJsxChildren(afterChildren);
+function collectHeadingCalls(code: string): HeadingCall[] {
+  const calls: HeadingCall[] = [];
+  HEADING_JSX_PATTERN.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = HEADING_JSX_PATTERN.exec(code)) !== null) {
+    const depth = Number.parseInt(match[1] ?? match[2] ?? '', 10);
+    const propsStart = match.index + match[0].length;
+    calls.push({
+      offset: match.index,
+      matchLen: match[0].length,
+      depth,
+      childrenText: extractChildrenText(code, propsStart),
+      slug: null,
+      isStringTag: match[2] != null,
+    });
   }
 
-  if (!afterChildren.startsWith('[')) return null;
-  const inner = extractArrayInner(afterChildren);
-  // Extract text only up to the first _jsx call
-  const jsxPos = inner.indexOf('_jsx');
-  const prefix = jsxPos >= 0 ? inner.slice(0, jsxPos) : inner;
-  const text = collectStringLiterals(prefix);
-  if (text) return text;
+  return calls;
+}
 
-  // Leading _jsx call in array — extract inner text as prefix
-  if (jsxPos >= 0 && prefix.trim() === '') {
-    const jsxPart = inner.slice(jsxPos);
-    return extractTextFromJsxChildren(jsxPart);
+export function repairHeadings(code: string, headings: HeadingEntry[]): HeadingEntry[] {
+  const calls = collectHeadingCalls(code);
+  if (calls.length === 0) return headings;
+
+  const normalizedHeadings = headings.map((heading) => ({
+    ...heading,
+    normalizedText: normalizeHeadingText(heading.text),
+  }));
+  const usedHeadingIndexes = new Set<number>();
+  const matchedByIndex = new Map<number, HeadingEntry>();
+
+  // Two-pass matching: component-ref calls first, then string-tag calls
+  for (const pass of [false, true] as const) {
+    for (const call of calls) {
+      if (call.isStringTag !== pass) continue;
+
+      if (call.childrenText) {
+        // --- Full text match ---
+        const normalizedText = normalizeHeadingText(call.childrenText);
+        const matchedIndex = normalizedHeadings.findIndex(
+          (heading, index) =>
+            !usedHeadingIndexes.has(index) &&
+            heading.depth === call.depth &&
+            heading.normalizedText === normalizedText
+        );
+
+        if (matchedIndex >= 0) {
+          usedHeadingIndexes.add(matchedIndex);
+          const h = headings[matchedIndex]!;
+          matchedByIndex.set(matchedIndex, { depth: h.depth, slug: h.slug, text: h.text });
+        }
+        // No match: skip — don't synthesize slugs (P2 fix)
+        continue;
+      }
+
+      // --- childrenText is null: try prefix matching (P1 fix) ---
+      const prefix = extractChildrenPrefix(code, call.offset + call.matchLen);
+      const normalizedPrefix = prefix ? normalizeHeadingText(prefix) : null;
+
+      let matchedIndex = -1;
+      if (normalizedPrefix) {
+        matchedIndex = normalizedHeadings.findIndex(
+          (heading, index) =>
+            !usedHeadingIndexes.has(index) &&
+            heading.depth === call.depth &&
+            heading.normalizedText.startsWith(normalizedPrefix)
+        );
+      }
+      // Single-candidate fallback when no prefix could be extracted
+      if (matchedIndex < 0 && !normalizedPrefix) {
+        const candidates = normalizedHeadings
+          .map((h, i) => ({ h, i }))
+          .filter(({ h, i }) => !usedHeadingIndexes.has(i) && h.depth === call.depth);
+        if (candidates.length === 1) matchedIndex = candidates[0]!.i;
+      }
+
+      if (matchedIndex >= 0) {
+        usedHeadingIndexes.add(matchedIndex);
+        const h = headings[matchedIndex]!;
+        matchedByIndex.set(matchedIndex, { depth: h.depth, slug: h.slug, text: h.text });
+      }
+      // else: skip — injectHeadingIds fallback will handle it
+    }
   }
 
-  return null;
+  // Build final array preserving original heading order
+  const result: HeadingEntry[] = [];
+  for (let i = 0; i < headings.length; i++) {
+    if (usedHeadingIndexes.has(i)) {
+      result.push(matchedByIndex.get(i)!);
+    } else {
+      const h = headings[i]!;
+      result.push({ depth: h.depth, slug: h.slug, text: h.text });
+    }
+  }
+  return result.length > 0 ? result : headings;
 }
 
 /**
  * Injects `id` props into heading JSX calls in mdxjs-rs compiled output.
- *
- * mdxjs-rs generates `_jsx(_components.h2, { children: "..." })` without `id` attributes.
- * This function adds the corresponding slug from the extracted headings array so that
- * the rendered HTML has proper fragment anchors (e.g., `<h2 id="getting-started">`).
- *
- * Matches heading calls to the extracted headings by depth and text content rather than
- * sequential order, so setext or other heading types that aren't in the extracted headings
- * array don't cause ID misalignment.
  */
-export function injectHeadingIds(
-  code: string,
-  headings: Array<{ depth: number; slug: string; text: string }>
-): string {
+export function injectHeadingIds(code: string, headings: HeadingEntry[]): string {
   if (headings.length === 0) return code;
 
-  // --- Pass 1: scan all heading JSX calls and attempt text-based matching ---
-
-  // Build a queue of headings indexed by "depth:text" for O(1) lookup.
-  const headingMap = new Map<string, Array<{ slug: string; used: boolean }>>();
-  for (const h of headings) {
-    const key = `${h.depth}:${h.text}`;
-    let list = headingMap.get(key);
-    if (!list) {
-      list = [];
-      headingMap.set(key, list);
-    }
-    list.push({ slug: h.slug, used: false });
+  const headingMap = new Map<string, Array<{ slug: string; used: boolean; rawText: string }>>();
+  for (const heading of headings) {
+    const key = `${heading.depth}:${normalizeHeadingText(heading.text)}`;
+    const entries = headingMap.get(key) ?? [];
+    entries.push({ slug: heading.slug, used: false, rawText: heading.text });
+    headingMap.set(key, entries);
   }
 
-  // Collect all heading calls
-  const calls: HeadingCall[] = [];
-  HEADING_JSX_PATTERN.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = HEADING_JSX_PATTERN.exec(code)) !== null) {
-    const depth = Number.parseInt(m[1]!, 10);
-    const propsStart = m.index + m[0].length;
-    const childrenText = extractChildrenText(code, propsStart);
-    calls.push({ offset: m.index, matchLen: m[0].length, depth, childrenText, slug: null });
-  }
+  const calls = collectHeadingCalls(code);
 
-  // First, match calls that have extractable text (content-based matching)
-  for (const call of calls) {
-    if (call.childrenText === null) continue;
-    const key = `${call.depth}:${call.childrenText}`;
-    const entries = headingMap.get(key);
-    if (entries) {
-      const entry = entries.find(e => !e.used);
-      if (entry) {
-        entry.used = true;
-        call.slug = entry.slug;
-      }
-      // else: no unused entry → setext heading with extractable text, left unmatched
+  // Two-pass exact-text matching: component-ref calls first, then string-tag calls
+  for (const pass of [false, true] as const) {
+    for (const call of calls) {
+      if (call.isStringTag !== pass) continue;
+      if (call.childrenText === null) continue;
+      const key = `${call.depth}:${normalizeHeadingText(call.childrenText)}`;
+      const entries = headingMap.get(key);
+      if (!entries) continue;
+      // Prefer exact raw-text match over normalized-only match
+      let entry = entries.find((candidate) => !candidate.used && candidate.rawText === call.childrenText);
+      if (!entry) entry = entries.find((candidate) => !candidate.used);
+      if (!entry) continue;
+      entry.used = true;
+      call.slug = entry.slug;
     }
   }
 
-  // --- Pass 2: fallback for calls where text extraction failed (JSX children) ---
-  // These calls have array children containing _jsx calls so full text extraction
-  // failed. We use the leading string prefix (text before the first _jsx call) to
-  // match against unused heading entries. A call whose prefix matches a heading's
-  // text beginning gets that slug; unmatched calls (setext extras) are left without.
-  //
-  // Collect unused heading entries per depth in document order.
-  // Use a separate "claimed" set to avoid double-counting entries
-  // that share the same headingMap key (duplicate heading text).
-  const unusedByDepth = new Map<number, Array<{ text: string; slug: string }>>();
-  const claimed = new Set<{ slug: string; used: boolean }>();
-  for (const h of headings) {
-    const key = `${h.depth}:${h.text}`;
+  const unusedByDepth = new Map<number, Array<{ normalizedText: string; rawText: string; slug: string }>>();
+  const claimed = new Set<{ slug: string; used: boolean; rawText: string }>();
+  for (const heading of headings) {
+    const key = `${heading.depth}:${normalizeHeadingText(heading.text)}`;
     const entries = headingMap.get(key);
-    if (!entries) continue;
-    const entry = entries.find(e => !e.used && !claimed.has(e));
+    const entry = entries?.find((candidate) => !candidate.used && !claimed.has(candidate));
     if (!entry) continue;
     claimed.add(entry);
-    let list = unusedByDepth.get(h.depth);
-    if (!list) {
-      list = [];
-      unusedByDepth.set(h.depth, list);
-    }
-    list.push({ text: h.text, slug: entry.slug });
+    const unused = unusedByDepth.get(heading.depth) ?? [];
+    unused.push({ normalizedText: normalizeHeadingText(heading.text), rawText: heading.text, slug: entry.slug });
+    unusedByDepth.set(heading.depth, unused);
   }
 
   for (const call of calls) {
@@ -222,36 +348,30 @@ export function injectHeadingIds(
     const unused = unusedByDepth.get(call.depth);
     if (!unused || unused.length === 0) continue;
 
-    // Extract the leading text prefix from the array children
     const prefix = extractChildrenPrefix(code, call.offset + call.matchLen);
+    const normalizedPrefix = prefix ? normalizeHeadingText(prefix) : null;
+    let matchedIndex = -1;
 
-    // Try to find an unused heading whose text starts with this prefix
-    let matched = -1;
-    if (prefix) {
-      matched = unused.findIndex(u => u.text.startsWith(prefix));
+    if (normalizedPrefix) {
+      matchedIndex = unused.findIndex((entry) => entry.normalizedText.startsWith(normalizedPrefix));
     }
 
-    // If no prefix available at all (e.g. children is a single JSX expression
-    // with no leading string literal) and there's only one unused heading at
-    // this depth, assign it (no ambiguity). But if we *do* have a prefix that
-    // simply didn't match, this call is an extra (setext) — don't assign.
-    if (matched < 0 && !prefix && unused.length === 1) {
-      matched = 0;
+    if (matchedIndex < 0 && !normalizedPrefix && unused.length === 1) {
+      matchedIndex = 0;
     }
 
-    if (matched >= 0) {
-      const entry = unused[matched]!;
-      call.slug = entry.slug;
-      // Mark used in the headingMap
-      const key = `${call.depth}:${entry.text}`;
-      const mapEntries = headingMap.get(key);
-      const mapEntry = mapEntries?.find(e => e.slug === entry.slug);
-      if (mapEntry) mapEntry.used = true;
-      unused.splice(matched, 1);
-    }
+    if (matchedIndex < 0) continue;
+
+    const entry = unused[matchedIndex]!;
+    call.slug = entry.slug;
+    unused.splice(matchedIndex, 1);
+
+    const key = `${call.depth}:${entry.normalizedText}`;
+    const mapEntries = headingMap.get(key);
+    const mapEntry = mapEntries?.find((candidate) => candidate.slug === entry.slug);
+    if (mapEntry) mapEntry.used = true;
   }
 
-  // --- Build result by replacing matched calls with id-injected versions ---
   let result = '';
   let lastEnd = 0;
   for (const call of calls) {

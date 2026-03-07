@@ -7,7 +7,7 @@
 import type { Registry } from 'xmdx/registry';
 import { detectUsedComponents } from './component-detection.js';
 import { generateComponentImports } from './component-imports.js';
-import { injectHeadingIds } from './heading-id-injector.js';
+import { injectHeadingIds, repairHeadings } from './heading-id-injector.js';
 import { normalizeMdxExport } from './export-normalizer.js';
 
 /**
@@ -54,7 +54,6 @@ export function wrapMdxModule(
 ): string {
   const { frontmatter, headings, registry } = options;
   const frontmatterJson = JSON.stringify(frontmatter);
-  const headingsJson = JSON.stringify(headings);
 
   // Analyze the MDX code to find components that need to be injected
   const usedComponents = detectUsedComponents(mdxCode, registry);
@@ -74,7 +73,9 @@ export function wrapMdxModule(
   // 1. Direct function: `export default function MDXContent(props) { ... }`
   // 2. Function reference: `function _createMdxContent(props) { ... } export default _createMdxContent;`
   const normalizedMdxCode = normalizeMdxExport(mdxCode);
-  const mdxWithIds = injectHeadingIds(normalizedMdxCode, headings);
+  const repairedHeadings = repairHeadings(normalizedMdxCode, headings);
+  const headingsJson = JSON.stringify(repairedHeadings);
+  const mdxWithIds = injectHeadingIds(normalizedMdxCode, repairedHeadings);
 
   return `import { createComponent, renderJSX } from 'astro/runtime/server/index.js';
 import { Fragment } from 'astro/jsx-runtime';

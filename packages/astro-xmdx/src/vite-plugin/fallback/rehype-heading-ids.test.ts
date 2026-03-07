@@ -11,6 +11,21 @@ describe('slugifyHeading', () => {
     expect(slugifyHeading('')).toBe('heading');
   });
 
+  test('returns raw entity for out-of-range code points', () => {
+    // &#x110000; is outside valid Unicode range (0-0x10FFFF)
+    expect(slugifyHeading('Test &#x110000; heading')).toBe('test-x110000-heading');
+    // Decimal out-of-range
+    expect(slugifyHeading('Test &#1114112; heading')).toBe('test-1114112-heading');
+  });
+
+  test('decodes uppercase hex entities', () => {
+    expect(slugifyHeading('&#X41;pple')).toBe('apple');
+  });
+
+  test('preserves malformed decimal entity with hex digits', () => {
+    expect(slugifyHeading('Foo &#12AF; Bar')).toBe('foo-12af-bar');
+  });
+
   test('whitespace-only text produces hyphens', () => {
     expect(slugifyHeading('   ')).toBe('---');
   });
