@@ -9,6 +9,7 @@
   },
   "changesets": [
     "fix-vite-module-runner",
+    "pnpm-strict-resolve",
     "reduce-bundle-size"
   ]
 }
