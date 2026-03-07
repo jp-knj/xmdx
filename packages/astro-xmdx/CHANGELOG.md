@@ -1,5 +1,11 @@
 # astro-xmdx
 
+## 0.0.10-next.4
+
+### Patch Changes
+
+- ea662ff: Fix heading ID injection to prioritize `_components.hN` (markdown headings) over string-tag `"hN"` calls (literal JSX headings), preventing literal JSX headings from stealing IDs. Also adds raw-text-first matching to avoid normalization conflation between distinct headings.
+
 ## 0.0.10-next.3
 
 ### Patch Changes
