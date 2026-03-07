@@ -8,6 +8,7 @@
     "@xmdx/napi": "0.0.7"
   },
   "changesets": [
+    "fix-mdx-heading-extraction",
     "fix-vite-module-runner",
     "heading-id-priority",
     "pnpm-strict-resolve",
