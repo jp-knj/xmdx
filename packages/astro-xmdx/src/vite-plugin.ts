@@ -4,6 +4,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -313,13 +314,34 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       const normalizedSource = unwrapVirtual(sourceId) ?? sourceId;
       const cleanId = stripQuery(normalizedSource);
       if (!include(cleanId)) {
-        if (
-          importer?.startsWith(VIRTUAL_MODULE_PREFIX) &&
-          normalizedImporter &&
-          !path.isAbsolute(sourceId) &&
-          sourceId.startsWith('.')
-        ) {
-          return path.resolve(path.dirname(normalizedImporter), sourceId);
+        if (importer?.startsWith(VIRTUAL_MODULE_PREFIX) && normalizedImporter) {
+          if (!path.isAbsolute(sourceId) && sourceId.startsWith('.')) {
+            return path.resolve(path.dirname(normalizedImporter), sourceId);
+          }
+          // Bare specifiers (e.g. 'astro-expressive-code/components') from virtual
+          // modules need resolving against the real importer path so pnpm strict
+          // node_modules resolution works correctly.
+          {
+            // Resolve from the real importer's directory first so we respect its
+            // package boundary (important in monorepos / pnpm strict mode).
+            const bases = [normalizedImporter];
+            if (resolvedConfig) {
+              const root = resolvedConfig.root;
+              // Fall back to pnpm's hoisted node_modules, then the project root.
+              bases.push(
+                path.join(root, 'node_modules', '.pnpm', 'node_modules', '_virtual.js'),
+                path.join(root, '_virtual.js'),
+              );
+            }
+            for (const base of bases) {
+              try {
+                const resolved = createRequire(base).resolve(sourceId);
+                if (resolved) return resolved;
+              } catch {
+                // Try next base
+              }
+            }
+          }
         }
         return null;
       }
