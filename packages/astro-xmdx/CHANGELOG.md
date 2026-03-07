@@ -1,5 +1,11 @@
 # astro-xmdx
 
+## 0.0.10-next.3
+
+### Patch Changes
+
+- 358097d: fix: resolve bare specifiers from virtual modules for pnpm strict mode
+
 ## 0.0.10-next.2
 
 ### Patch Changes
