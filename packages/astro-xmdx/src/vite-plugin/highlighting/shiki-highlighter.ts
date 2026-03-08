@@ -7,13 +7,22 @@ import { createHash } from 'node:crypto';
 import { SHIKI_THEME } from '../../constants.js';
 import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
-let shikiImport: Promise<typeof import('shiki') | null> | null = null;
+interface ShikiModule {
+  createHighlighter: (options: { themes: unknown[]; langs: unknown[] }) => Promise<{
+    getLoadedLanguages: () => string[];
+    loadLanguage: (...langs: unknown[]) => Promise<void>;
+    codeToHtml: (code: string, options: { lang: string; theme: string }) => string;
+  }>;
+  createCssVariablesTheme: (options: { name: string; variablePrefix: string }) => unknown;
+}
 
-const loadShiki = async (): Promise<typeof import('shiki') | null> => {
+let shikiImport: Promise<ShikiModule | null> | null = null;
+
+const loadShiki = async (): Promise<ShikiModule | null> => {
   if (!shikiImport) {
     shikiImport = (async () => {
       try {
-        return await import('shiki');
+        return await import('shiki') as ShikiModule;
       } catch {
         console.warn(
           '[xmdx] shiki not found. Syntax highlighting disabled. Install: npm install shiki'

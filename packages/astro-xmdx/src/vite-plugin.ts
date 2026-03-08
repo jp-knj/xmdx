@@ -4,7 +4,6 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -161,6 +160,11 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     value && value.startsWith(VIRTUAL_MODULE_PREFIX)
       ? value.slice(VIRTUAL_MODULE_PREFIX.length)
       : value;
+  const toVirtualId = (resolvedId: string): string => {
+    const virtualId = `${VIRTUAL_MODULE_PREFIX}${resolvedId}${OUTPUT_EXTENSION}`;
+    sourceLookup.set(virtualId, resolvedId);
+    return virtualId;
+  };
 
   // Enable Shiki when:
   // 1. XMDX_SHIKI=1 env var is set, OR
@@ -316,30 +320,22 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       if (!include(cleanId)) {
         if (importer?.startsWith(VIRTUAL_MODULE_PREFIX) && normalizedImporter) {
           if (!path.isAbsolute(sourceId) && sourceId.startsWith('.')) {
-            return path.resolve(path.dirname(normalizedImporter), sourceId);
+            const resolvedId = path.resolve(path.dirname(normalizedImporter), sourceId);
+            return include(resolvedId) ? toVirtualId(resolvedId) : resolvedId;
           }
           // Bare specifiers (e.g. 'astro-expressive-code/components') from virtual
-          // modules need resolving against the real importer path so pnpm strict
-          // node_modules resolution works correctly.
+          // modules — use Vite's resolver which respects ESM "import" conditions
+          // (createRequire uses CJS "require" conditions and fails for ESM-only packages).
           {
-            // Resolve from the real importer's directory first so we respect its
-            // package boundary (important in monorepos / pnpm strict mode).
-            const bases = [normalizedImporter];
-            if (resolvedConfig) {
-              const root = resolvedConfig.root;
-              // Fall back to pnpm's hoisted node_modules, then the project root.
-              bases.push(
-                path.join(root, 'node_modules', '.pnpm', 'node_modules', '_virtual.js'),
-                path.join(root, '_virtual.js'),
-              );
-            }
-            for (const base of bases) {
-              try {
-                const resolved = createRequire(base).resolve(sourceId);
-                if (resolved) return resolved;
-              } catch {
-                // Try next base
+            const resolved = await this.resolve(sourceId, normalizedImporter, {
+              skipSelf: true,
+            });
+            if (resolved?.id) {
+              const resolvedId = stripQuery(unwrapVirtual(resolved.id) ?? resolved.id);
+              if (include(resolvedId)) {
+                return toVirtualId(resolvedId);
               }
+              return resolved;
             }
           }
         }
@@ -386,9 +382,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
       }
 
-      const virtualId = `${VIRTUAL_MODULE_PREFIX}${resolvedId}${OUTPUT_EXTENSION}`;
-      sourceLookup.set(virtualId, resolvedId);
-      return virtualId;
+      return toVirtualId(resolvedId);
     },
 
     async load(id) {
@@ -411,6 +405,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         mdxOptions,
         starlightComponents,
         expressiveCode,
+        ecManager,
         shikiManager,
         transformPipeline,
         parseFrontmatterCached,
