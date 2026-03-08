@@ -9,6 +9,7 @@
   },
   "changesets": [
     "bump-napi-dependency",
+    "fix-fence-indent-tracking",
     "fix-mdx-heading-extraction",
     "fix-vite-module-runner",
     "heading-id-priority",

@@ -1,5 +1,12 @@
 # astro-xmdx
 
+## 0.0.10-next.7
+
+### Patch Changes
+
+- Updated dependencies [1d7e63d]
+  - xmdx@0.0.9-next.1
+
 ## 0.0.10-next.6
 
 ### Patch Changes
