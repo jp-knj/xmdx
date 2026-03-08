@@ -13,6 +13,8 @@ import type { ShikiHighlighter } from '../transforms/shiki.js';
 export interface TransformConfig {
   /** ExpressiveCode configuration or null if disabled */
   expressiveCode: ExpressiveCodeConfig | null;
+  /** Whether ExpressiveCode rewrites are safe for this compilation */
+  expressiveCodeCanRewrite?: boolean;
   /** Starlight components configuration */
   starlightComponents: boolean | StarlightUserConfig;
   /** Shiki highlighter function or null if disabled */

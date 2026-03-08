@@ -45,7 +45,6 @@ function decodeHtmlEntities(text: string): string {
 
 function normalizeHeadingText(text: string): string {
   return decodeHtmlEntities(text)
-    .normalize('NFKC')
     .replace(/\u00AD/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -55,6 +54,20 @@ function slugifyHeadingText(text: string): string {
   const slug = normalizeHeadingText(text)
     .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N} _-]/gu, '')
+    .replace(/ /g, '-');
+  return slug || 'heading';
+}
+
+/**
+ * Like slugifyHeadingText but also strips underscores, matching the slug
+ * algorithm used by mdxjs-rs. Used as a fallback when exact text matching
+ * fails because mdxjs-rs strips brackets/underscores/backticks from heading
+ * metadata text but preserves them in the JSX code.
+ */
+function slugForMatching(text: string): string {
+  const slug = normalizeHeadingText(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N} -]/gu, '')
     .replace(/ /g, '-');
   return slug || 'heading';
 }
@@ -229,12 +242,12 @@ export function repairHeadings(code: string, headings: HeadingEntry[]): HeadingE
   const usedHeadingIndexes = new Set<number>();
   const matchedByIndex = new Map<number, HeadingEntry>();
 
-  // Two-pass matching: component-ref calls first, then string-tag calls
-  for (const pass of [false, true] as const) {
-    for (const call of calls) {
-      if (call.isStringTag !== pass) continue;
+  // Only process component-ref calls (_components.hN); skip string-tag calls ("hN")
+  // since literal JSX headings are never in the headings array.
+  for (const call of calls) {
+    if (call.isStringTag) continue;
 
-      if (call.childrenText) {
+    if (call.childrenText) {
         // --- Full text match ---
         const normalizedText = normalizeHeadingText(call.childrenText);
         const matchedIndex = normalizedHeadings.findIndex(
@@ -280,7 +293,6 @@ export function repairHeadings(code: string, headings: HeadingEntry[]): HeadingE
         matchedByIndex.set(matchedIndex, { depth: h.depth, slug: h.slug, text: h.text });
       }
       // else: skip — injectHeadingIds fallback will handle it
-    }
   }
 
   // Build final array preserving original heading order
@@ -302,74 +314,100 @@ export function repairHeadings(code: string, headings: HeadingEntry[]): HeadingE
 export function injectHeadingIds(code: string, headings: HeadingEntry[]): string {
   if (headings.length === 0) return code;
 
-  const headingMap = new Map<string, Array<{ slug: string; used: boolean; rawText: string }>>();
-  for (const heading of headings) {
-    const key = `${heading.depth}:${normalizeHeadingText(heading.text)}`;
+  // Shared entry objects referenced by both exact-match map and per-depth arrays.
+  // Marking entry.used = true propagates to both data structures.
+  interface HeadingMapEntry {
+    slug: string;
+    used: boolean;
+    rawText: string;
+    normalizedText: string;
+    depth: number;
+  }
+
+  const allEntries: HeadingMapEntry[] = headings.map((h) => ({
+    slug: h.slug,
+    used: false,
+    rawText: h.text,
+    normalizedText: normalizeHeadingText(h.text),
+    depth: h.depth,
+  }));
+
+  // O(1) exact-match lookup by "depth:normalizedText"
+  const headingMap = new Map<string, HeadingMapEntry[]>();
+  for (const entry of allEntries) {
+    const key = `${entry.depth}:${entry.normalizedText}`;
     const entries = headingMap.get(key) ?? [];
-    entries.push({ slug: heading.slug, used: false, rawText: heading.text });
+    entries.push(entry);
     headingMap.set(key, entries);
+  }
+
+  // Per-depth arrays for fallback scanning (same shared objects)
+  const entriesByDepth = new Map<number, HeadingMapEntry[]>();
+  for (const entry of allEntries) {
+    const arr = entriesByDepth.get(entry.depth) ?? [];
+    arr.push(entry);
+    entriesByDepth.set(entry.depth, arr);
   }
 
   const calls = collectHeadingCalls(code);
 
-  // Two-pass exact-text matching: component-ref calls first, then string-tag calls
-  for (const pass of [false, true] as const) {
-    for (const call of calls) {
-      if (call.isStringTag !== pass) continue;
-      if (call.childrenText === null) continue;
-      const key = `${call.depth}:${normalizeHeadingText(call.childrenText)}`;
-      const entries = headingMap.get(key);
-      if (!entries) continue;
-      // Prefer exact raw-text match over normalized-only match
-      let entry = entries.find((candidate) => !candidate.used && candidate.rawText === call.childrenText);
-      if (!entry) entry = entries.find((candidate) => !candidate.used);
-      if (!entry) continue;
-      entry.used = true;
-      call.slug = entry.slug;
-    }
-  }
-
-  const unusedByDepth = new Map<number, Array<{ normalizedText: string; rawText: string; slug: string }>>();
-  const claimed = new Set<{ slug: string; used: boolean; rawText: string }>();
-  for (const heading of headings) {
-    const key = `${heading.depth}:${normalizeHeadingText(heading.text)}`;
-    const entries = headingMap.get(key);
-    const entry = entries?.find((candidate) => !candidate.used && !claimed.has(candidate));
-    if (!entry) continue;
-    claimed.add(entry);
-    const unused = unusedByDepth.get(heading.depth) ?? [];
-    unused.push({ normalizedText: normalizeHeadingText(heading.text), rawText: heading.text, slug: entry.slug });
-    unusedByDepth.set(heading.depth, unused);
-  }
-
+  // Only process component-ref calls (_components.hN); skip string-tag calls ("hN")
+  // since literal JSX headings are never in the headings array.
   for (const call of calls) {
-    if (call.slug !== null || call.childrenText !== null) continue;
+    if (call.isStringTag) continue;
+    if (call.slug !== null) continue;
 
-    const unused = unusedByDepth.get(call.depth);
-    if (!unused || unused.length === 0) continue;
+      if (call.childrenText !== null) {
+        // Strategy 1: exact text match via headingMap
+        const key = `${call.depth}:${normalizeHeadingText(call.childrenText)}`;
+        const mapEntries = headingMap.get(key);
+        if (mapEntries) {
+          let entry = mapEntries.find((c) => !c.used && c.rawText === call.childrenText);
+          if (!entry) entry = mapEntries.find((c) => !c.used);
+          if (entry) {
+            entry.used = true;
+            call.slug = entry.slug;
+            continue;
+          }
+        }
 
-    const prefix = extractChildrenPrefix(code, call.offset + call.matchLen);
-    const normalizedPrefix = prefix ? normalizeHeadingText(prefix) : null;
-    let matchedIndex = -1;
+        // Strategy 2: slug-based fallback via entriesByDepth
+        // Handles mdxjs-rs stripping brackets/underscores/backticks from metadata
+        const depthEntries = entriesByDepth.get(call.depth);
+        if (depthEntries) {
+          const callSlug = slugForMatching(call.childrenText);
+          const entry = depthEntries.find(
+            (e) => !e.used && slugForMatching(e.rawText) === callSlug
+          );
+          if (entry) {
+            entry.used = true;
+            call.slug = entry.slug;
+          }
+        }
+        continue;
+      }
 
-    if (normalizedPrefix) {
-      matchedIndex = unused.findIndex((entry) => entry.normalizedText.startsWith(normalizedPrefix));
-    }
+      // childrenText is null: prefix fallback then single-candidate fallback
+      const prefix = extractChildrenPrefix(code, call.offset + call.matchLen);
+      const normalizedPrefix = prefix ? normalizeHeadingText(prefix) : null;
+      const depthEntries = entriesByDepth.get(call.depth);
+      if (!depthEntries) continue;
 
-    if (matchedIndex < 0 && !normalizedPrefix && unused.length === 1) {
-      matchedIndex = 0;
-    }
+      let matched: HeadingMapEntry | undefined;
+      if (normalizedPrefix) {
+        matched = depthEntries.find(
+          (e) => !e.used && e.normalizedText.startsWith(normalizedPrefix)
+        );
+      }
+      if (!matched && !normalizedPrefix) {
+        const candidates = depthEntries.filter((e) => !e.used);
+        if (candidates.length === 1) matched = candidates[0];
+      }
 
-    if (matchedIndex < 0) continue;
-
-    const entry = unused[matchedIndex]!;
-    call.slug = entry.slug;
-    unused.splice(matchedIndex, 1);
-
-    const key = `${call.depth}:${entry.normalizedText}`;
-    const mapEntries = headingMap.get(key);
-    const mapEntry = mapEntries?.find((candidate) => candidate.slug === entry.slug);
-    if (mapEntry) mapEntry.used = true;
+      if (matched) {
+        matched.used = true;
+        call.slug = matched.slug;
+      }
   }
 
   let result = '';
