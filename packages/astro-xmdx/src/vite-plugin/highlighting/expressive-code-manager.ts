@@ -10,6 +10,7 @@ import type { ExpressiveCodeConfig } from '../../utils/config.js';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);
+const DEFAULT_EXPRESSIVE_CODE_MODULE_ID = 'astro-expressive-code/components';
 
 /**
  * ExpressiveCode rendering result with highlighted HTML.
@@ -73,6 +74,18 @@ export class ExpressiveCodeManager {
   }
 
   /**
+   * Whether it is safe to rewrite code blocks to runtime `<Code />` components.
+   * When the default runtime package is absent, we must leave `<pre><code>` in
+   * place to avoid emitting unresolved imports.
+   */
+  async canRewrite(moduleId: string): Promise<boolean> {
+    if (!this.config) return false;
+    if (this.starlightHandlesRendering) return true;
+    if (moduleId !== DEFAULT_EXPRESSIVE_CODE_MODULE_ID) return true;
+    return (await this.init()) !== null;
+  }
+
+  /**
    * Lazily initializes the ExpressiveCode engine.
    * Returns null if ExpressiveCode is not configured or if Starlight handles rendering.
    */
@@ -115,8 +128,9 @@ export class ExpressiveCodeManager {
       return engine;
     } catch (error) {
       console.warn(
-        '[xmdx] Failed to initialize ExpressiveCode engine. Please install: npm install expressive-code',
-        error
+        '[xmdx] expressiveCode is enabled but the "expressive-code" package is not installed.\n' +
+        'Install it with: npm install expressive-code\n' +
+        'Or disable it: xmdx({ expressiveCode: false })'
       );
       return null;
     }

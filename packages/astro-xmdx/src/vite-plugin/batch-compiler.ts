@@ -361,6 +361,7 @@ async function preparePipelineInputs(
   processedSourceCache: Map<string, string>,
   registry: Registry,
   expressiveCode: ExpressiveCodeConfig | null,
+  expressiveCodeCanRewrite: boolean,
   starlightComponents: XmdxPluginOptions['starlightComponents'],
   shikiManager: ShikiManager,
   resolvedShiki: Awaited<ReturnType<ShikiManager['init']>>,
@@ -395,6 +396,7 @@ async function preparePipelineInputs(
       registry,
       config: {
         expressiveCode,
+        expressiveCodeCanRewrite,
         starlightComponents: normalizedStarlightComponents,
         shiki: shikiManager.forCode(jsxCode, resolvedShiki),
       },
@@ -441,6 +443,7 @@ async function preparePipelineInputs(
       registry,
       config: {
         expressiveCode,
+        expressiveCodeCanRewrite,
         starlightComponents: normalizedStarlightComponents,
         shiki: shikiManager.forCode(jsxCode, resolvedShiki),
       },
@@ -642,6 +645,9 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
 
     const esbuildStartTime = performance.now();
     const [resolvedShiki] = await Promise.all([shikiPromise, ecPromise]);
+    const expressiveCodeCanRewrite = deps.expressiveCode
+      ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+      : false;
     debugTimeEnd('buildStart:shikiInit');
     debugTime('buildStart:pipelineProcessing');
 
@@ -653,6 +659,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       deps.processedSourceCache,
       deps.registry,
       deps.expressiveCode,
+      expressiveCodeCanRewrite,
       deps.starlightComponents,
       deps.shikiManager,
       resolvedShiki,

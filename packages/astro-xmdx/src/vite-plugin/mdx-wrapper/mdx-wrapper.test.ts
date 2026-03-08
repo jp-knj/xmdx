@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { wrapMdxModule } from './index.js';
 import { extractArrayInner } from './string-utils.js';
+import { injectHeadingIds } from './heading-id-injector.js';
 import { createRegistry, starlightLibrary } from 'xmdx/registry';
 import type { ComponentLibrary } from 'xmdx/registry';
 
@@ -495,34 +496,6 @@ export default _createMdxContent;`;
       expect(result).toContain('id: "see-docs-intro"');
     });
 
-    test('single-quoted string-tag children get IDs injected', () => {
-      const mdxCode = `function _createMdxContent(props) {
-  const _components = { h2: "h2", ...props.components };
-  return _jsxs("div", {
-    children: [
-      _jsx('h2', { children: 'First' }),
-      _jsx('h2', { children: 'Second' }),
-    ]
-  });
-}
-export default _createMdxContent;`;
-
-      const headings = [
-        { depth: 2, slug: 'first', text: 'First' },
-        { depth: 2, slug: 'second', text: 'Second' },
-      ];
-
-      const registry = createRegistry([starlightLibrary]);
-      const result = wrapMdxModule(mdxCode, {
-        frontmatter: {},
-        headings,
-        registry,
-      }, 'test.mdx');
-
-      expect(result).toContain('id: "first"');
-      expect(result).toContain('id: "second"');
-    });
-
     test('literal JSX heading before markdown heading does not steal ID', () => {
       // In mdxjs-rs output, _components.hN = markdown heading, "hN" = literal JSX <h2>.
       // The string-tag call should not steal the slug from the component-ref call.
@@ -633,6 +606,293 @@ export default _createMdxContent;`;
 
       expect(result).toContain('id: "text"');
     });
+
+    test('literal JSX <h2> does not steal slug from markdown heading with JSX children', () => {
+      // ## <Badge /> Intro — markdown heading with JSX children (extractChildrenText → null).
+      // A literal <h2>Intro</h2> must NOT consume the markdown heading's slug.
+      const mdxCode = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", {
+    children: [
+      _jsx("h2", { children: "Intro" }),
+      _jsxs(_components.h2, { children: [_jsx(Badge, {}), " Intro"] }),
+    ]
+  });
+}
+export default _createMdxContent;`;
+
+      const headings = [
+        { depth: 2, slug: 'badge--intro', text: 'Badge  Intro' },
+      ];
+
+      const registry = createRegistry([starlightLibrary]);
+      const result = wrapMdxModule(mdxCode, {
+        frontmatter: {},
+        headings,
+        registry,
+      }, 'test.mdx');
+
+      // The literal JSX <h2> must NOT get the slug
+      const stringTagIdx = result.indexOf('_jsx("h2"');
+      const componentRefIdx = result.indexOf('_jsxs(_components.h2');
+      expect(stringTagIdx).toBeGreaterThan(-1);
+      expect(componentRefIdx).toBeGreaterThan(-1);
+
+      // Region from string-tag up to (but not including) the component-ref call
+      const regionStringTag = result.slice(stringTagIdx, componentRefIdx);
+      expect(regionStringTag).not.toContain('id: "badge--intro"');
+
+      // The markdown heading (_components.h2) must get its slug
+      const regionComponentRef = result.slice(componentRefIdx, componentRefIdx + 200);
+      expect(regionComponentRef).toContain('id: "badge--intro"');
+    });
+  });
+});
+
+describe('injectHeadingIds — targeted patterns', () => {
+  test('bracketed filename text: ## Creating the [...slug.astro] page', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsx(_components.h2, { children: "Creating the [...slug.astro] page" });
+}`;
+    const headings = [
+      { depth: 2, slug: 'creating-the-slugastro-page', text: 'Creating the [...slug.astro] page' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "creating-the-slugastro-page"');
+  });
+
+  test('bracketed filename in array children', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs(_components.h2, { children: ["Creating the ", "[...slug.astro]", " page"] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'creating-the-slugastro-page', text: 'Creating the [...slug.astro] page' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "creating-the-slugastro-page"');
+  });
+
+  test('mixed text + inline code: ## `BASE_URL` and `trailingSlash`', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", code: "code", ...props.components };
+  return _jsxs(_components.h2, { children: [_jsx(_components.code, { children: "BASE_URL" }), " and ", _jsx(_components.code, { children: "trailingSlash" })] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'base_url-and-trailingslash', text: 'BASE_URL and trailingSlash' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "base_url-and-trailingslash"');
+  });
+
+  test('slash-containing inline code: ## The `src/content/` directory', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", code: "code", ...props.components };
+  return _jsxs(_components.h2, { children: ["The ", _jsx(_components.code, { children: "src/content/" }), " directory"] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'the-srccontent-directory', text: 'The src/content/ directory' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "the-srccontent-directory"');
+  });
+
+  test('duplicate slugs with different text must NOT cross-assign', () => {
+    // Two headings that slugify to the same base, but have different text
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", ...props.components };
+  return _jsxs("div", { children: [
+    _jsx(_components.h2, { children: "Hello World" }),
+    _jsx(_components.h2, { children: "Hello, World!" }),
+  ] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'hello-world', text: 'Hello World' },
+      { depth: 2, slug: 'hello-world-1', text: 'Hello, World!' },
+    ];
+    const result = injectHeadingIds(code, headings);
+
+    // Find each heading and verify correct slug assignment
+    const firstIdx = result.indexOf('children: "Hello World"');
+    const secondIdx = result.indexOf('children: "Hello, World!"');
+    expect(firstIdx).toBeGreaterThan(-1);
+    expect(secondIdx).toBeGreaterThan(-1);
+
+    const regionFirst = result.slice(Math.max(0, firstIdx - 100), firstIdx);
+    const regionSecond = result.slice(Math.max(0, secondIdx - 100), secondIdx);
+    expect(regionFirst).toContain('id: "hello-world"');
+    expect(regionSecond).toContain('id: "hello-world-1"');
+  });
+
+  test('inline code only heading: ## `config.ts`', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", code: "code", ...props.components };
+  return _jsx(_components.h2, { children: _jsx(_components.code, { children: "config.ts" }) });
+}`;
+    const headings = [
+      { depth: 2, slug: 'configts', text: 'config.ts' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "configts"');
+  });
+
+  test('text with leading inline code: ## `src/pages/` directory structure', () => {
+    const code = `function _createMdxContent(props) {
+  const _components = { h2: "h2", code: "code", ...props.components };
+  return _jsxs(_components.h2, { children: [_jsx(_components.code, { children: "src/pages/" }), " directory structure"] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'srcpages-directory-structure', text: 'src/pages/ directory structure' },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "srcpages-directory-structure"');
+  });
+});
+
+describe('injectHeadingIds — mdxjs-rs text mismatch fallback', () => {
+  // mdxjs-rs strips brackets/underscores/backticks from heading metadata text
+  // but preserves them in the JSX code. These tests use actual compiled shapes.
+
+  test('Pattern 1: brackets stripped from metadata — [...slug.astro]', () => {
+    // mdxjs-rs JSX: children has brackets; metadata text strips them
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h3: "h3" }, props.components);
+  return _jsx(_components.h3, {
+    children: "Creating the [...slug.astro] component and fetching Apostrophe data"
+  });
+}`;
+    const headings = [
+      {
+        depth: 3,
+        slug: 'creating-the-slugastro-component-and-fetching-apostrophe-data',
+        // mdxjs-rs strips brackets from heading text
+        text: 'Creating the ...slug.astro component and fetching Apostrophe data',
+      },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "creating-the-slugastro-component-and-fetching-apostrophe-data"');
+  });
+
+  test('Pattern 2: underscore stripped from metadata — BASE_URL + inline code', () => {
+    // mdxjs-rs JSX: BASE_URL preserved; metadata text strips underscore
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h3: "h3", code: "code" }, props.components);
+  return _jsxs(_components.h3, {
+    children: ["Changed default: import.meta.env.BASE_URL ", _jsx(_components.code, {
+      children: "trailingSlash"
+    })]
+  });
+}`;
+    const headings = [
+      {
+        depth: 3,
+        slug: 'changed-default-importmetaenvbaseurl-trailingslash',
+        // mdxjs-rs strips underscore from heading text
+        text: 'Changed default: import.meta.env.BASEURL trailingSlash',
+      },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "changed-default-importmetaenvbaseurl-trailingslash"');
+  });
+
+  test('Pattern 3: backticks stripped from metadata — malformed code span', () => {
+    // mdxjs-rs JSX: backticks preserved as literal text; metadata text strips them
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h3: "h3" }, props.components);
+  return _jsx(_components.h3, {
+    children: "Зарезервировано: \`\`src/content/\`."
+  });
+}`;
+    const headings = [
+      {
+        depth: 3,
+        slug: 'зарезервировано-srccontent',
+        // mdxjs-rs strips backticks from heading text
+        text: 'Зарезервировано: src/content/.',
+      },
+    ];
+    const result = injectHeadingIds(code, headings);
+    expect(result).toContain('id: "зарезервировано-srccontent"');
+  });
+
+  test('string-tag before component-ref in slug fallback: only component-ref gets ID', () => {
+    // String-tag calls are skipped entirely — only component-ref calls get IDs.
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h2: "h2" }, props.components);
+  return _jsxs("div", { children: [
+    _jsx("h2", { children: "A_B" }),
+    _jsx(_components.h2, { children: "A_B" }),
+  ] });
+}`;
+    const headings = [{ depth: 2, slug: 'ab', text: 'AB' }];
+    const result = injectHeadingIds(code, headings);
+
+    // The string-tag call must NOT get the ID
+    const stringTagIdx = result.indexOf('_jsx("h2"');
+    const componentRefIdx = result.indexOf('_jsx(_components.h2');
+    expect(stringTagIdx).toBeGreaterThan(-1);
+    expect(componentRefIdx).toBeGreaterThan(-1);
+    const regionStringTag = result.slice(stringTagIdx, componentRefIdx);
+    expect(regionStringTag).not.toContain('id: "ab"');
+
+    // The component-ref call must get the ID
+    const regionComponentRef = result.slice(componentRefIdx, componentRefIdx + 200);
+    expect(regionComponentRef).toContain('id: "ab"');
+  });
+
+  test('document-order slug assignment with collapsed metadata duplicates', () => {
+    // Two headings ## foo_bar and ## foobar both get metadata text "foobar"
+    // (underscore stripped). The first call must get slug "foobar", second "foobar-1".
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h2: "h2" }, props.components);
+  return _jsxs("div", { children: [
+    _jsx(_components.h2, { children: "foo_bar" }),
+    _jsx(_components.h2, { children: "foobar" }),
+  ] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'foobar', text: 'foobar' },
+      { depth: 2, slug: 'foobar-1', text: 'foobar' },
+    ];
+    const result = injectHeadingIds(code, headings);
+
+    const firstIdx = result.indexOf('children: "foo_bar"');
+    const secondIdx = result.indexOf('children: "foobar"');
+    expect(firstIdx).toBeGreaterThan(-1);
+    expect(secondIdx).toBeGreaterThan(-1);
+
+    const regionFirst = result.slice(Math.max(0, firstIdx - 100), firstIdx);
+    const regionSecond = result.slice(Math.max(0, secondIdx - 100), secondIdx);
+    expect(regionFirst).toContain('id: "foobar"');
+    expect(regionSecond).toContain('id: "foobar-1"');
+  });
+
+  test('slug fallback does not cross-assign when texts differ but slugs collide', () => {
+    // Two headings with different text that happen to slugify identically
+    // after the loose matching. Must NOT cross-assign.
+    const code = `function _createMdxContent(props) {
+  const _components = Object.assign({ h2: "h2" }, props.components);
+  return _jsxs("div", { children: [
+    _jsx(_components.h2, { children: "foo-bar" }),
+    _jsx(_components.h2, { children: "foo bar" }),
+  ] });
+}`;
+    const headings = [
+      { depth: 2, slug: 'foo-bar', text: 'foo-bar' },
+      { depth: 2, slug: 'foo-bar-1', text: 'foo bar' },
+    ];
+    const result = injectHeadingIds(code, headings);
+
+    const firstIdx = result.indexOf('children: "foo-bar"');
+    const secondIdx = result.indexOf('children: "foo bar"');
+    expect(firstIdx).toBeGreaterThan(-1);
+    expect(secondIdx).toBeGreaterThan(-1);
+
+    const regionFirst = result.slice(Math.max(0, firstIdx - 100), firstIdx);
+    const regionSecond = result.slice(Math.max(0, secondIdx - 100), secondIdx);
+    expect(regionFirst).toContain('id: "foo-bar"');
+    expect(regionSecond).toContain('id: "foo-bar-1"');
   });
 });
 

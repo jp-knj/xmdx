@@ -78,6 +78,20 @@ describe('transformExpressiveCode', () => {
     expect(result.code).toContain('<MyCode');
     expect(result.code).toContain("import { Code as MyCode } from 'my-code-module'");
   });
+
+  test('skips rewriting when expressiveCode runtime is unavailable', () => {
+    const ctx = createContext({
+      code: '<pre><code>const x = 1;</code></pre>',
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: null,
+      },
+    });
+    const result = transformExpressiveCode(ctx);
+    expect(result.code).toBe('<pre><code>const x = 1;</code></pre>');
+  });
 });
 
 describe('transformShikiHighlight', () => {

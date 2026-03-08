@@ -25,6 +25,7 @@ import { normalizeStarlightComponents } from './normalize-config.js';
 import type { LoadProfiler } from './load-profiler.js';
 import { LOAD_PROFILE } from './load-profiler.js';
 import type { ShikiManager } from './highlighting/shiki-manager.js';
+import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
 import type { CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
 
 interface LoadState {
@@ -47,6 +48,7 @@ export interface LoadHandlerDeps {
   mdxOptions: MdxImportHandlingOptions | undefined;
   starlightComponents: XmdxPluginOptions['starlightComponents'];
   expressiveCode: ExpressiveCodeConfig | null;
+  ecManager: ExpressiveCodeManager;
   shikiManager: ShikiManager;
   transformPipeline: Transform;
   parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>;
@@ -103,6 +105,9 @@ async function runPipelineAndEsbuild(
   deps: LoadHandlerDeps
 ): Promise<PipelineResult> {
   const normalizedStarlightComponents = normalizeStarlightComponents(deps.starlightComponents ?? false);
+  const expressiveCodeCanRewrite = deps.expressiveCode
+    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+    : false;
   const ctx: TransformContext = {
     code: input.code,
     source: input.source,
@@ -112,6 +117,7 @@ async function runPipelineAndEsbuild(
     registry: deps.registry,
     config: {
       expressiveCode: deps.expressiveCode,
+      expressiveCodeCanRewrite,
       starlightComponents: normalizedStarlightComponents,
       shiki: await deps.shikiManager.getFor(input.code),
     },

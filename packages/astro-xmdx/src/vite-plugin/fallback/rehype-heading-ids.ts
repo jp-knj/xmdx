@@ -64,7 +64,6 @@ function decodeHtmlEntities(text: string): string {
 
 export function slugifyHeading(text: string): string {
   const slug = decodeHtmlEntities(text)
-    .normalize('NFKC')
     .replace(/\u00AD/g, '')
     .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N} _-]/gu, '')

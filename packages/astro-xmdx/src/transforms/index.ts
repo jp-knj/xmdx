@@ -32,7 +32,7 @@ function hasCodeBlockMarkers(code: string): boolean {
  * Only runs if expressiveCode is configured.
  */
 export function transformExpressiveCode(ctx: TransformContext): TransformContext {
-  if (!ctx.config.expressiveCode || !ctx.code) {
+  if (!ctx.config.expressiveCode || ctx.config.expressiveCodeCanRewrite === false || !ctx.code) {
     return ctx;
   }
 
