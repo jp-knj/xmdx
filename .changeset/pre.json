@@ -8,11 +8,11 @@
     "@xmdx/napi": "0.0.7"
   },
   "changesets": [
+    "bump-napi-dependency",
     "fix-mdx-heading-extraction",
     "fix-vite-module-runner",
     "heading-id-priority",
     "pnpm-strict-resolve",
-    "reduce-bundle-size",
-    "bump-napi-dependency"
+    "reduce-bundle-size"
   ]
 }

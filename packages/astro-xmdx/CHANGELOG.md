@@ -1,5 +1,11 @@
 # astro-xmdx
 
+## 0.0.10-next.6
+
+### Patch Changes
+
+- 295699f: chore: bump @xmdx/napi dependency to 0.0.8-next.0 with MDX heading extraction fix
+
 ## 0.0.10-next.5
 
 ### Patch Changes
