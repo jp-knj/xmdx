@@ -648,7 +648,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     const expressiveCodeCanRewrite = deps.expressiveCode
       ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
       : false;
-    // Fallback: enable Shiki only when runtime rewrites are unavailable.
+    // Fallback: enable Shiki only when ExpressiveCode cannot safely rewrite/pre-render.
     let finalResolvedShiki = resolvedShiki;
     if (deps.expressiveCode && !expressiveCodeCanRewrite) {
       deps.shikiManager.enable();

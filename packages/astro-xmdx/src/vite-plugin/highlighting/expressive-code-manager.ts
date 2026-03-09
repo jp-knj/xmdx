@@ -101,11 +101,13 @@ export class ExpressiveCodeManager {
   }
 
   /**
-   * Whether it is safe to rewrite code blocks to runtime `<Code />` components.
-   * This is intentionally independent from whether the local render engine is available.
+   * Whether it is safe to rewrite code blocks to temporary `<Code />` components.
+   * Rewriting is safe when the runtime import can survive to output, or when
+   * the local engine can pre-render and strip the temporary import before emit.
    */
   async canRewrite(moduleId: string, projectRoot?: string): Promise<boolean> {
-    return (await this.getSupport(moduleId, projectRoot)).canRewriteRuntime;
+    const support = await this.getSupport(moduleId, projectRoot);
+    return support.canRewriteRuntime || support.canPreRenderEngine;
   }
 
   /**

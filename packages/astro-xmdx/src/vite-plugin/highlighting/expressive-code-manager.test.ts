@@ -8,6 +8,18 @@ import {
 } from './expressive-code-manager.js';
 
 describe('ExpressiveCodeManager runtime support', () => {
+  test('canRewrite stays true when local engine can pre-render default runtime imports', async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), 'xmdx-ec-runtime-'));
+    await writeFile(path.join(tempRoot, 'package.json'), '{"name":"fixture","type":"module"}\n');
+
+    const manager = new ExpressiveCodeManager({
+      component: 'Code',
+      moduleId: DEFAULT_EXPRESSIVE_CODE_MODULE_ID,
+    });
+
+    expect(await manager.canRewrite(DEFAULT_EXPRESSIVE_CODE_MODULE_ID, tempRoot)).toBe(true);
+  });
+
   test('does not treat engine availability as runtime rewrite availability', async () => {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'xmdx-ec-runtime-'));
     await writeFile(path.join(tempRoot, 'package.json'), '{"name":"fixture","type":"module"}\n');
