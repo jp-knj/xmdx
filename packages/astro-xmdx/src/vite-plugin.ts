@@ -4,6 +4,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -336,6 +337,22 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
                 return toVirtualId(resolvedId);
               }
               return resolved;
+            }
+            // Fallback: under strict package managers (pnpm), transitive dependencies
+            // like astro-expressive-code can't be resolved from the user's project.
+            // Try resolving from astro-xmdx's own location which shares the dependency tree.
+            try {
+              const require = createRequire(import.meta.url);
+              const fallbackResolved = require.resolve(sourceId);
+              if (fallbackResolved) {
+                const fallbackId = stripQuery(fallbackResolved);
+                if (include(fallbackId)) {
+                  return toVirtualId(fallbackId);
+                }
+                return fallbackId;
+              }
+            } catch {
+              // createRequire fallback also failed — let Vite handle it
             }
           }
         }
