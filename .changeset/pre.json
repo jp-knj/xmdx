@@ -14,6 +14,7 @@
     "fix-vite-module-runner",
     "heading-id-priority",
     "pnpm-strict-resolve",
-    "reduce-bundle-size"
+    "reduce-bundle-size",
+    "shiki-expressive-code-fixes"
   ]
 }

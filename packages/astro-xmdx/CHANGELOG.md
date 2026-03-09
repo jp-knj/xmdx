@@ -1,5 +1,13 @@
 # astro-xmdx
 
+## 0.0.10-next.8
+
+### Patch Changes
+
+- 774bd2f: fix: update Shiki integration, restore ExpressiveCode pre-render rewrite path, and reject fence closers with info strings
+- Updated dependencies [774bd2f]
+  - xmdx@0.0.9-next.2
+
 ## 0.0.10-next.7
 
 ### Patch Changes
