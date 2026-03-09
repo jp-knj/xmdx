@@ -77,8 +77,11 @@ export function transformExpressiveCode(ctx: TransformContext): TransformContext
  * 1. Code blocks in set:html fragments: <_Fragment set:html={...} />
  * 2. Code blocks in direct JSX: <pre><code> elements
  *
- * PERF: Skips entirely when ExpressiveCode is configured, as it handles all
- * code block patterns. This avoids redundant regex scanning.
+ * Does NOT handle: mdxjs-rs JS string literals ("<pre class=\"astro-code\"...>").
+ * In fallback mode those are left untouched to avoid corrupting compiled output.
+ *
+ * Skips when ExpressiveCode is configured and canRewrite is true,
+ * since EC already converts all three code block patterns.
  */
 export async function transformShikiHighlight(
   ctx: TransformContext
@@ -87,9 +90,8 @@ export async function transformShikiHighlight(
     return ctx;
   }
 
-  // PERF: Skip Shiki when ExpressiveCode is configured
-  // ExpressiveCode already handles all code block patterns (set:html, JS strings, loose blocks)
-  // Running Shiki would just scan the same patterns and find nothing
+  // Skip Shiki when ExpressiveCode has already rewritten all code blocks
+  // (EC handles set:html, JS strings, and loose blocks)
   if (ctx.config.expressiveCode && ctx.config.expressiveCodeCanRewrite !== false) {
     return ctx;
   }

@@ -6,11 +6,21 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import type { ExpressiveCodeConfig } from '../../utils/config.js';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);
-const DEFAULT_EXPRESSIVE_CODE_MODULE_ID = 'astro-expressive-code/components';
+export const DEFAULT_EXPRESSIVE_CODE_MODULE_ID = 'astro-expressive-code/components';
+
+export interface ExpressiveCodeSupport {
+  canRewriteRuntime: boolean;
+  canPreRenderEngine: boolean;
+}
+
+function isBareSpecifier(moduleId: string): boolean {
+  return !moduleId.startsWith('.') && !path.isAbsolute(moduleId) && !moduleId.startsWith('\0');
+}
 
 /**
  * ExpressiveCode rendering result with highlighted HTML.
@@ -74,15 +84,28 @@ export class ExpressiveCodeManager {
   }
 
   /**
-   * Whether it is safe to rewrite code blocks to runtime `<Code />` components.
-   * When the default runtime package is absent, we must leave `<pre><code>` in
-   * place to avoid emitting unresolved imports.
+   * Whether the configured runtime module is available for `<Code />` rewrites,
+   * and whether the local ExpressiveCode engine can pre-render code blocks.
    */
-  async canRewrite(moduleId: string): Promise<boolean> {
-    if (!this.config) return false;
-    if (this.starlightHandlesRendering) return true;
-    if (moduleId !== DEFAULT_EXPRESSIVE_CODE_MODULE_ID) return true;
-    return (await this.init()) !== null;
+  async getSupport(moduleId: string, projectRoot?: string): Promise<ExpressiveCodeSupport> {
+    if (!this.config) {
+      return { canRewriteRuntime: false, canPreRenderEngine: false };
+    }
+    if (this.starlightHandlesRendering) {
+      return { canRewriteRuntime: true, canPreRenderEngine: false };
+    }
+
+    const canRewriteRuntime = this.canResolveRuntime(moduleId, projectRoot);
+    const canPreRenderEngine = (await this.init()) !== null;
+    return { canRewriteRuntime, canPreRenderEngine };
+  }
+
+  /**
+   * Whether it is safe to rewrite code blocks to runtime `<Code />` components.
+   * This is intentionally independent from whether the local render engine is available.
+   */
+  async canRewrite(moduleId: string, projectRoot?: string): Promise<boolean> {
+    return (await this.getSupport(moduleId, projectRoot)).canRewriteRuntime;
   }
 
   /**
@@ -188,5 +211,19 @@ export class ExpressiveCodeManager {
    */
   clearCache(): void {
     this.renderCache.clear();
+  }
+
+  private canResolveRuntime(moduleId: string, projectRoot?: string): boolean {
+    if (!isBareSpecifier(moduleId)) {
+      return true;
+    }
+
+    try {
+      const projectRequire = createRequire(path.join(projectRoot ?? process.cwd(), 'package.json'));
+      projectRequire.resolve(moduleId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

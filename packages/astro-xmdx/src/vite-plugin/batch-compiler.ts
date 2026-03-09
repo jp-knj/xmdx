@@ -646,9 +646,9 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     const esbuildStartTime = performance.now();
     const [resolvedShiki] = await Promise.all([shikiPromise, ecPromise]);
     const expressiveCodeCanRewrite = deps.expressiveCode
-      ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+      ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
       : false;
-    // Fallback: enable Shiki when EC is configured but peer is missing
+    // Fallback: enable Shiki only when runtime rewrites are unavailable.
     let finalResolvedShiki = resolvedShiki;
     if (deps.expressiveCode && !expressiveCodeCanRewrite) {
       deps.shikiManager.enable();

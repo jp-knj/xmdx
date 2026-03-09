@@ -135,6 +135,48 @@ describe('transformShikiHighlight', () => {
     const result = await transformShikiHighlight(ctx);
     expect(result.code).toContain('shiki');
   });
+
+  test('highlights direct JSX code blocks in fallback mode', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    const ctx = createContext({
+      code: '<pre><code class="language-js">{"const x = 1;"}</code></pre>',
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toContain('set:html');
+    expect(result.code).toContain('shiki');
+  });
+});
+
+describe('transformShikiHighlight JS string limitation', () => {
+  test('leaves JS string code blocks untouched in fallback mode', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    // mdxjs-rs emits code blocks as JS string literals like:
+    // "<pre class=\"astro-code\" ...>...</pre>"
+    // Shiki does NOT have a dedicated handler for this pattern, so fallback
+    // mode must leave the string literal untouched rather than corrupt it.
+    const jsStringCodeBlock = '"<pre class=\\"astro-code github-dark\\" style=\\"...\\" tabindex=\\"0\\"><code><span>const x = 1;</span></code></pre>"';
+    const ctx = createContext({
+      code: jsStringCodeBlock,
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toBe(jsStringCodeBlock);
+  });
 });
 
 describe('context immutability', () => {

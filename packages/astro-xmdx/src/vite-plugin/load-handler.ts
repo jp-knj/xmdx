@@ -106,9 +106,9 @@ async function runPipelineAndEsbuild(
 ): Promise<PipelineResult> {
   const normalizedStarlightComponents = normalizeStarlightComponents(deps.starlightComponents ?? false);
   const expressiveCodeCanRewrite = deps.expressiveCode
-    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
     : false;
-  // Fallback: enable Shiki when EC is configured but peer is missing
+  // Fallback: enable Shiki only when runtime rewrites are unavailable.
   if (deps.expressiveCode && !expressiveCodeCanRewrite) {
     deps.shikiManager.enable();
   }

@@ -4,7 +4,6 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -324,9 +323,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             const resolvedId = path.resolve(path.dirname(normalizedImporter), sourceId);
             return include(resolvedId) ? toVirtualId(resolvedId) : resolvedId;
           }
-          // Bare specifiers (e.g. 'astro-expressive-code/components') from virtual
-          // modules — use Vite's resolver which respects ESM "import" conditions
-          // (createRequire uses CJS "require" conditions and fails for ESM-only packages).
+          // Bare specifiers from virtual modules should resolve exactly as they would
+          // from the consumer app. Do not fall back to astro-xmdx's private dependency tree.
           {
             const resolved = await this.resolve(sourceId, normalizedImporter, {
               skipSelf: true,
@@ -338,22 +336,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
               }
               return resolved;
             }
-            // Fallback: under strict package managers (pnpm), transitive dependencies
-            // like astro-expressive-code can't be resolved from the user's project.
-            // Try resolving from astro-xmdx's own location which shares the dependency tree.
-            try {
-              const require = createRequire(import.meta.url);
-              const fallbackResolved = require.resolve(sourceId);
-              if (fallbackResolved) {
-                const fallbackId = stripQuery(fallbackResolved);
-                if (include(fallbackId)) {
-                  return toVirtualId(fallbackId);
-                }
-                return fallbackId;
-              }
-            } catch {
-              // createRequire fallback also failed — let Vite handle it
-            }
+            return null;
           }
         }
         return null;

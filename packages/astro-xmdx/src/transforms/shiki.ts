@@ -207,6 +207,44 @@ function isInsideSetHtml(code: string, pos: number): boolean {
 }
 
 /**
+ * Detect whether a position falls inside a quoted JS string literal.
+ * mdxjs-rs can emit raw HTML code blocks as string literals, and those must not
+ * be treated as real JSX `<pre><code>` nodes.
+ */
+function isInsideQuotedStringLiteral(code: string, pos: number): boolean {
+  let activeQuote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < pos; i++) {
+    const ch = code[i];
+    if (!ch) break;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (activeQuote) {
+      if (ch === activeQuote) {
+        activeQuote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      activeQuote = ch;
+    }
+  }
+
+  return activeQuote !== null;
+}
+
+/**
  * Highlights code blocks that appear directly in JSX (not in set:html).
  * Handles cases where slot content with components is embedded directly,
  * causing code blocks to bypass the set:html path.
@@ -249,6 +287,12 @@ export async function highlightJsxCodeBlocks(
 
     // Skip if this <pre> is inside a set:html JSON string (already handled by rewriteAstroSetHtml)
     if (isInsideSetHtml(code, match.index)) {
+      continue;
+    }
+
+    // Skip mdxjs-rs HTML string literals like "<pre class=\"astro-code\">..."
+    // so we do not inject JSX into the middle of a JS string.
+    if (isInsideQuotedStringLiteral(code, match.index)) {
       continue;
     }
 
@@ -368,4 +412,3 @@ export async function rewriteAstroSetHtml(
 
   return result;
 }
-
