@@ -3,4 +3,4 @@
 "xmdx": patch
 ---
 
-Reduce bundle size by moving shiki/expressive-code to optional peerDeps
+Restore expressive-code as direct dependency, add astro-expressive-code runtime dependency, and re-initialize Shiki after enabling fallback in batch compilation path

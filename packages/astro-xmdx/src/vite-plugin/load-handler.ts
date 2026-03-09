@@ -106,8 +106,12 @@ async function runPipelineAndEsbuild(
 ): Promise<PipelineResult> {
   const normalizedStarlightComponents = normalizeStarlightComponents(deps.starlightComponents ?? false);
   const expressiveCodeCanRewrite = deps.expressiveCode
-    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
     : false;
+  // Fallback: enable Shiki only when ExpressiveCode cannot safely rewrite/pre-render.
+  if (deps.expressiveCode && !expressiveCodeCanRewrite) {
+    deps.shikiManager.enable();
+  }
   const ctx: TransformContext = {
     code: input.code,
     source: input.source,

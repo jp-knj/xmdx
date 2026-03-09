@@ -646,8 +646,14 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     const esbuildStartTime = performance.now();
     const [resolvedShiki] = await Promise.all([shikiPromise, ecPromise]);
     const expressiveCodeCanRewrite = deps.expressiveCode
-      ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
+      ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
       : false;
+    // Fallback: enable Shiki only when ExpressiveCode cannot safely rewrite/pre-render.
+    let finalResolvedShiki = resolvedShiki;
+    if (deps.expressiveCode && !expressiveCodeCanRewrite) {
+      deps.shikiManager.enable();
+      finalResolvedShiki = await deps.shikiManager.init();
+    }
     debugTimeEnd('buildStart:shikiInit');
     debugTime('buildStart:pipelineProcessing');
 
@@ -662,7 +668,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       expressiveCodeCanRewrite,
       deps.starlightComponents,
       deps.shikiManager,
-      resolvedShiki,
+      finalResolvedShiki,
       deps.transformPipeline,
       sourceHashes
     );

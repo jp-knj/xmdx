@@ -14,7 +14,7 @@ import {
   injectStarlightComponents,
   injectComponentImportsFromRegistry,
 } from './inject-components.js';
-import { rewriteAstroSetHtml, highlightJsxCodeBlocks } from './shiki.js';
+import { rewriteAstroSetHtml, highlightJsStringCodeBlocks, highlightJsxCodeBlocks } from './shiki.js';
 import type { TransformContext } from '../types.js';
 
 /**
@@ -77,8 +77,13 @@ export function transformExpressiveCode(ctx: TransformContext): TransformContext
  * 1. Code blocks in set:html fragments: <_Fragment set:html={...} />
  * 2. Code blocks in direct JSX: <pre><code> elements
  *
- * PERF: Skips entirely when ExpressiveCode is configured, as it handles all
- * code block patterns. This avoids redundant regex scanning.
+ * Handles three patterns in fallback mode:
+ * 1. Code blocks in set:html fragments
+ * 2. mdxjs-rs code fences emitted as JS string literals
+ * 3. Direct JSX <pre><code> elements
+ *
+ * Skips when ExpressiveCode is configured and canRewrite is true,
+ * since EC already converts these patterns itself.
  */
 export async function transformShikiHighlight(
   ctx: TransformContext
@@ -87,10 +92,9 @@ export async function transformShikiHighlight(
     return ctx;
   }
 
-  // PERF: Skip Shiki when ExpressiveCode is configured
-  // ExpressiveCode already handles all code block patterns (set:html, JS strings, loose blocks)
-  // Running Shiki would just scan the same patterns and find nothing
-  if (ctx.config.expressiveCode) {
+  // Skip Shiki when ExpressiveCode has already rewritten all code blocks
+  // (EC handles set:html, JS strings, and loose blocks)
+  if (ctx.config.expressiveCode && ctx.config.expressiveCodeCanRewrite !== false) {
     return ctx;
   }
 
@@ -99,8 +103,10 @@ export async function transformShikiHighlight(
     return ctx;
   }
 
-  // Two-pass highlighting: set:html fragments, then JSX code blocks
+  // Three-pass highlighting: set:html fragments, mdxjs-rs string literals,
+  // then direct JSX code blocks.
   let code = await rewriteAstroSetHtml(ctx.code, ctx.config.shiki);
+  code = await highlightJsStringCodeBlocks(code, ctx.config.shiki);
   code = await highlightJsxCodeBlocks(code, ctx.config.shiki);
   return { ...ctx, code };
 }
@@ -134,5 +140,5 @@ export {
   injectComponentImports,
   injectComponentImportsFromRegistry,
 } from './inject-components.js';
-export { rewriteAstroSetHtml, highlightHtmlBlocks, highlightJsxCodeBlocks } from './shiki.js';
+export { rewriteAstroSetHtml, highlightHtmlBlocks, highlightJsStringCodeBlocks, highlightJsxCodeBlocks } from './shiki.js';
 export { blocksToJsx } from './blocks-to-jsx.js';

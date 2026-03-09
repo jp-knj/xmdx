@@ -323,9 +323,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             const resolvedId = path.resolve(path.dirname(normalizedImporter), sourceId);
             return include(resolvedId) ? toVirtualId(resolvedId) : resolvedId;
           }
-          // Bare specifiers (e.g. 'astro-expressive-code/components') from virtual
-          // modules — use Vite's resolver which respects ESM "import" conditions
-          // (createRequire uses CJS "require" conditions and fails for ESM-only packages).
+          // Bare specifiers from virtual modules should resolve exactly as they would
+          // from the consumer app. Do not fall back to astro-xmdx's private dependency tree.
           {
             const resolved = await this.resolve(sourceId, normalizedImporter, {
               skipSelf: true,
@@ -337,6 +336,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
               }
               return resolved;
             }
+            return null;
           }
         }
         return null;

@@ -24,4 +24,23 @@ describe('xmdxPlugin resolveId', () => {
 
     expect(result).toBe(`${VIRTUAL_MODULE_PREFIX}/repo/src/docs/post.mdx${OUTPUT_EXTENSION}`);
   });
+
+  test('does not resolve bare specifiers from astro-xmdx private dependencies', async () => {
+    const plugin = xmdxPlugin();
+    const resolveId = plugin.resolveId;
+
+    expect(resolveId).toBeDefined();
+
+    // 'gray-matter' is in astro-xmdx's dependency tree. When the consumer app
+    // cannot resolve it, virtual modules must not fall back to xmdx's private tree.
+    const result = await resolveId!.call(
+      {
+        resolve: async () => null,
+      },
+      'gray-matter',
+      `${VIRTUAL_MODULE_PREFIX}/repo/src/pages/index.mdx${OUTPUT_EXTENSION}`
+    );
+
+    expect(result).toBeNull();
+  });
 });

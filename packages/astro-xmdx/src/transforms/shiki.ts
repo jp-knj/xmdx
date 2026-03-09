@@ -15,6 +15,8 @@ const PRE_TAG_CHECK = /<pre[\s>]/;
 const PRE_CODE_REGEX = /<pre[^>]*>\s*<code(?:\s+class="([^"]*)")?[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g;
 const JSX_PRE_CODE_REGEX = /<pre[^>]*><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g;
 const JSX_STRING_DECODE_REGEX = /\{"([^"]*)"\}/g;
+const JS_STRING_PRE_CODE_REGEX =
+  /"<pre[^"\\]*(?:\\.[^"\\]*)*><code(?:\s+class=\\"language-([^"\\]+)\\")?>((?:[^"\\]*(?:\\.[^"\\]*)*)?)<\/code><\/pre>"/g;
 
 /**
  * Decodes HTML entities to plain text.
@@ -207,6 +209,44 @@ function isInsideSetHtml(code: string, pos: number): boolean {
 }
 
 /**
+ * Detect whether a position falls inside a quoted JS string literal.
+ * mdxjs-rs can emit raw HTML code blocks as string literals, and those must not
+ * be treated as real JSX `<pre><code>` nodes.
+ */
+function isInsideQuotedStringLiteral(code: string, pos: number): boolean {
+  let activeQuote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < pos; i++) {
+    const ch = code[i];
+    if (!ch) break;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (activeQuote) {
+      if (ch === activeQuote) {
+        activeQuote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      activeQuote = ch;
+    }
+  }
+
+  return activeQuote !== null;
+}
+
+/**
  * Highlights code blocks that appear directly in JSX (not in set:html).
  * Handles cases where slot content with components is embedded directly,
  * causing code blocks to bypass the set:html path.
@@ -252,6 +292,12 @@ export async function highlightJsxCodeBlocks(
       continue;
     }
 
+    // Skip mdxjs-rs HTML string literals like "<pre class=\"astro-code\">..."
+    // so we do not inject JSX into the middle of a JS string.
+    if (isInsideQuotedStringLiteral(code, match.index)) {
+      continue;
+    }
+
     // Skip empty code blocks
     if (!rawContent) {
       continue;
@@ -294,6 +340,95 @@ export async function highlightJsxCodeBlocks(
     const highlightedHtml = highlighted[i]!;
     // Wrap in set:html to avoid raw { } in JSX context being parsed as expressions
     const replacement = `<_Fragment set:html={${JSON.stringify(highlightedHtml)}} />`;
+    result = result.slice(0, start) + replacement + result.slice(end);
+  }
+
+  return result;
+}
+
+/**
+ * Highlights mdxjs-rs code fences emitted as quoted HTML string literals.
+ * Replaces the entire string literal with a JSX Fragment so fallback mode can
+ * still highlight MDX documents without corrupting the surrounding code.
+ */
+export async function highlightJsStringCodeBlocks(
+  code: string,
+  highlight: ShikiHighlighter
+): Promise<string> {
+  if (!code || typeof code !== 'string') {
+    return code;
+  }
+
+  if (!code.includes('<pre') && !code.includes('\\u003cpre')) {
+    return code;
+  }
+
+  JS_STRING_PRE_CODE_REGEX.lastIndex = 0;
+
+  const toHighlight: Array<{
+    start: number;
+    end: number;
+    lang: string | undefined;
+    codeText: string;
+  }> = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = JS_STRING_PRE_CODE_REGEX.exec(code)) !== null) {
+    const [fullMatch, lang, escapedContent = ''] = match;
+
+    // Leave set:html JSON literals to rewriteAstroSetHtml.
+    if (isInsideSetHtml(code, match.index)) {
+      continue;
+    }
+
+    if (fullMatch.includes('class=\\"shiki') || fullMatch.includes('data-language')) {
+      continue;
+    }
+
+    JS_ESCAPE_REGEX.lastIndex = 0;
+    const codeText = decodeHtmlEntities(
+      escapedContent.replace(JS_ESCAPE_REGEX, (_, char: string) => {
+        switch (char) {
+          case 'n':
+            return '\n';
+          case 't':
+            return '\t';
+          case 'r':
+            return '\r';
+          case '"':
+            return '"';
+          case '\\':
+            return '\\';
+          default:
+            return char;
+        }
+      })
+    ).trimEnd();
+
+    if (!codeText) {
+      continue;
+    }
+
+    toHighlight.push({
+      start: match.index,
+      end: match.index + fullMatch.length,
+      lang,
+      codeText,
+    });
+  }
+
+  if (toHighlight.length === 0) {
+    return code;
+  }
+
+  const highlighted = await Promise.all(
+    toHighlight.map(({ codeText, lang }) => highlight(codeText, lang || undefined))
+  );
+
+  let result = code;
+  for (let i = toHighlight.length - 1; i >= 0; i--) {
+    const { start, end } = toHighlight[i]!;
+    const replacement = `<_Fragment set:html={${JSON.stringify(highlighted[i]!)}} />`;
     result = result.slice(0, start) + replacement + result.slice(end);
   }
 
@@ -368,4 +503,3 @@ export async function rewriteAstroSetHtml(
 
   return result;
 }
-

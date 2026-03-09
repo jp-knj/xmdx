@@ -9,7 +9,7 @@
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["esbuild", "expressive-code", "shiki"]
+      "ignoreDependencies": ["esbuild"]
     },
     "packages/astro-loader": {
       "project": ["src/**/*.ts"]

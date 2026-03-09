@@ -103,6 +103,23 @@ describe('transformShikiHighlight', () => {
     expect(result.code).toBe('<_Fragment set:html={"<pre><code>test</code></pre>"} />');
   });
 
+  test('runs shiki when expressiveCode configured but canRewrite is false', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    const ctx = createContext({
+      code: '<_Fragment set:html={"<pre><code>const x = 1;</code></pre>"} />',
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toContain('shiki');
+  });
+
   test('applies shiki highlighting when enabled', async () => {
     const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
       return `<pre class="shiki"><code>${_code}</code></pre>`;
@@ -117,6 +134,48 @@ describe('transformShikiHighlight', () => {
     });
     const result = await transformShikiHighlight(ctx);
     expect(result.code).toContain('shiki');
+  });
+
+  test('highlights direct JSX code blocks in fallback mode', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    const ctx = createContext({
+      code: '<pre><code class="language-js">{"const x = 1;"}</code></pre>',
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toContain('set:html');
+    expect(result.code).toContain('shiki');
+  });
+});
+
+describe('transformShikiHighlight JS string fallback', () => {
+  test('highlights JS string code blocks in fallback mode', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    // mdxjs-rs emits code blocks as JS string literals like:
+    // "<pre class=\"astro-code\" ...>...</pre>"
+    const jsStringCodeBlock = '"<pre class=\\"astro-code github-dark\\" style=\\"...\\" tabindex=\\"0\\"><code><span>const x = 1;</span></code></pre>"';
+    const ctx = createContext({
+      code: jsStringCodeBlock,
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toContain('set:html');
+    expect(result.code).toContain('shiki');
+    expect(result.code).not.toBe(jsStringCodeBlock);
   });
 });
 
