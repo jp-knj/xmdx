@@ -75,9 +75,6 @@ importers:
       astro:
         specifier: '>=4.0.0'
         version: 5.17.1(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3)
-      astro-expressive-code:
-        specifier: ^0.41.0
-        version: 0.41.6(astro@5.17.1(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3))
       expressive-code:
         specifier: ^0.41.0
         version: 0.41.6
@@ -5057,11 +5054,6 @@ snapshots:
       pathe: 2.0.3
 
   astring@1.9.0: {}
-
-  astro-expressive-code@0.41.6(astro@5.17.1(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3)):
-    dependencies:
-      astro: 5.17.1(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3)
-      rehype-expressive-code: 0.41.6
 
   astro-expressive-code@0.41.6(astro@5.17.2(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3)):
     dependencies:

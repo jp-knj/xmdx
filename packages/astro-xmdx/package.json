@@ -74,7 +74,6 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
-    "astro-expressive-code": "^0.41.0",
     "expressive-code": "^0.41.0",
     "shiki": "^3.22.0",
     "glob": "^13.0.0",
