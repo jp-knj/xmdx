@@ -2,4 +2,4 @@
 "xmdx": patch
 ---
 
-fix: track indent level in fence parsing to prevent false closes
+fix: fence closing now follows CommonMark rules for indented openers; Shiki fallback runs when ExpressiveCode peer is unavailable

@@ -648,6 +648,10 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     const expressiveCodeCanRewrite = deps.expressiveCode
       ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
       : false;
+    // Fallback: enable Shiki when EC is configured but peer is missing
+    if (deps.expressiveCode && !expressiveCodeCanRewrite) {
+      deps.shikiManager.enable();
+    }
     debugTimeEnd('buildStart:shikiInit');
     debugTime('buildStart:pipelineProcessing');
 

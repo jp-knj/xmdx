@@ -90,7 +90,7 @@ export async function transformShikiHighlight(
   // PERF: Skip Shiki when ExpressiveCode is configured
   // ExpressiveCode already handles all code block patterns (set:html, JS strings, loose blocks)
   // Running Shiki would just scan the same patterns and find nothing
-  if (ctx.config.expressiveCode) {
+  if (ctx.config.expressiveCode && ctx.config.expressiveCodeCanRewrite !== false) {
     return ctx;
   }
 

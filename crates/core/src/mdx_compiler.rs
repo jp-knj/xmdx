@@ -1127,11 +1127,7 @@ fn parse_fence_marker(line: &str) -> Option<(usize, char, usize)> {
 }
 
 fn fence_closes(open_indent: usize, close_indent: usize) -> bool {
-    if open_indent <= 3 {
-        close_indent <= 3
-    } else {
-        close_indent == open_indent
-    }
+    close_indent <= 3 || close_indent == open_indent
 }
 
 struct AtxHeading {
@@ -3156,6 +3152,22 @@ some code
         let source = "```md\n# Code {#keep-me}\n  ```\n## Real {#real-id}\n";
         let stripped = strip_custom_ids_from_headings(source);
         assert!(stripped.contains("# Code {#keep-me}"));
+        assert!(!stripped.contains("{#real-id}"));
+    }
+
+    #[test]
+    fn test_dedented_closer_ends_indented_fence() {
+        // Regression: a fence opened at 4+ spaces must be closable at 0 spaces
+        // per CommonMark (closing fence can have 0-3 spaces of indentation).
+        let source = "    ```ts\n    const x = 1;\n```\n\n## After Fence\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "After Fence");
+
+        // Also verify strip_custom_ids_from_headings handles this correctly
+        let source2 = "    ```md\n    # Code {#keep}\n```\n## Real {#real-id}\n";
+        let stripped = strip_custom_ids_from_headings(source2);
+        assert!(stripped.contains("# Code {#keep}"));
         assert!(!stripped.contains("{#real-id}"));
     }
 

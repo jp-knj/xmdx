@@ -3,4 +3,4 @@
 "xmdx": patch
 ---
 
-Reduce bundle size by moving shiki/expressive-code to optional peerDeps
+Restore expressive-code as direct dependency and enable Shiki fallback when EC cannot rewrite

@@ -103,6 +103,23 @@ describe('transformShikiHighlight', () => {
     expect(result.code).toBe('<_Fragment set:html={"<pre><code>test</code></pre>"} />');
   });
 
+  test('runs shiki when expressiveCode configured but canRewrite is false', async () => {
+    const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
+      return `<pre class="shiki"><code>${_code}</code></pre>`;
+    };
+    const ctx = createContext({
+      code: '<_Fragment set:html={"<pre><code>const x = 1;</code></pre>"} />',
+      config: {
+        expressiveCode: { component: 'Code', moduleId: 'astro-expressive-code/components' },
+        expressiveCodeCanRewrite: false,
+        starlightComponents: false,
+        shiki: mockHighlight,
+      },
+    });
+    const result = await transformShikiHighlight(ctx);
+    expect(result.code).toContain('shiki');
+  });
+
   test('applies shiki highlighting when enabled', async () => {
     const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
       return `<pre class="shiki"><code>${_code}</code></pre>`;

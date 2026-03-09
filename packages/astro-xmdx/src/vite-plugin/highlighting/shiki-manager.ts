@@ -15,6 +15,13 @@ export class ShikiManager {
   }
 
   /**
+   * Activates the manager after creation (e.g. when EC fallback is needed).
+   */
+  enable(): void {
+    this.enabled = true;
+  }
+
+  /**
    * Returns the Shiki highlighter promise, initializing on first call.
    * Returns null if Shiki is disabled or code has no `<pre>` tags.
    */

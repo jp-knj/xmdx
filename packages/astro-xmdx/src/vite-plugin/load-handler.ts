@@ -108,6 +108,10 @@ async function runPipelineAndEsbuild(
   const expressiveCodeCanRewrite = deps.expressiveCode
     ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
     : false;
+  // Fallback: enable Shiki when EC is configured but peer is missing
+  if (deps.expressiveCode && !expressiveCodeCanRewrite) {
+    deps.shikiManager.enable();
+  }
   const ctx: TransformContext = {
     code: input.code,
     source: input.source,
