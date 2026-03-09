@@ -155,15 +155,13 @@ describe('transformShikiHighlight', () => {
   });
 });
 
-describe('transformShikiHighlight JS string limitation', () => {
-  test('leaves JS string code blocks untouched in fallback mode', async () => {
+describe('transformShikiHighlight JS string fallback', () => {
+  test('highlights JS string code blocks in fallback mode', async () => {
     const mockHighlight = async (_code: string, _lang?: string): Promise<string> => {
       return `<pre class="shiki"><code>${_code}</code></pre>`;
     };
     // mdxjs-rs emits code blocks as JS string literals like:
     // "<pre class=\"astro-code\" ...>...</pre>"
-    // Shiki does NOT have a dedicated handler for this pattern, so fallback
-    // mode must leave the string literal untouched rather than corrupt it.
     const jsStringCodeBlock = '"<pre class=\\"astro-code github-dark\\" style=\\"...\\" tabindex=\\"0\\"><code><span>const x = 1;</span></code></pre>"';
     const ctx = createContext({
       code: jsStringCodeBlock,
@@ -175,7 +173,9 @@ describe('transformShikiHighlight JS string limitation', () => {
       },
     });
     const result = await transformShikiHighlight(ctx);
-    expect(result.code).toBe(jsStringCodeBlock);
+    expect(result.code).toContain('set:html');
+    expect(result.code).toContain('shiki');
+    expect(result.code).not.toBe(jsStringCodeBlock);
   });
 });
 

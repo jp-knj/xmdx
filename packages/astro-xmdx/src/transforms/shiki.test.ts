@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   highlightHtmlBlocks,
+  highlightJsStringCodeBlocks,
   highlightJsxCodeBlocks,
   rewriteAstroSetHtml,
 } from './shiki.js';
@@ -285,5 +286,37 @@ describe('highlightJsxCodeBlocks', () => {
     expect(result).toContain('set:html=');
     expect(result).toContain('# COMMENT');
     expect(result).toContain('language-sh');
+  });
+});
+
+describe('highlightJsStringCodeBlocks', () => {
+  test('returns unchanged when no JS string code blocks are present', async () => {
+    const code = 'const x = 1;';
+    const result = await highlightJsStringCodeBlocks(code, mockHighlight);
+    expect(result).toBe(code);
+  });
+
+  test('highlights mdxjs-rs JS string code blocks', async () => {
+    const code = '"<pre class=\\"astro-code\\" tabindex=\\"0\\"><code class=\\"language-js\\">const x = 1;</code></pre>"';
+    const result = await highlightJsStringCodeBlocks(code, mockHighlight);
+    expect(result).toContain('set:html=');
+    expect(result).toContain('CONST X = 1;');
+    expect(result).toContain('language-js');
+  });
+
+  test('preserves surrounding JS when replacing string literals', async () => {
+    const code = 'const a = 1; "<pre class=\\"astro-code\\" tabindex=\\"0\\"><code>test</code></pre>"; const b = 2;';
+    const result = await highlightJsStringCodeBlocks(code, mockHighlight);
+    expect(result).toContain('const a = 1;');
+    expect(result).toContain('set:html=');
+    expect(result).toContain('TEST');
+    expect(result).toContain('const b = 2;');
+  });
+
+  test('skips JS string code blocks inside set:html JSON strings', async () => {
+    const innerHtml = '<pre class="astro-code" tabindex="0"><code class="language-js">const x = 1;</code></pre>';
+    const code = `<_Fragment set:html={${JSON.stringify(innerHtml)}} />`;
+    const result = await highlightJsStringCodeBlocks(code, mockHighlight);
+    expect(result).toBe(code);
   });
 });
