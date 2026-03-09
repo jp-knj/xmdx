@@ -649,8 +649,10 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId)
       : false;
     // Fallback: enable Shiki when EC is configured but peer is missing
+    let finalResolvedShiki = resolvedShiki;
     if (deps.expressiveCode && !expressiveCodeCanRewrite) {
       deps.shikiManager.enable();
+      finalResolvedShiki = await deps.shikiManager.init();
     }
     debugTimeEnd('buildStart:shikiInit');
     debugTime('buildStart:pipelineProcessing');
@@ -666,7 +668,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       expressiveCodeCanRewrite,
       deps.starlightComponents,
       deps.shikiManager,
-      resolvedShiki,
+      finalResolvedShiki,
       deps.transformPipeline,
       sourceHashes
     );
