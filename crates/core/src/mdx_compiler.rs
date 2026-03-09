@@ -972,7 +972,7 @@ fn strip_custom_ids_from_headings(source: &str) -> String {
         // Track fenced code blocks
         if let Some((indent, marker, len)) = parse_fence_marker(line) {
             if let Some((open_marker, open_len, open_indent)) = fence_state {
-                if marker == open_marker && len >= open_len && fence_closes(open_indent, indent) {
+                if marker == open_marker && len >= open_len && fence_closes(open_indent, indent) && fence_marker_is_valid_closer(line) {
                     fence_state = None;
                 }
             } else {
@@ -1057,7 +1057,7 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
                 // Only close if same marker, enough length, and the closer uses a
                 // valid indentation for the opener style (CommonMark top-level or
                 // MDX-indented fences inside JSX/components).
-                if marker == open_marker && len >= open_len && fence_closes(open_indent, indent) {
+                if marker == open_marker && len >= open_len && fence_closes(open_indent, indent) && fence_marker_is_valid_closer(line) {
                     fence_state = None;
                 }
                 // Note: if markers don't match or indent is deeper, we stay inside
@@ -1128,6 +1128,18 @@ fn parse_fence_marker(line: &str) -> Option<(usize, char, usize)> {
 
 fn fence_closes(open_indent: usize, close_indent: usize) -> bool {
     close_indent <= 3 || close_indent == open_indent
+}
+
+/// A closing fence must have only whitespace after the markers.
+/// Mirrors `code_fence.rs::is_closing_fence` logic.
+fn fence_marker_is_valid_closer(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let first = match trimmed.chars().next() {
+        Some(c) if c == '`' || c == '~' => c,
+        _ => return false,
+    };
+    let after_markers = trimmed.trim_start_matches(first);
+    after_markers.chars().all(|c| c.is_whitespace())
 }
 
 struct AtxHeading {
@@ -3169,6 +3181,22 @@ some code
         let stripped = strip_custom_ids_from_headings(source2);
         assert!(stripped.contains("# Code {#keep}"));
         assert!(!stripped.contains("{#real-id}"));
+    }
+
+    #[test]
+    fn test_info_string_does_not_close_indented_fence() {
+        let source = "    ```\n    some code\n    ```js\n    # Not A Heading\n    ```\n\n## Real Heading\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_strip_ids_info_string_does_not_close_fence() {
+        let source = "    ```\n    ```js\n    # Keep {#keep}\n    ```\n## Strip {#strip-me}\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(stripped.contains("# Keep {#keep}"));
+        assert!(!stripped.contains("{#strip-me}"));
     }
 
     #[test]
