@@ -23,10 +23,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Pack packages
         run: |
-          pnpm --filter @xmdx/napi pack --pack-destination ../../
-          pnpm --filter xmdx pack --pack-destination ../../
-          pnpm --filter astro-xmdx pack --pack-destination ../../
-          pnpm --filter @xmdx/astro-loader pack --pack-destination ../../
+          cd crates/napi && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/xmdx && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/astro-xmdx && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/astro-loader && pnpm pack --pack-destination ../../ && cd ../..
       - uses: actions/upload-artifact@v4
         with:
           name: base-packages
@@ -44,10 +44,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Pack packages
         run: |
-          pnpm --filter @xmdx/napi pack --pack-destination ../../
-          pnpm --filter xmdx pack --pack-destination ../../
-          pnpm --filter astro-xmdx pack --pack-destination ../../
-          pnpm --filter @xmdx/astro-loader pack --pack-destination ../../
+          cd crates/napi && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/xmdx && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/astro-xmdx && pnpm pack --pack-destination ../../ && cd ../..
+          cd packages/astro-loader && pnpm pack --pack-destination ../../ && cd ../..
       - uses: actions/upload-artifact@v4
         with:
           name: source-packages
