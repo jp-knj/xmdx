@@ -1,5 +1,13 @@
 # astro-xmdx
 
+## 0.0.10-next.9
+
+### Patch Changes
+
+- 8c063a1: fix: preserve valid href output for HTML anchors and component props in generated xmdx JSX
+- Updated dependencies [8c063a1]
+  - xmdx@0.0.9-next.3
+
 ## 0.0.10-next.8
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # xmdx
 
+## 0.0.9-next.3
+
+### Patch Changes
+
+- 8c063a1: fix: preserve valid href output for HTML anchors and component props in generated xmdx JSX
+
 ## 0.0.9-next.2
 
 ### Patch Changes
