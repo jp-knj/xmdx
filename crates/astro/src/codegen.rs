@@ -92,6 +92,13 @@ pub fn has_pascal_case_tag(s: &str) -> bool {
     false
 }
 
+fn uses_html_literal_attr_syntax(tag_name: &str) -> bool {
+    tag_name
+        .as_bytes()
+        .first()
+        .is_some_and(|b| b.is_ascii_lowercase())
+}
+
 /// Converts HTML entities and literal ampersands to JSX expressions for safe embedding.
 ///
 /// Converts HTML entities for safe JSX embedding with context-awareness.
@@ -571,6 +578,15 @@ fn slot_children_to_html(blocks: &[RenderBlock]) -> String {
                         continue;
                     }
 
+                    if uses_html_literal_attr_syntax(tag)
+                        && let PropValue::Literal { value } = prop_value
+                    {
+                        result.push_str("=\"");
+                        result.push_str(&escape_attr_value_for_html(value));
+                        result.push('"');
+                        continue;
+                    }
+
                     result.push_str("={");
                     match prop_value {
                         PropValue::Literal { value } => {
@@ -674,6 +690,10 @@ where
 
 /// Emits an HTML render block as a Fragment with `set:html`.
 fn emit_html_block(content: &str, result: &mut String) {
+    if has_pascal_case_tag(content) && content.contains("={") {
+        result.push_str(&html_entities_to_jsx(content));
+        return;
+    }
     result.push_str("<_Fragment set:html={");
     result.push_str(&js_string_literal(content));
     result.push_str("} />");
@@ -1783,6 +1803,64 @@ mod tests {
         let input = r#"<Code code={"import { foo } from 'bar';"} />"#;
         let result = html_entities_to_jsx(input);
         assert_eq!(result, input); // No text content, no changes needed
+    }
+
+    #[test]
+    fn test_component_slot_with_lowercase_html_tag_uses_html_attrs_in_set_html() {
+        use std::collections::BTreeMap;
+
+        let mut anchor_props = BTreeMap::new();
+        anchor_props.insert(
+            "href".to_string(),
+            PropValue::literal("https://example.com?a=1&b=2"),
+        );
+
+        let blocks = vec![RenderBlock::Component {
+            name: "Card".to_string(),
+            props: BTreeMap::new(),
+            slot_children: vec![RenderBlock::Component {
+                name: "a".to_string(),
+                props: anchor_props,
+                slot_children: vec![RenderBlock::Html {
+                    content: "docs".to_string(),
+                }],
+            }],
+        }];
+
+        let jsx = blocks_to_jsx_string(&blocks, None::<fn(&str) -> Option<DirectiveMappingResult>>);
+        assert!(
+            jsx.contains(
+                r#"<_Fragment set:html={"<a href=\"https://example.com?a=1&amp;b=2\">docs</a>"} />"#
+            ),
+            "Expected HTML attribute syntax inside set:html, got: {}",
+            jsx
+        );
+        assert!(
+            !jsx.contains(r#"href={\"https://example.com?a=1&b=2\"}"#),
+            "Should not emit JSX expression syntax inside set:html, got: {}",
+            jsx
+        );
+    }
+
+    #[test]
+    fn test_html_block_with_pascal_case_component_embeds_direct_jsx() {
+        let jsx = blocks_to_jsx_string(
+            &[RenderBlock::Html {
+                content: r#"<p><Card href={"https://example.com?a=1&b=2"}>docs</Card></p>"#
+                    .to_string(),
+            }],
+            None::<fn(&str) -> Option<DirectiveMappingResult>>,
+        );
+
+        assert_eq!(
+            jsx,
+            r#"<p><Card href={"https://example.com?a=1&b=2"}>docs</Card></p>"#
+        );
+        assert!(
+            !jsx.contains("set:html"),
+            "HTML blocks containing components should embed direct JSX, got: {}",
+            jsx
+        );
     }
 
     #[test]

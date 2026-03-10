@@ -619,7 +619,11 @@ export function blocksToJsx(
    */
   const flushHtmlBuffer = () => {
     if (htmlBuffer) {
-      fragments.push(`<_Fragment set:html={${JSON.stringify(htmlBuffer)}} />`);
+      if (hasPascalCaseTag(htmlBuffer) && htmlBuffer.includes('={')) {
+        fragments.push(htmlEntitiesToJsx(normalizeHtmlForJsx(htmlBuffer)));
+      } else {
+        fragments.push(`<_Fragment set:html={${JSON.stringify(htmlBuffer)}} />`);
+      }
       htmlBuffer = '';
     }
   };

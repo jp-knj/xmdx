@@ -70,6 +70,13 @@ fn escape_code_text(s: &str) -> String {
     result
 }
 
+fn uses_html_literal_attr_syntax(tag_name: &str) -> bool {
+    tag_name
+        .as_bytes()
+        .first()
+        .is_some_and(|b| b.is_ascii_lowercase())
+}
+
 /// Converts blocks to inline HTML for use in list/table contexts.
 ///
 /// This is used when rendering components inside lists or tables where
@@ -125,6 +132,15 @@ fn blocks_to_inline_html(component_name: &str, blocks: &[RenderBlock]) -> String
                     // Astro's slot system expects slot="name" not slot={"name"}
                     if name == "Fragment"
                         && key == "slot"
+                        && let PropValue::Literal { value } = prop_value
+                    {
+                        result.push_str("=\"");
+                        result.push_str(&escape_html_attr(value));
+                        result.push('"');
+                        continue;
+                    }
+
+                    if uses_html_literal_attr_syntax(name)
                         && let PropValue::Literal { value } = prop_value
                     {
                         result.push_str("=\"");
@@ -434,6 +450,15 @@ impl<'a> Context<'a> {
             // Astro's slot system expects slot="name" not slot={"name"}
             if name == "Fragment"
                 && key == "slot"
+                && let PropValue::Literal { value } = prop_value
+            {
+                self.current_html.push_str("=\"");
+                self.push_attr_value(value);
+                self.current_html.push('"');
+                continue;
+            }
+
+            if uses_html_literal_attr_syntax(name)
                 && let PropValue::Literal { value } = prop_value
             {
                 self.current_html.push_str("=\"");
