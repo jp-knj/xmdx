@@ -1128,6 +1128,34 @@ export const authClient = createAuthClient();
     }
 
     #[test]
+    fn test_lowercase_jsx_tag_literal_href_renders_as_html_attribute() {
+        let input = r#"<a href="https://example.com?a=1&b=2">docs</a>"#;
+        let options = Options {
+            enable_directives: true,
+            allow_raw_html: false,
+            ..Default::default()
+        };
+
+        let blocks = to_blocks(input, &options).unwrap();
+        assert_eq!(blocks.blocks.len(), 1);
+
+        match &blocks.blocks[0] {
+            RenderBlock::Html { content } => {
+                assert_eq!(
+                    content,
+                    r#"<p><a href="https://example.com?a=1&amp;b=2">docs</a></p>"#
+                );
+                assert!(
+                    !content.contains(r#"href={"https://example.com?a=1&b=2"}"#),
+                    "Should emit HTML attributes, got: {}",
+                    content
+                );
+            }
+            other => panic!("Expected Html block, got: {:?}", other),
+        }
+    }
+
+    #[test]
     fn test_islands_mdx_fragment_slots_pattern() {
         // Regression test for: "Unexpected closing slash `/` in tag"
         // This pattern from islands.mdx was causing parse errors when
