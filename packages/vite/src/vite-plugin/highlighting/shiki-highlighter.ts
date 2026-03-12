@@ -4,9 +4,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { SHIKI_THEME } from '../../constants.js';
-import { asShikiLanguage, asModule } from '../../ops/type-narrowing.js';
-import type { ShikiHighlighter } from '../../transforms/shiki.js';
+import { SHIKI_THEME } from 'xmdx/constants';
+import { asShikiLanguage, asModule } from 'xmdx/ops';
+import type { ShikiHighlighter } from 'xmdx/transforms';
 
 interface ShikiModule {
   createHighlighter: (options: { themes: unknown[]; langs: unknown[] }) => Promise<{
@@ -36,7 +36,7 @@ const loadShiki = async (): Promise<ShikiModule | null> => {
 };
 
 // Re-export for convenience
-export type { ShikiHighlighter } from '../../transforms/shiki.js';
+export type { ShikiHighlighter } from 'xmdx/transforms';
 
 /**
  * Creates a fast hash for cache keys.

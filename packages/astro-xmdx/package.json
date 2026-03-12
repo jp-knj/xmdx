@@ -77,10 +77,10 @@
     "expressive-code": "^0.41.0",
     "shiki": "^3.22.0",
     "glob": "^13.0.0",
-    "gray-matter": "^4.0.3",
     "remark-directive": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "xmdx": "workspace:*",
+    "@xmdx/vite": "workspace:*",
     "@xmdx/napi": "workspace:*"
   },
   "devDependencies": {

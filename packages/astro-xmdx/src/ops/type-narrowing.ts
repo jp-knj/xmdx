@@ -1,104 +1,42 @@
 // Centralized type narrowing — the ONLY file allowed to use `as`.
-import type { SourceMapInput } from 'rollup';
+// Generic utilities are re-exported from xmdx/ops. Astro-specific casts remain here.
 
-export function parseJson<T>(json: string): T {
-  return JSON.parse(json) as T;
-}
+import { isRecord } from 'xmdx/ops';
 
-export function parseJsonRecord(json: string): Record<string, unknown> {
-  return JSON.parse(json) as Record<string, unknown>;
-}
+// Re-export generic ops from xmdx
+export {
+  parseJson,
+  parseJsonRecord,
+  parseJsonString,
+  toError,
+  isRecord,
+  nameOf,
+  directiveNameOf,
+  asModule,
+  asBinding,
+  asRecord,
+  asFunction,
+  asSourceMap,
+  asMutableConfig,
+  asStringArray,
+  asHastChildren,
+  asShikiLanguage,
+  asOptionalString,
+} from 'xmdx/ops';
+export {
+  asMutableViteConfig,
+  asViteWithOxc,
+  asVitePlugin,
+} from '@xmdx/vite/ops';
+export type {
+  OxcTransformResult,
+  OxcTransformModule,
+  EsbuildOutputFile,
+  EsbuildBuildResult,
+  EsbuildModule,
+} from '@xmdx/vite/ops';
 
-export function parseJsonString(json: string): string {
-  return JSON.parse(json) as string;
-}
-
-export function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
-}
-
-export function asSourceMap(map: unknown): SourceMapInput | undefined {
-  return map as SourceMapInput | undefined;
-}
-
-export function asMutableConfig(config: unknown): Record<string, unknown> {
-  return config as Record<string, unknown>;
-}
-
-export function asStringArray(value: unknown): unknown[] {
-  return value as unknown[];
-}
-
-/**
- * Type guard: checks that value is a non-null object.
- */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-/**
- * Returns the `name` string from a value, or `'unknown'` when not present.
- */
-export function nameOf(value: unknown): string {
-  if (isRecord(value) && typeof value.name === 'string') {
-    return value.name;
-  }
-  return 'unknown';
-}
-
-/**
- * Returns the `directive` string from a value, or `'unknown'` when not present.
- */
-export function directiveNameOf(value: unknown): string {
-  if (isRecord(value) && typeof value.directive === 'string') {
-    return value.directive;
-  }
-  return 'unknown';
-}
-
-/**
- * Type-safe cast for HastNode children arrays.
- */
-export function asHastChildren<T>(children: unknown): T[] | null {
-  return Array.isArray(children) ? (children as T[]) : null;
-}
-
-/**
- * Cast for dynamic `require()` results.
- */
-export function asBinding<T>(value: unknown): T {
-  return value as T;
-}
-
-/**
- * Cast for dynamic `import()` modules.
- */
-export function asModule<T>(value: unknown): T {
-  return value as T;
-}
-
-/**
- * Cast for shiki language loading (accepts BundledLanguage | SpecialLanguage).
- */
-export function asShikiLanguage(lang: string): unknown {
-  return lang as unknown;
-}
-
-/**
- * Cast for Vite config mutation.
- * Vite's ResolvedConfig is readonly, but configResolved needs mutation.
- */
-export function asMutableViteConfig(config: unknown): Record<string, unknown> & {
-  esbuild?: unknown;
-  optimizeDeps?: { exclude?: string[] };
-  ssr?: { external?: string[] };
-} {
-  return config as Record<string, unknown> & {
-    esbuild?: unknown;
-    optimizeDeps?: { exclude?: string[] };
-    ssr?: { external?: string[] };
-  };
-}
+// --- Astro-specific casts below ---
 
 /**
  * Checks if a value has a symbol property that indicates an MDX component.
@@ -123,25 +61,6 @@ export function addErrorHint(error: Error, title: string, hint: string): void {
 }
 
 /**
- * Vite config with optional OXC support (Vite 8+).
- */
-export function asViteWithOxc(vite: unknown): typeof import('vite') & {
-  transformWithOxc?: (
-    code: string,
-    filename: string,
-    options: Record<string, unknown>,
-  ) => Promise<{ code: string; map?: unknown }>;
-} {
-  return vite as typeof import('vite') & {
-    transformWithOxc?: (
-      code: string,
-      filename: string,
-      options: Record<string, unknown>,
-    ) => Promise<{ code: string; map?: unknown }>;
-  };
-}
-
-/**
  * Type-safe cast for PropValue from Rust compiler.
  */
 export function asPropValue<T>(value: unknown): T {
@@ -156,43 +75,10 @@ export function asIntegrationArray(value: unknown): unknown[] {
 }
 
 /**
- * Cast for Vite Plugin return type (satisfies Vite's any-typed Plugin).
- */
-export function asVitePlugin<T>(value: unknown): T {
-  return value as T;
-}
-
-/**
- * Safely extract an optional string from an unknown value.
- */
-export function asOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-/**
  * Cast an unknown value to string (e.g. renderJSX return).
  */
 export function asString(value: unknown): string {
   return value as string;
-}
-
-/**
- * Typed interface for oxc-transform module (loaded via require()).
- */
-export interface OxcTransformResult { code: string; map?: string }
-export interface OxcTransformModule {
-  transform: (filename: string, code: string, options: Record<string, unknown>) => OxcTransformResult;
-}
-
-/**
- * Typed interface for esbuild module (loaded via require()).
- */
-export interface EsbuildOutputFile { path: string; text: string }
-export interface EsbuildBuildResult {
-  outputFiles: EsbuildOutputFile[];
-}
-export interface EsbuildModule {
-  build: (options: Record<string, unknown>) => Promise<EsbuildBuildResult>;
 }
 
 /**

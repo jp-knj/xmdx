@@ -1,0 +1,62 @@
+{
+  "name": "@xmdx/vite",
+  "version": "0.0.1",
+  "description": "Vite plugin infrastructure for xmdx",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/vite-plugin/index.ts",
+      "import": "./src/vite-plugin/index.ts",
+      "default": "./src/vite-plugin/index.ts"
+    },
+    "./ops": {
+      "types": "./src/ops/vite.ts",
+      "import": "./src/ops/vite.ts",
+      "default": "./src/ops/vite.ts"
+    }
+  },
+  "main": "./src/vite-plugin/index.ts",
+  "types": "./src/vite-plugin/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "author": "jp-knj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jp-knj/xmdx",
+    "directory": "packages/vite"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@xmdx/napi": "workspace:*",
+    "xmdx": "workspace:*"
+  },
+  "peerDependencies": {
+    "vite": ">=5.0.0",
+    "shiki": "^3.22.0",
+    "expressive-code": "^0.41.0"
+  },
+  "peerDependenciesMeta": {
+    "shiki": { "optional": true },
+    "expressive-code": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "expressive-code": "^0.41.0",
+    "rollup": ">=4.0.0",
+    "shiki": "^3.22.0",
+    "typescript": "^5.9.0",
+    "vite": ">=5.0.0"
+  }
+}

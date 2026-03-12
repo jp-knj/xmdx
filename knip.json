@@ -2,12 +2,15 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["exports", "types", "enumMembers", "unresolved"],
   "workspaces": {
-    ".": {
-      "ignoreDependencies": ["eslint-plugin-boundaries"]
-    },
+    ".": {},
     "packages/xmdx": {
       "project": ["src/**/*.ts"],
-      "ignoreBinaries": ["wasm-bindgen"]
+      "ignoreBinaries": ["wasm-bindgen"],
+      "ignoreDependencies": ["shiki", "expressive-code"]
+    },
+    "packages/vite": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["shiki", "expressive-code"]
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],

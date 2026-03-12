@@ -7,7 +7,7 @@ import type {
   ValidationError,
   ValidationResult,
 } from './types.js';
-import { isRecord, nameOf, directiveNameOf, asFunction } from '../ops/type-narrowing.js';
+import { isRecord, nameOf, directiveNameOf, asFunction } from '../ops/casts.js';
 
 /**
  * Validate a component definition has required fields.
