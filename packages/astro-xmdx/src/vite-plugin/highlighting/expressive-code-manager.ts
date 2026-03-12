@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ExpressiveCodeConfig } from '../../utils/config.js';
+import { asBinding } from '../../ops/type-narrowing.js';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);
@@ -123,24 +124,24 @@ export class ExpressiveCodeManager {
     if (this.engine) return this.engine;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.createEngine();
-    this.engine = await this.initPromise;
+    this.engine = this.createEngine();
+    this.initPromise = Promise.resolve(this.engine);
     return this.engine;
   }
 
   /**
    * Creates the ExpressiveCode engine with default configuration.
    */
-  private async createEngine(): Promise<ExpressiveCodeEngine | null> {
+  private createEngine(): ExpressiveCodeEngine | null {
     try {
       // Use require() to avoid Vite module runner issues during buildStart
       // (Vite's module runner may be closed when buildStart runs)
-      const { ExpressiveCode } = require('expressive-code') as {
+      const { ExpressiveCode } = asBinding<{
         ExpressiveCode: new (options: {
           useDarkModeMediaQuery?: boolean;
           themeCssSelector?: (theme: { type: string }) => string;
         }) => ExpressiveCodeEngine;
-      };
+      }>(require('expressive-code'));
 
       // Create engine with minimal configuration
       // Themes will be loaded from bundled defaults
@@ -151,7 +152,7 @@ export class ExpressiveCodeManager {
       });
 
       return engine;
-    } catch (error) {
+    } catch {
       console.warn(
         '[xmdx] expressiveCode is enabled but the "expressive-code" package is not installed.\n' +
         'Install it with: npm install expressive-code\n' +

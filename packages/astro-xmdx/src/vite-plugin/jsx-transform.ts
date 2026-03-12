@@ -9,6 +9,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 import { ESBUILD_JSX_CONFIG, OXC_JSX_CONFIG } from '../constants.js';
+import { asBinding, asSourceMap, asViteWithOxc } from '../ops/type-narrowing.js';
+import type { OxcTransformModule, EsbuildModule, EsbuildOutputFile } from '../ops/type-narrowing.js';
 
 // Use createRequire to bypass Vite's SSR module runner, which may be
 // closed between build phases causing "Vite module runner has been closed".
@@ -29,42 +31,38 @@ async function resolveTransformFn(): Promise<TransformFn> {
 
   let vite: typeof import('vite');
   try {
-    vite = _require('vite');
+    vite = asBinding<typeof import('vite')>(_require('vite'));
   } catch {
     vite = await import('vite');
   }
-  const viteWithOxc = vite as typeof import('vite') & {
-    transformWithOxc?: (
-      code: string,
-      filename: string,
-      options: typeof OXC_JSX_CONFIG,
-    ) => Promise<TransformResult>;
-  };
+  const viteWithOxc = asViteWithOxc(vite);
 
   // Try Vite 8+ transformWithOxc first
   if (typeof viteWithOxc.transformWithOxc === 'function') {
     const transformWithOxc = viteWithOxc.transformWithOxc;
 
-    resolvedTransform = async (code, filename, _options) => {
+    const fn: TransformFn = async (code, filename, _options) => {
       const result = await transformWithOxc(code, filename, OXC_JSX_CONFIG);
       return {
         code: result.code,
-        map: result.map,
+        map: asSourceMap(result.map),
       };
     };
-    return resolvedTransform;
+    resolvedTransform = fn;
+    return fn;
   }
 
   // Fallback to transformWithEsbuild
   const { transformWithEsbuild } = vite;
-  resolvedTransform = async (code, filename, _options) => {
+  const fn: TransformFn = async (code, filename, _options) => {
     const result = await transformWithEsbuild(code, filename, ESBUILD_JSX_CONFIG);
     return {
       code: result.code,
-      map: result.map,
+      map: asSourceMap(result.map),
     };
   };
-  return resolvedTransform;
+  resolvedTransform = fn;
+  return fn;
 }
 
 /**
@@ -90,16 +88,16 @@ type BatchTransformFn = (
   inputs: BatchTransformInput[]
 ) => Promise<Map<string, { code: string; map?: SourceMapInput }>>;
 
-async function resolveBatchTransformFn(): Promise<BatchTransformFn> {
+function resolveBatchTransformFn(): BatchTransformFn {
   if (resolvedBatchTransform) return resolvedBatchTransform;
 
   // Try oxc-transform npm package first
   try {
-    const oxcTransform = _require('oxc-transform');
+    const oxcTransform = asBinding<OxcTransformModule>(_require('oxc-transform'));
     if (oxcTransform && typeof oxcTransform.transform === 'function') {
       const oxcTransformFn = oxcTransform.transform;
 
-      resolvedBatchTransform = async (inputs) => {
+      resolvedBatchTransform = (inputs) => {
         const results = new Map<string, { code: string; map?: SourceMapInput }>();
         for (const input of inputs) {
           const result = oxcTransformFn(`${input.id}.jsx`, input.jsx, {
@@ -116,7 +114,7 @@ async function resolveBatchTransformFn(): Promise<BatchTransformFn> {
             map: typeof result.map === 'string' ? result.map : undefined,
           });
         }
-        return results;
+        return Promise.resolve(results);
       };
       return resolvedBatchTransform;
     }
@@ -125,7 +123,7 @@ async function resolveBatchTransformFn(): Promise<BatchTransformFn> {
   }
 
   // Fallback: use esbuild build API
-  resolvedBatchTransform = async (inputs) => {
+  resolvedBatchTransform = (inputs) => {
     return esbuildBatchFallback(inputs);
   };
   return resolvedBatchTransform;
@@ -134,7 +132,7 @@ async function resolveBatchTransformFn(): Promise<BatchTransformFn> {
 async function esbuildBatchFallback(
   inputs: BatchTransformInput[]
 ): Promise<Map<string, { code: string; map?: SourceMapInput }>> {
-  const { build: esbuildBuild } = _require('esbuild');
+  const { build: esbuildBuild } = asBinding<EsbuildModule>(_require('esbuild'));
 
   const entryMap = new Map<string, { id: string; jsx: string }>();
   for (let i = 0; i < inputs.length; i++) {
@@ -157,7 +155,10 @@ async function esbuildBatchFallback(
     plugins: [
       {
         name: 'xmdx-virtual-jsx',
-        setup(build: { onResolve: Function; onLoad: Function }) {
+        setup(build: {
+          onResolve: (opts: { filter: RegExp }, cb: (args: { path: string }) => { path: string; namespace?: string; external?: boolean } | null) => void;
+          onLoad: (opts: { filter: RegExp; namespace?: string }, cb: (args: { path: string }) => { contents: string; loader: string } | null) => void;
+        }) {
           build.onResolve({ filter: /^entry\d+\.jsx$/ }, (args: { path: string }) => {
             return { path: args.path, namespace: 'xmdx-jsx' };
           });
@@ -174,13 +175,13 @@ async function esbuildBatchFallback(
   });
 
   const results = new Map<string, { code: string; map?: SourceMapInput }>();
-  for (const output of result.outputFiles || []) {
+  for (const output of result.outputFiles) {
     const basename = path.basename(output.path);
     if (basename.endsWith('.map')) continue;
     const entryName = basename.replace(/\.js$/, '.jsx');
     const entry = entryMap.get(entryName);
     if (entry) {
-      const mapOutput = result.outputFiles?.find((o: { path: string }) => o.path === output.path + '.map');
+      const mapOutput = result.outputFiles.find((o: EsbuildOutputFile) => o.path === output.path + '.map');
       results.set(entry.id, {
         code: output.text,
         map: mapOutput?.text,
@@ -195,20 +196,20 @@ async function esbuildBatchFallback(
  * Batch-transform JSX files to JS.
  * Uses oxc-transform when available, esbuild.build() otherwise.
  */
-export async function batchTransformJsx(
+export function batchTransformJsx(
   inputs: BatchTransformInput[]
 ): Promise<Map<string, { code: string; map?: SourceMapInput }>> {
-  const batchTransform = await resolveBatchTransformFn();
+  const batchTransform = resolveBatchTransformFn();
   return batchTransform(inputs);
 }
 
 /**
  * Check if OXC-based transform is available (for logging/diagnostics).
  */
-export async function isOxcAvailable(): Promise<boolean> {
+export function isOxcAvailable(): boolean {
   try {
-    const vite = _require('vite');
-    return typeof vite.transformWithOxc === 'function';
+    const vite = asBinding<typeof import('vite')>(_require('vite'));
+    return typeof asViteWithOxc(vite).transformWithOxc === 'function';
   } catch {
     return false;
   }

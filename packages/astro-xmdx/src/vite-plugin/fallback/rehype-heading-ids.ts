@@ -3,6 +3,8 @@
  * @module vite-plugin/rehype-heading-ids
  */
 
+import { asHastChildren } from '../../ops/type-narrowing.js';
+
 type HastNode = {
   type: string;
   [key: string]: unknown;
@@ -106,7 +108,7 @@ export function extractCustomId(text: string): { text: string; customId: string 
 }
 
 function findCustomIdInLastTextNode(node: HastNode): string | null {
-  const children = Array.isArray(node.children) ? (node.children as HastNode[]) : null;
+  const children = asHastChildren<HastNode>(node.children);
   if (!children || children.length === 0) return null;
 
   const lastChild = children[children.length - 1];
@@ -124,7 +126,7 @@ function findCustomIdInLastTextNode(node: HastNode): string | null {
 }
 
 function stripCustomIdFromLastTextNode(node: HastNode): void {
-  const children = Array.isArray(node.children) ? (node.children as HastNode[]) : null;
+  const children = asHastChildren<HastNode>(node.children);
   if (!children || children.length === 0) return;
 
   const lastChild = children[children.length - 1];
@@ -281,7 +283,7 @@ export function rehypeHeadingIds(
         }
       }
 
-      const children = Array.isArray(node.children) ? (node.children as HastNode[]) : null;
+      const children = asHastChildren<HastNode>(node.children);
       if (children) {
         for (const child of children) {
           assignHeadingId(child);

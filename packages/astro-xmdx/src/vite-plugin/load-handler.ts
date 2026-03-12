@@ -27,6 +27,7 @@ import { LOAD_PROFILE } from './load-profiler.js';
 import type { ShikiManager } from './highlighting/shiki-manager.js';
 import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
 import type { CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
+import { parseJsonRecord, asSourceMap, toError } from '../ops/type-narrowing.js';
 
 interface LoadState {
   totalProcessingTimeMs: number;
@@ -217,7 +218,7 @@ export async function loadCachedModule(
 
   return {
     code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
+    map: final.map ?? asSourceMap(result.map) ?? undefined,
   };
 }
 
@@ -277,7 +278,7 @@ export async function loadCachedMdx(
 
   return {
     code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
+    map: final.map ?? asSourceMap(result.map) ?? undefined,
   };
 }
 
@@ -333,7 +334,7 @@ export async function loadCacheMiss(
 
     if (mdxResult.result.frontmatterJson) {
       try {
-        frontmatter = JSON.parse(mdxResult.result.frontmatterJson) as Record<string, unknown>;
+        frontmatter = parseJsonRecord(mdxResult.result.frontmatterJson);
       } catch {
         frontmatter = {};
       }
@@ -380,7 +381,7 @@ export async function loadCacheMiss(
     result = currentCompiler.compile(processedSource, filename, fileOptions);
     if (result.frontmatter_json) {
       try {
-        frontmatter = JSON.parse(result.frontmatter_json) as Record<string, unknown>;
+        frontmatter = parseJsonRecord(result.frontmatter_json);
       } catch {
         frontmatter = {};
       }
@@ -429,7 +430,7 @@ export async function loadCacheMiss(
 
   return {
     code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
+    map: final.map ?? asSourceMap(result.map) ?? undefined,
   };
 }
 
@@ -439,7 +440,7 @@ export async function loadWithFallback(
   error: unknown,
   deps: LoadHandlerDeps
 ): Promise<PipelineResult> {
-  const message = (error as Error)?.message || String(error);
+  const message = toError(error).message;
   deps.fallbackFiles.add(filename);
   deps.fallbackReasons.set(filename, message);
   deps.warn(`[xmdx] Falling back to @mdx-js/mdx for ${filename}: ${message}`);
@@ -499,7 +500,7 @@ export async function handleLoad(
 
     return loadCacheMiss(id, filename, loadStart, deps);
   } catch (error) {
-    const message = (error as Error)?.message || String(error);
+    const message = toError(error).message;
     if (shouldUseFallback(message)) {
       return loadWithFallback(id, filename, error, deps);
     }

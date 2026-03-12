@@ -5,16 +5,15 @@
 
 import path from 'node:path';
 import type { ComponentLibrary, ComponentDefinition } from 'xmdx/registry';
+import { isRecord } from '../ops/type-narrowing.js';
 import { normalizePath } from './paths.js';
 
 /**
  * Result of finding the Starlight integration in an Astro config.
  */
 export interface StarlightDetectionResult {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  integration: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  config: any;
+  integration: unknown;
+  config: unknown;
   componentOverrides: Map<string, string>;
 }
 
@@ -24,13 +23,11 @@ export interface StarlightDetectionResult {
  * or `null` if Starlight is not present.
  */
 export function findStarlightIntegration(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  integrations: any[] | undefined
+  integrations: unknown[] | undefined
 ): StarlightDetectionResult | null {
   if (!integrations) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const integration = integrations.find((i: any) => i.name === '@astrojs/starlight');
+  const integration = integrations.find((i) => isRecord(i) && i.name === '@astrojs/starlight');
   if (!integration) return null;
 
   const config = extractStarlightConfig(integration);
@@ -43,14 +40,14 @@ export function findStarlightIntegration(
  * Extracts the Starlight user config from the integration object.
  * Starlight stores it in one of several locations depending on version.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractStarlightConfig(integration: any): any {
-  return (
-    integration?.config ??
-    integration?.options ??
-    integration?._dependencies?.starlightConfig ??
-    null
-  );
+function extractStarlightConfig(integration: unknown): unknown {
+  if (!isRecord(integration)) return null;
+  if ('config' in integration && integration.config != null) return integration.config;
+  if ('options' in integration && integration.options != null) return integration.options;
+  if (isRecord(integration._dependencies) && integration._dependencies.starlightConfig != null) {
+    return integration._dependencies.starlightConfig;
+  }
+  return null;
 }
 
 /**
@@ -59,12 +56,11 @@ function extractStarlightConfig(integration: any): any {
  * Returns a map of override name -> override path for content-affecting components.
  */
 export function getStarlightComponentOverrides(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  starlightConfig: any
+  starlightConfig: unknown
 ): Map<string, string> {
   const overrides = new Map<string, string>();
 
-  if (!starlightConfig?.components || typeof starlightConfig.components !== 'object') {
+  if (!isRecord(starlightConfig) || !isRecord(starlightConfig.components)) {
     return overrides;
   }
 

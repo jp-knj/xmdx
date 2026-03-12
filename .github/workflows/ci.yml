@@ -133,6 +133,20 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+  lint-eslint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: pnpm install
+      - run: pnpm lint:eslint
+
   lint-knip:
     name: Lint (Knip)
     runs-on: ubuntu-latest

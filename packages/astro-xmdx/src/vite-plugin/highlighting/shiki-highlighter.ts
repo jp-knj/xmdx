@@ -5,6 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { SHIKI_THEME } from '../../constants.js';
+import { asShikiLanguage, asModule } from '../../ops/type-narrowing.js';
 import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 interface ShikiModule {
@@ -22,7 +23,7 @@ const loadShiki = async (): Promise<ShikiModule | null> => {
   if (!shikiImport) {
     shikiImport = (async () => {
       try {
-        return await import('shiki') as ShikiModule;
+        return asModule<ShikiModule>(await import('shiki'));
       } catch {
         console.warn(
           '[xmdx] shiki not found. Syntax highlighting disabled. Install: npm install shiki'
@@ -90,7 +91,7 @@ export async function createShikiHighlighter(): Promise<ShikiHighlighter | null>
     try {
       const loaded = highlighter.getLoadedLanguages();
       if (!loaded.includes(effectiveLang)) {
-        await highlighter.loadLanguage(effectiveLang as any);
+        await highlighter.loadLanguage(asShikiLanguage(effectiveLang));
       }
     } catch {
       // Unknown language — continue with best-effort highlighting

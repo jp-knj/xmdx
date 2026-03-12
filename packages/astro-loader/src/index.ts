@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { globby } from 'globby';
 import { parseFrontmatter, type FrontmatterResult } from '@xmdx/napi';
+import { toError, asType, parseJson } from './ops/type-narrowing.js';
 
 export interface XmdxLoaderOptions {
   /** Directory (relative to project root) that contains the target content collection. */
@@ -89,7 +90,7 @@ export function xmdxLoader({
 
             nextDigests.set(id, digest);
           } catch (error) {
-            logger.error?.(`Failed to load ${relativePath}: ${(error as Error).message}`);
+            logger.error?.(`Failed to load ${relativePath}: ${toError(error).message}`);
           }
         }),
       );
@@ -117,7 +118,7 @@ async function syncFile(
     existingEntry: StoreEntry;
   },
 ): Promise<boolean> {
-  const result = parseFrontmatter(body) as FrontmatterResult;
+  const result = asType<FrontmatterResult>(parseFrontmatter(body));
   const errors = getFrontmatterErrors(result);
   if (errors.length > 0) {
     const message = `Xmdx parsing errors in ${absolutePath}: ${errors.join(', ')}`;
@@ -165,7 +166,7 @@ function readDigestMeta(rawValue?: string): Map<string, string> {
   }
 
   try {
-    const parsed = JSON.parse(rawValue) as Record<string, string>;
+    const parsed = parseJson<Record<string, string>>(rawValue);
     return new Map(Object.entries(parsed));
   } catch {
     return new Map();

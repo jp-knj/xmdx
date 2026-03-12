@@ -11,7 +11,7 @@ import type { UsedComponent } from './component-detection.js';
  * For default exports, uses the convention: ${modulePath}/${name}.astro
  * to match the rest of the codebase (blocks-to-jsx, inject-components, directive-rewriter).
  */
-export function generateComponentImports(components: UsedComponent[], registry: Registry): string {
+export function generateComponentImports(components: UsedComponent[], _registry: Registry): string {
   // Group components by module path for cleaner imports (named exports only)
   const byModule = new Map<string, UsedComponent[]>();
   const defaultExports: UsedComponent[] = [];

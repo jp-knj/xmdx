@@ -13,6 +13,7 @@ import { mergePresets, STARLIGHT_DEFAULT_ALLOW_IMPORTS, type PresetConfig } from
 import { safeParseFrontmatter } from './utils/frontmatter.js';
 import { findStarlightIntegration, applyStarlightOverrides } from './utils/starlight-detection.js';
 import type { XmdxPlugin, MdxImportHandlingOptions } from './types.js';
+import { asMutableConfig, asIntegrationArray, asVitePlugin, getAddPageExtension, getAddContentEntryType, asOptionalString } from './ops/type-narrowing.js';
 
 /**
  * Options for the Xmdx integration.
@@ -125,7 +126,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
     };
 
     // Remove presets from final options (not needed by vite plugin)
-    delete (resolvedOptions as Record<string, unknown>).presets;
+    delete asMutableConfig(resolvedOptions).presets;
   }
 
   return {
@@ -140,22 +141,8 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
 
         // These are internal Astro APIs for content collection support
         // They exist at runtime but are not exposed in public types
-        const addPageExtension = (options as Record<string, unknown>).addPageExtension as
-          | ((ext: string) => void)
-          | undefined;
-        const addContentEntryType = (options as Record<string, unknown>).addContentEntryType as
-          | ((config: {
-              extensions: string[];
-              getEntryInfo: (params: { fileUrl: URL; contents: string }) => Promise<{
-                data: Record<string, unknown>;
-                body: string;
-                slug?: string;
-                rawData: string;
-              }>;
-              contentModuleTypes: string;
-              handlePropagation?: boolean;
-            }) => void)
-          | undefined;
+        const addPageExtension = getAddPageExtension(options);
+        const addContentEntryType = getAddContentEntryType(options);
 
         // Register the JSX renderer for MDX components.
         // Use a file URL to the built server module to work when this package
@@ -174,14 +161,14 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
         if (addContentEntryType) {
           addContentEntryType({
             extensions: ['.mdx'],
-            async getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
+            getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
               const parsed = safeParseFrontmatter(contents, fileURLToPath(fileUrl));
-              return {
+              return Promise.resolve({
                 data: parsed.frontmatter,
                 body: parsed.content.trim(),
-                slug: parsed.frontmatter.slug as string | undefined,
+                slug: asOptionalString(parsed.frontmatter.slug),
                 rawData: parsed.rawFrontmatter,
-              };
+              });
             },
             contentModuleTypes: await fs.readFile(
               new URL('../template/content-module-types.d.ts', import.meta.url),
@@ -194,8 +181,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
         // Auto-detect Starlight and apply defaults when user has not
         // explicitly configured these options in xmdx().
         const starlight = findStarlightIntegration(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          config.integrations as any[]
+          asIntegrationArray(config.integrations)
         );
 
         if (starlight) {
@@ -232,7 +218,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
           // Only set when starlightComponents is actually enabled — an explicit
           // `starlightComponents: false` must suppress Starlight-specific behaviour.
           if (!isStarlightDisabled(resolvedOptions.starlightComponents)) {
-            (resolvedOptions as Record<string, unknown>).starlightDetected = true;
+            asMutableConfig(resolvedOptions).starlightDetected = true;
           }
         }
 
@@ -254,8 +240,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
 
         updateConfig({
           vite: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            plugins: [xmdxPlugin(resolvedOptions) as any],
+            plugins: [asVitePlugin(xmdxPlugin(resolvedOptions))],
           },
         });
       },

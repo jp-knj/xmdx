@@ -10,8 +10,6 @@ import {
   injectExpressiveCodeComponent,
 } from './expressive-code.js';
 import {
-  injectAstroComponents,
-  injectStarlightComponents,
   injectComponentImportsFromRegistry,
 } from './inject-components.js';
 import { rewriteAstroSetHtml, highlightJsStringCodeBlocks, highlightJsxCodeBlocks } from './shiki.js';

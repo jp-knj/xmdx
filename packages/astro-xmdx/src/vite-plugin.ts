@@ -27,7 +27,6 @@ import {
 } from './constants.js';
 // Import from extracted vite-plugin modules
 import type {
-  XmdxBinding,
   XmdxCompiler,
   XmdxPluginOptions,
 } from './vite-plugin/types.js';
@@ -44,6 +43,7 @@ import type {
 } from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
+import { parseJsonRecord, asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
 
 // Preserve public API — resolveLibraries was exported from this module
 export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
@@ -82,7 +82,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     }
 
     try {
-      const parsed = JSON.parse(json) as Record<string, unknown>;
+      const parsed = parseJsonRecord(json);
       frontmatterCache.set(cacheKey, parsed);
       return parsed;
     } catch {
@@ -93,9 +93,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
 
   // Persistent cache for SSR/Client 2-pass builds
   // These survive between buildStart calls, avoiding redundant recompilation
-  const buildState = {
+  const buildState: { buildPassCount: number; diskCache: DiskCache | null } = {
     buildPassCount: 0,
-    diskCache: null as DiskCache | null,
+    diskCache: null,
   };
   const persistentCache: PersistentCache = {
     esbuild: new Map<string, EsbuildCacheEntry>(),
@@ -220,24 +220,24 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       loadProfiler?.setRoot(config.root);
 
       // Vite 8+: use oxc config; Vite 7 and below: use esbuild config
-      const configAny = config as Record<string, unknown>;
-      if ('oxc' in configAny && configAny.oxc !== false) {
+      const mutableConfig = asMutableViteConfig(config);
+      if ('oxc' in mutableConfig && mutableConfig.oxc !== false) {
         // Vite 8+ with OXC support
-        const oxcConfig = (configAny.oxc ?? {}) as Record<string, unknown>;
+        const oxcConfig = asMutableConfig(mutableConfig.oxc ?? {});
         if (oxcConfig.jsx == null) {
           oxcConfig.jsx = {
             runtime: 'automatic',
             importSource: 'astro',
           };
         }
-        configAny.oxc = oxcConfig;
+        mutableConfig.oxc = oxcConfig;
       } else if (config.esbuild == null) {
-        (config as { esbuild: object }).esbuild = {
+        asMutableConfig(config).esbuild = {
           jsx: 'automatic',
           jsxImportSource: 'astro',
         };
       } else if (config.esbuild !== false) {
-        const esbuildConfig = config.esbuild as Record<string, unknown>;
+        const esbuildConfig = asMutableConfig(config.esbuild);
         if (esbuildConfig.jsx == null) {
           esbuildConfig.jsx = 'automatic';
         }
@@ -246,21 +246,21 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
       }
       // Ensure native binding is treated as external to avoid Vite SSR runner involvement
-      const optimizeDeps = (config as Record<string, any>).optimizeDeps ?? {};
+      const optimizeDeps = mutableConfig.optimizeDeps ?? {};
       const exclude: string[] = optimizeDeps.exclude ?? [];
       if (!exclude.includes('@xmdx/napi')) {
         exclude.push('@xmdx/napi');
       }
       optimizeDeps.exclude = exclude;
-      (config as Record<string, any>).optimizeDeps = optimizeDeps;
+      mutableConfig.optimizeDeps = optimizeDeps;
 
-      const ssr = (config as Record<string, any>).ssr ?? {};
+      const ssr = mutableConfig.ssr ?? {};
       const ssrExternal: string[] = ssr.external ?? [];
       if (!ssrExternal.includes('@xmdx/napi')) {
         ssrExternal.push('@xmdx/napi');
       }
       ssr.external = ssrExternal;
-      (config as Record<string, any>).ssr = ssr;
+      mutableConfig.ssr = ssr;
       // Note: Binding/compiler initialization deferred to buildStart/load hooks
       // to avoid Vite module runner timing issues with async imports
     },
@@ -418,14 +418,14 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         warn: this.warn.bind(this),
         addWatchFile: this.addWatchFile.bind(this),
         invalidateModule: (moduleId: string) => {
-          const config = resolvedConfig as unknown as {
+          const config = asBinding<{
             server?: {
               moduleGraph?: {
                 getModuleById: (id: string) => object | null;
                 invalidateModule: (mod: object) => void;
               };
             };
-          };
+          }>(resolvedConfig);
           if (config?.server?.moduleGraph) {
             const mod = config.server.moduleGraph.getModuleById(moduleId);
             if (mod) {
@@ -460,7 +460,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             : '0%',
         preValidationSkips: {
           count: 0,
-          files: [] as string[],
+          files: [] satisfies string[],
         },
         runtimeFallbacks: {
           count: fallbackFiles.size,

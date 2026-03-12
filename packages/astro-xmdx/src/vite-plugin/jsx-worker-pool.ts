@@ -200,19 +200,19 @@ function runWorker(
     const worker = new Worker(WORKER_CODE, { eval: true });
 
     const timeout = setTimeout(() => {
-      worker.terminate();
+      void worker.terminate();
       reject(new Error('Worker timeout after 60s'));
     }, 60000);
 
     worker.on('message', (output: WorkerOutput) => {
       clearTimeout(timeout);
-      worker.terminate();
+      void worker.terminate();
       resolve(output);
     });
 
     worker.on('error', (err) => {
       clearTimeout(timeout);
-      worker.terminate();
+      void worker.terminate();
       reject(err);
     });
 

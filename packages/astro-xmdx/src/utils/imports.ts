@@ -178,7 +178,7 @@ export function extractImportStatements(code: string): string[] {
     } else {
       // Continue accumulating multi-line import
       // Strip inline // comments, but only outside of quoted strings
-      const lineWithoutComment = trimmed.replace(/\s*\/\/.*$/, (match, offset) => {
+      const lineWithoutComment = trimmed.replace(/\s*\/\/.*$/, (match, offset: number) => {
         const before = trimmed.slice(0, offset);
         const singleQuotes = (before.match(/'/g) || []).length;
         const doubleQuotes = (before.match(/"/g) || []).length;
