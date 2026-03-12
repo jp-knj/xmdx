@@ -18,7 +18,7 @@ import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '..
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { Transform } from '../pipeline/types.js';
 import { IS_MDAST } from './binding-loader.js';
-import type { CachedMdxResult, CachedModuleResult, EsbuildCacheEntry } from './cache/types.js';
+import type { EsbuildCacheEntry } from './cache/types.js';
 import { compileFallbackModule } from './fallback/compile.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
 import { normalizeStarlightComponents } from './normalize-config.js';
@@ -38,10 +38,6 @@ export interface LoadHandlerDeps {
   fallbackFiles: Set<string>;
   fallbackReasons: Map<string, string>;
   esbuildCache: Map<string, EsbuildCacheEntry>;
-  moduleCompilationCache: Map<string, CachedModuleResult>;
-  mdxCompilationCache: Map<string, CachedMdxResult>;
-  originalSourceCache: Map<string, string>;
-  processedSourceCache: Map<string, string>;
   processedFiles: Set<string>;
   registry: Registry;
   hasStarlightConfigured: boolean;
@@ -52,7 +48,6 @@ export interface LoadHandlerDeps {
   ecManager: ExpressiveCodeManager;
   shikiManager: ShikiManager;
   transformPipeline: Transform;
-  parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>;
   compilerOptions: Record<string, unknown>;
   getCompiler: () => Promise<XmdxCompiler>;
   loadBinding: () => Promise<XmdxBinding>;
@@ -157,131 +152,6 @@ export function loadFromEsbuildCache(
   return cachedEsbuildResult;
 }
 
-function getSourceForHooks(
-  filename: string,
-  cached: { originalSource?: string; processedSource?: string },
-  originalSourceCache: Map<string, string>,
-  processedSourceCache: Map<string, string>
-): string {
-  return (
-    originalSourceCache.get(filename) ??
-    cached.originalSource ??
-    processedSourceCache.get(filename) ??
-    cached.processedSource ??
-    ''
-  );
-}
-
-export async function loadCachedModule(
-  id: string,
-  filename: string,
-  cachedModule: CachedModuleResult,
-  loadStart: number,
-  deps: LoadHandlerDeps
-): Promise<PipelineResult> {
-  const startTime = performance.now();
-  const frontmatter = deps.parseFrontmatterCached(cachedModule.frontmatterJson, filename);
-  const headings = cachedModule.headings || [];
-
-  const result: CompileResult = {
-    code: cachedModule.code,
-    map: null,
-    frontmatter_json: cachedModule.frontmatterJson,
-    headings,
-    imports: [],
-  };
-
-  deps.state.totalProcessingTimeMs += performance.now() - startTime;
-  deps.processedFiles.add(filename);
-
-  const sourceForHooks =
-    getSourceForHooks(filename, cachedModule, deps.originalSourceCache, deps.processedSourceCache) ||
-    (await readFile(filename, 'utf8'));
-
-  const final = await runPipelineAndEsbuild(
-    {
-      id,
-      filename,
-      code: result.code,
-      source: sourceForHooks,
-      frontmatter,
-      headings,
-    },
-    deps
-  );
-
-  if (deps.loadProfiler) {
-    const elapsed = performance.now() - loadStart;
-    deps.loadProfiler.cacheHits++;
-    deps.loadProfiler.recordFile(filename, elapsed);
-  }
-
-  return {
-    code: final.code,
-    map: final.map ?? asSourceMap(result.map) ?? undefined,
-  };
-}
-
-export async function loadCachedMdx(
-  id: string,
-  filename: string,
-  cachedMdx: CachedMdxResult,
-  loadStart: number,
-  deps: LoadHandlerDeps
-): Promise<PipelineResult> {
-  const startTime = performance.now();
-  const frontmatter = deps.parseFrontmatterCached(cachedMdx.frontmatterJson, filename);
-  const headings = cachedMdx.headings || [];
-
-  const jsxCode = wrapMdxModule(
-    cachedMdx.code,
-    {
-      frontmatter,
-      headings,
-      registry: deps.registry,
-    },
-    filename
-  );
-
-  const result: CompileResult = {
-    code: jsxCode,
-    map: null,
-    frontmatter_json: cachedMdx.frontmatterJson,
-    headings,
-    imports: [],
-  };
-
-  deps.state.totalProcessingTimeMs += performance.now() - startTime;
-  deps.processedFiles.add(filename);
-
-  const sourceForHooks =
-    getSourceForHooks(filename, cachedMdx, deps.originalSourceCache, deps.processedSourceCache) ||
-    (await readFile(filename, 'utf8'));
-
-  const final = await runPipelineAndEsbuild(
-    {
-      id,
-      filename,
-      code: result.code,
-      source: sourceForHooks,
-      frontmatter,
-      headings,
-    },
-    deps
-  );
-
-  if (deps.loadProfiler) {
-    const elapsed = performance.now() - loadStart;
-    deps.loadProfiler.cacheHits++;
-    deps.loadProfiler.recordFile(filename, elapsed);
-  }
-
-  return {
-    code: final.code,
-    map: final.map ?? asSourceMap(result.map) ?? undefined,
-  };
-}
-
 export async function loadCacheMiss(
   id: string,
   filename: string,
@@ -292,13 +162,11 @@ export async function loadCacheMiss(
 
   const currentCompiler = await deps.getCompiler();
   const source = await readFile(filename, 'utf8');
-  deps.originalSourceCache.set(filename, source);
 
   let processedSource = source;
   for (const preprocessHook of deps.hooks.preprocess) {
     processedSource = preprocessHook(processedSource, filename);
   }
-  deps.processedSourceCache.set(filename, processedSource);
 
   const detection = detectProblematicMdxPatterns(processedSource, deps.mdxOptions, filename);
   if (detection.hasProblematicPatterns) {
@@ -484,18 +352,6 @@ export async function handleLoad(
     const cachedEsbuildResult = deps.esbuildCache.get(filename);
     if (cachedEsbuildResult) {
       return loadFromEsbuildCache(filename, cachedEsbuildResult, loadStart, deps);
-    }
-
-    const cachedModule = deps.moduleCompilationCache.get(filename);
-    const cachedMdx = deps.mdxCompilationCache.get(filename);
-    const isMdx = filename.endsWith('.mdx');
-
-    if (cachedModule && !isMdx) {
-      return loadCachedModule(id, filename, cachedModule, loadStart, deps);
-    }
-
-    if (cachedMdx && isMdx) {
-      return loadCachedMdx(id, filename, cachedMdx, loadStart, deps);
     }
 
     return loadCacheMiss(id, filename, loadStart, deps);
