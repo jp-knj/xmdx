@@ -198,7 +198,7 @@ pub fn compile_mdx(
 ///
 /// For loose lists (where items are wrapped in `<p>`), it replaces the `<p>` wrapper
 /// with the `<label>` wrapper and adds `<span>` around the text content.
-fn rewrite_task_list_items(code: &str) -> String {
+pub fn rewrite_task_list_items(code: &str) -> String {
     // Marker that identifies task list item children arrays
     let marker = "\"task-list-item\"";
     if !code.contains(marker) {
@@ -962,7 +962,7 @@ fn escape_html_for_js(s: &str) -> String {
 /// MDX treats `{...}` as JSX expressions, so we need to remove `{#id}` from
 /// heading lines before passing to mdxjs-rs. The IDs have already been extracted
 /// by `extract_headings_from_source`.
-fn strip_custom_ids_from_headings(source: &str) -> String {
+pub fn strip_custom_ids_from_headings(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
     let mut fence_state: Option<(char, usize, usize)> = None; // (marker, len, indent)
 
@@ -1046,7 +1046,7 @@ pub fn is_indented_code_block(line: &str) -> bool {
 ///
 /// This function parses the source looking for ATX-style headings (`# Heading`)
 /// and extracts their depth, text, and generates slugs.
-fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
+pub fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     let mut headings = Vec::new();
     let mut fence_state: Option<(char, usize, usize)> = None; // (marker_char, marker_len, indent)
     let mut slugger = Slugger::new();
@@ -1650,7 +1650,7 @@ fn extract_text_from_single_jsx_call(call: &str) -> Option<String> {
 /// For each heading found, matches it against the `headings` array by content
 /// (depth + text), falling back to sequential index when text extraction fails.
 /// This correctly skips setext headings that aren't in the extracted headings list.
-fn rewrite_heading_autolinks_in_jsx(code: &str, headings: &[MdxHeading]) -> String {
+pub fn rewrite_heading_autolinks_in_jsx(code: &str, headings: &[MdxHeading]) -> String {
     if headings.is_empty() {
         return code.to_string();
     }
