@@ -243,6 +243,16 @@ pub struct ParseBlocksResult {
     pub headings: Vec<HeadingEntry>,
 }
 
+/// Result from directive rewriting.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct DirectiveResult {
+    /// Rewritten source code.
+    pub code: String,
+    /// Number of directives that were rewritten.
+    pub directive_count: u32,
+}
+
 /// Result from MDX compilation using mdxjs-rs.
 /// Unlike CompileIrResult which returns JSX for further processing,
 /// this returns complete JavaScript code ready for use.

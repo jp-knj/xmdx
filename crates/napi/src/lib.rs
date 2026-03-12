@@ -59,6 +59,82 @@ pub fn parse_frontmatter(content: String) -> napi::Result<FrontmatterResult> {
     }
 }
 
+/// Rewrites directive syntax (:::note, :::tip, etc.) to JSX component tags.
+///
+/// When `custom_names` is provided, only those directive names are recognized.
+/// When `component_map` is provided, directive names are mapped to component names
+/// (e.g., `{"note": "Callout"}`). Unmapped directives default to "Aside".
+#[napi(js_name = "rewriteDirectives")]
+pub fn rewrite_directives_napi(
+    source: String,
+    custom_names: Option<Vec<String>>,
+    component_map: Option<std::collections::HashMap<String, String>>,
+) -> DirectiveResult {
+    let config = xmdx_core::DirectiveConfig {
+        custom_names: custom_names.unwrap_or_default(),
+        component_map: component_map.unwrap_or_default(),
+    };
+    let (code, count) = xmdx_core::rewrite_directives(&source, &config);
+    DirectiveResult {
+        code,
+        directive_count: count as u32,
+    }
+}
+
+/// Extracts headings from MDX/Markdown source.
+///
+/// Parses the source looking for ATX-style headings and returns their depth,
+/// text, and generated slugs. Handles `{#custom-id}` syntax.
+#[napi(js_name = "extractHeadings")]
+pub fn extract_headings_napi(source: String) -> Vec<HeadingEntry> {
+    xmdx_core::extract_headings_from_source(&source)
+        .into_iter()
+        .map(|h| HeadingEntry {
+            depth: h.depth,
+            slug: h.slug,
+            text: h.text,
+        })
+        .collect()
+}
+
+/// Strips `{#custom-id}` suffixes from heading lines in the source.
+///
+/// This prevents MDX from interpreting `{#id}` as JSX expressions.
+/// The IDs should be extracted first via `extractHeadings`.
+#[napi(js_name = "stripCustomIds")]
+pub fn strip_custom_ids_napi(source: String) -> String {
+    xmdx_core::strip_custom_ids_from_headings(&source)
+}
+
+/// Rewrites task list items in compiled JSX output.
+///
+/// Transforms checkbox-based task list items into accessible `<label>/<span>`
+/// wrapped structures in the compiled JSX code.
+#[napi(js_name = "rewriteTaskListItems")]
+pub fn rewrite_task_list_items_napi(jsx_code: String) -> String {
+    xmdx_core::rewrite_task_list_items(&jsx_code)
+}
+
+/// Rewrites heading elements in compiled JSX to include autolink anchors.
+///
+/// Matches heading JSX patterns against the provided headings list and wraps
+/// heading content in anchor links for self-linking.
+#[napi(js_name = "rewriteHeadingAutolinks")]
+pub fn rewrite_heading_autolinks_napi(
+    jsx_code: String,
+    headings: Vec<HeadingEntry>,
+) -> String {
+    let core_headings: Vec<xmdx_core::MdxHeading> = headings
+        .into_iter()
+        .map(|h| xmdx_core::MdxHeading {
+            depth: h.depth,
+            slug: h.slug,
+            text: h.text,
+        })
+        .collect();
+    xmdx_core::rewrite_heading_autolinks_in_jsx(&jsx_code, &core_headings)
+}
+
 /// Compiles multiple files in parallel and returns IR results.
 ///
 /// Standalone convenience function that creates a temporary compiler from

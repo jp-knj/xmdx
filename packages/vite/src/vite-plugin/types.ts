@@ -17,6 +17,15 @@ export interface XmdxBinding {
     options: { enable_directives: boolean }
   ) => ParseBlocksResult;
   parseFrontmatter: (source: string) => { frontmatter: Record<string, unknown> };
+  rewriteDirectives: (
+    source: string,
+    customNames?: string[] | null,
+    componentMap?: Record<string, string> | null,
+  ) => { code: string; directiveCount: number };
+  extractHeadings: (source: string) => Array<{ depth: number; slug: string; text: string }>;
+  stripCustomIds: (source: string) => string;
+  rewriteTaskListItems: (jsxCode: string) => string;
+  rewriteHeadingAutolinks: (jsxCode: string, headings: Array<{ depth: number; slug: string; text: string }>) => string;
 }
 
 /**

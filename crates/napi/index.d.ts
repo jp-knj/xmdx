@@ -253,6 +253,14 @@ export interface Diagnostics {
   warnings: Array<ParseWarningEntry>
 }
 
+/** Result from directive rewriting. */
+export interface DirectiveResult {
+  /** Rewritten source code. */
+  code: string
+  /** Number of directives that were rewritten. */
+  directiveCount: number
+}
+
 /** Structured export returned by the compiler IR. */
 export interface ExportSpec {
   /** Raw export statement text. */
@@ -260,6 +268,14 @@ export interface ExportSpec {
   /** Whether this is a default export (`export default ...`). */
   isDefault: boolean
 }
+
+/**
+ * Extracts headings from MDX/Markdown source.
+ *
+ * Parses the source looking for ATX-style headings and returns their depth,
+ * text, and generated slugs. Handles `{#custom-id}` syntax.
+ */
+export declare function extractHeadings(source: string): Array<HeadingEntry>
 
 /** File categories supported by the compiler. */
 export declare const enum FileInputType {
@@ -486,3 +502,36 @@ export interface RenderBlock {
   /** Code meta string (for type="code") */
   meta?: string
 }
+
+/**
+ * Rewrites directive syntax (:::note, :::tip, etc.) to JSX component tags.
+ *
+ * When `custom_names` is provided, only those directive names are recognized.
+ * When `component_map` is provided, directive names are mapped to component names
+ * (e.g., `{"note": "Callout"}`). Unmapped directives default to "Aside".
+ */
+export declare function rewriteDirectives(source: string, customNames?: Array<string> | undefined | null, componentMap?: Record<string, string> | undefined | null): DirectiveResult
+
+/**
+ * Rewrites heading elements in compiled JSX to include autolink anchors.
+ *
+ * Matches heading JSX patterns against the provided headings list and wraps
+ * heading content in anchor links for self-linking.
+ */
+export declare function rewriteHeadingAutolinks(jsxCode: string, headings: Array<HeadingEntry>): string
+
+/**
+ * Rewrites task list items in compiled JSX output.
+ *
+ * Transforms checkbox-based task list items into accessible `<label>/<span>`
+ * wrapped structures in the compiled JSX code.
+ */
+export declare function rewriteTaskListItems(jsxCode: string): string
+
+/**
+ * Strips `{#custom-id}` suffixes from heading lines in the source.
+ *
+ * This prevents MDX from interpreting `{#id}` as JSX expressions.
+ * The IDs should be extracted first via `extractHeadings`.
+ */
+export declare function stripCustomIds(source: string): string
