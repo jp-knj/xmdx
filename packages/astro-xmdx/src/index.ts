@@ -163,12 +163,12 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
             extensions: ['.mdx'],
             getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
               const parsed = safeParseFrontmatter(contents, fileURLToPath(fileUrl));
-              return {
+              return Promise.resolve({
                 data: parsed.frontmatter,
                 body: parsed.content.trim(),
                 slug: asOptionalString(parsed.frontmatter.slug),
                 rawData: parsed.rawFrontmatter,
-              };
+              });
             },
             contentModuleTypes: await fs.readFile(
               new URL('../template/content-module-types.d.ts', import.meta.url),

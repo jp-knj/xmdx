@@ -98,7 +98,7 @@ const logBindingSource = (source: string): void => {
  */
 export async function loadXmdxBinding(): Promise<XmdxBinding> {
   if (!bindingPromise) {
-    bindingPromise = (() => {
+    bindingPromise = Promise.resolve((() => {
       const require = createRequire(import.meta.url);
       try {
         // Delegate platform/arch detection to NAPI-RS generated loader.
@@ -111,7 +111,7 @@ export async function loadXmdxBinding(): Promise<XmdxBinding> {
           `[xmdx] failed to load @xmdx/napi on ${process.platform}-${process.arch}: ${e.message}`
         );
       }
-    })();
+    })());
   }
   return bindingPromise;
 }

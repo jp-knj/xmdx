@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 import { ESBUILD_JSX_CONFIG, OXC_JSX_CONFIG } from '../constants.js';
-import { asBinding, asViteWithOxc } from '../ops/type-narrowing.js';
+import { asBinding, asSourceMap, asViteWithOxc } from '../ops/type-narrowing.js';
 import type { OxcTransformModule, EsbuildModule, EsbuildOutputFile } from '../ops/type-narrowing.js';
 
 // Use createRequire to bypass Vite's SSR module runner, which may be
@@ -41,26 +41,28 @@ async function resolveTransformFn(): Promise<TransformFn> {
   if (typeof viteWithOxc.transformWithOxc === 'function') {
     const transformWithOxc = viteWithOxc.transformWithOxc;
 
-    resolvedTransform = async (code, filename, _options) => {
+    const fn: TransformFn = async (code, filename, _options) => {
       const result = await transformWithOxc(code, filename, OXC_JSX_CONFIG);
       return {
         code: result.code,
-        map: result.map,
+        map: asSourceMap(result.map),
       };
     };
-    return resolvedTransform;
+    resolvedTransform = fn;
+    return fn;
   }
 
   // Fallback to transformWithEsbuild
   const { transformWithEsbuild } = vite;
-  resolvedTransform = async (code, filename, _options) => {
+  const fn: TransformFn = async (code, filename, _options) => {
     const result = await transformWithEsbuild(code, filename, ESBUILD_JSX_CONFIG);
     return {
       code: result.code,
-      map: result.map,
+      map: asSourceMap(result.map),
     };
   };
-  return resolvedTransform;
+  resolvedTransform = fn;
+  return fn;
 }
 
 /**

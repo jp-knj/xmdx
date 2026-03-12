@@ -110,8 +110,8 @@ export function hasMdxComponentSymbol(value: unknown): boolean {
 /**
  * Checks if a result has the AstroJSX marker.
  */
-export function hasAstroJsxMarker(result: unknown, marker: symbol): boolean {
-  return isRecord(result) && Boolean((result as Record<symbol, unknown>)[marker]);
+export function hasAstroJsxMarker(result: unknown, marker: string | symbol): boolean {
+  return isRecord(result) && Boolean((result as Record<string | symbol, unknown>)[marker]);
 }
 
 /**
