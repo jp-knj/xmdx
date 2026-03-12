@@ -11,6 +11,7 @@
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import { starlightLibrary } from 'xmdx/registry';
+import type { XmdxBinding } from '@xmdx/vite';
 import { transformJsx } from '../jsx-transform.js';
 import { compile as compileMdx } from '@mdx-js/mdx';
 import remarkGfm from 'remark-gfm';
@@ -75,19 +76,28 @@ function buildDirectiveConfig(
 }
 
 /**
+ * Strips fenced code blocks from source so tag scanning doesn't match
+ * PascalCase identifiers inside code examples.
+ */
+function stripFencedCodeBlocks(source: string): string {
+  return source.replace(/^(`{3,}|~{3,}).*\n[\s\S]*?^\1\s*$/gm, '');
+}
+
+/**
  * Detects components used in the rewritten source and injects their import statements.
- * Scans for PascalCase JSX tags like `<Aside`, `<Callout`, etc.
+ * Scans for PascalCase JSX tags like `<Aside`, `<Callout`, etc., skipping code fences.
  */
 function injectComponentImports(
   source: string,
   registry: Registry | null,
   hasStarlightConfigured: boolean,
 ): string {
-  // Find PascalCase opening tags that could be directive components
+  // Find PascalCase opening tags, ignoring fenced code blocks
+  const sourceWithoutFences = stripFencedCodeBlocks(source);
   const componentPattern = /<([A-Z][A-Za-z0-9]*)\b/g;
   const usedComponents = new Set<string>();
   let match: RegExpExecArray | null;
-  while ((match = componentPattern.exec(source)) !== null) {
+  while ((match = componentPattern.exec(sourceWithoutFences)) !== null) {
     if (match[1]) usedComponents.add(match[1]);
   }
 
@@ -134,29 +144,42 @@ export async function compileFallbackModule(
   hasStarlightConfigured: boolean,
   _expressiveCodeOptions?: FallbackExpressiveCodeOptions // Unused - EC disabled
 ): Promise<{ code: string; map?: SourceMapInput }> {
-  const binding = await loadXmdxBinding();
+  // Try to load the NAPI binding. If it fails, fall back to a minimal
+  // compilation without directive rewriting, heading extraction, or
+  // task list post-processing — the same resilience the old code had.
+  let binding: XmdxBinding | null = null;
+  try {
+    binding = await loadXmdxBinding();
+  } catch {
+    // Binding unavailable — degrade gracefully below
+  }
 
   // Extract frontmatter
   let frontmatter: Record<string, unknown> = {};
-  try {
-    const frontmatterResult = binding.parseFrontmatter(source);
-    frontmatter = frontmatterResult.frontmatter || {};
-  } catch {
-    frontmatter = {};
+  if (binding) {
+    try {
+      const frontmatterResult = binding.parseFrontmatter(source);
+      frontmatter = frontmatterResult.frontmatter || {};
+    } catch {
+      frontmatter = {};
+    }
   }
 
   let processed = stripFrontmatter(source);
+  let headings: Array<{ depth: number; slug: string; text: string }> = [];
 
-  // Rewrite directives (:::note, :::tip, etc.) to JSX component tags
-  const { customNames, componentMap } = buildDirectiveConfig(registry, hasStarlightConfigured);
-  const directiveResult = binding.rewriteDirectives(processed, customNames, componentMap);
-  if (directiveResult.directiveCount > 0) {
-    processed = injectComponentImports(directiveResult.code, registry, hasStarlightConfigured);
+  if (binding) {
+    // Rewrite directives (:::note, :::tip, etc.) to JSX component tags
+    const { customNames, componentMap } = buildDirectiveConfig(registry, hasStarlightConfigured);
+    const directiveResult = binding.rewriteDirectives(processed, customNames, componentMap);
+    if (directiveResult.directiveCount > 0) {
+      processed = injectComponentImports(directiveResult.code, registry, hasStarlightConfigured);
+    }
+
+    // Extract headings and strip {#custom-id} syntax before MDX compilation
+    headings = binding.extractHeadings(processed);
+    processed = binding.stripCustomIds(processed);
   }
-
-  // Extract headings and strip {#custom-id} syntax before MDX compilation
-  const headings = binding.extractHeadings(processed);
-  processed = binding.stripCustomIds(processed);
 
   // Compile with @mdx-js/mdx
   // - remark-gfm for GFM features (tables, strikethrough, task lists)
@@ -170,7 +193,9 @@ export async function compileFallbackModule(
   let mdxCode = String(compiled);
 
   // Post-process task list items: wrap in <label>/<span> for accessibility
-  mdxCode = binding.rewriteTaskListItems(mdxCode);
+  if (binding) {
+    mdxCode = binding.rewriteTaskListItems(mdxCode);
+  }
 
   // Normalize MDX default export so we can wrap with Astro createComponent
   const mdxWithoutDefault = mdxCode
