@@ -63,7 +63,10 @@ export default defineConfig(
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': ['error', {
-        patterns: [{ group: ['astro-xmdx', 'astro-xmdx/*'], message: 'xmdx must not import from astro-xmdx (reverse dependency flow).' }],
+        patterns: [
+          { group: ['astro-xmdx', 'astro-xmdx/*'], message: 'xmdx must not import from astro-xmdx (reverse dependency flow).' },
+          { group: ['@xmdx/vite', '@xmdx/vite/*'], message: 'xmdx must not import from @xmdx/vite (reverse dependency flow).' },
+        ],
       }],
     },
   },
@@ -91,7 +94,6 @@ export default defineConfig(
         { type: 'registry',     pattern: 'src/registry/*' },
         { type: 'transforms',   pattern: 'src/transforms/*' },
         { type: 'pipeline',     pattern: 'src/pipeline/*' },
-        { type: 'vite-infra',   pattern: ['src/vite-plugin/*', 'src/vite-plugin/cache/*', 'src/vite-plugin/highlighting/*'] },
         { type: 'entry',        pattern: ['src/node.ts', 'src/browser.ts'], mode: 'file' },
       ],
       'boundaries/ignore': ['**/*.test.ts'],
@@ -105,8 +107,42 @@ export default defineConfig(
           { from: 'registry',     allow: ['types', 'ops'] },
           { from: 'transforms',   allow: ['types', 'ops', 'utils', 'registry'] },
           { from: 'pipeline',     allow: ['types', 'ops', 'utils', 'transforms'] },
-          { from: 'vite-infra',   allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline'] },
-          { from: 'entry',        allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline', 'vite-infra'] },
+          { from: 'entry',        allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline'] },
+        ],
+      }],
+    },
+  },
+
+  // @xmdx/vite: prevent reverse-flow imports from astro-xmdx
+  {
+    files: ['packages/vite/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['astro-xmdx', 'astro-xmdx/*'], message: '@xmdx/vite must not import from astro-xmdx (reverse dependency flow).' },
+        ],
+      }],
+    },
+  },
+
+  // Boundaries (@xmdx/vite)
+  {
+    files: ['packages/vite/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    plugins: { boundaries },
+    settings: {
+      'boundaries/elements': [
+        { type: 'ops',          pattern: 'src/ops/*' },
+        { type: 'vite-plugin',  pattern: ['src/vite-plugin/*', 'src/vite-plugin/cache/*', 'src/vite-plugin/highlighting/*'] },
+      ],
+      'boundaries/ignore': ['**/*.test.ts'],
+    },
+    rules: {
+      'boundaries/element-types': ['error', {
+        default: 'disallow',
+        rules: [
+          { from: 'vite-plugin', allow: ['ops'] },
         ],
       }],
     },

@@ -107,11 +107,6 @@
       "types": "./src/pipeline/index.ts",
       "import": "./src/pipeline/index.ts",
       "default": "./src/pipeline/index.ts"
-    },
-    "./vite-infra": {
-      "types": "./src/vite-plugin/index.ts",
-      "import": "./src/vite-plugin/index.ts",
-      "default": "./src/vite-plugin/index.ts"
     }
   },
   "main": "./src/node.ts",
@@ -148,20 +143,17 @@
   },
   "peerDependencies": {
     "shiki": "^3.22.0",
-    "expressive-code": "^0.41.0",
-    "vite": ">=5.0.0"
+    "expressive-code": "^0.41.0"
   },
   "peerDependenciesMeta": {
     "shiki": { "optional": true },
-    "expressive-code": { "optional": true },
-    "vite": { "optional": true }
+    "expressive-code": { "optional": true }
   },
   "devDependencies": {
     "expressive-code": "^0.41.0",
     "miniflare": "^4.0.0",
     "rollup": ">=4.0.0",
     "shiki": "^3.22.0",
-    "typescript": "^5.9.0",
-    "vite": ">=5.0.0"
+    "typescript": "^5.9.0"
   }
 }

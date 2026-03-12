@@ -3,8 +3,8 @@
  * @module vite-plugin/types
  */
 
-import type { ComponentLibrary } from '../registry/index.js';
-import type { XmdxPlugin, MdxImportHandlingOptions } from '../types.js';
+import type { ComponentLibrary } from 'xmdx/registry';
+import type { XmdxPlugin, MdxImportHandlingOptions } from 'xmdx/types';
 
 /**
  * Native NAPI binding interface for Xmdx compiler.

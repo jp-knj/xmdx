@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rm, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
-import { parseJson } from '../../ops/json.js';
+import { parseJson } from 'xmdx/ops';
 
 /** Cache entry for a compiled file */
 export interface CacheEntry {

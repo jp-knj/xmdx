@@ -81,6 +81,9 @@ importers:
       '@xmdx/napi':
         specifier: workspace:*
         version: link:../../crates/napi
+      '@xmdx/vite':
+        specifier: workspace:*
+        version: link:../vite
       astro:
         specifier: '>=4.0.0'
         version: 5.17.1(@types/node@22.19.7)(jiti@2.6.1)(rollup@4.57.1)(typescript@5.9.3)
@@ -122,6 +125,28 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/vite:
+    dependencies:
+      xmdx:
+        specifier: workspace:*
+        version: link:../xmdx
+    devDependencies:
+      expressive-code:
+        specifier: ^0.41.0
+        version: 0.41.6
+      rollup:
+        specifier: '>=4.0.0'
+        version: 4.57.1
+      shiki:
+        specifier: ^3.22.0
+        version: 3.22.0
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vite:
+        specifier: '>=5.0.0'
+        version: 7.3.1(@types/node@22.19.7)(jiti@2.6.1)
+
   packages/xmdx:
     dependencies:
       '@xmdx/napi':
@@ -146,9 +171,6 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
-      vite:
-        specifier: '>=5.0.0'
-        version: 7.3.1(@types/node@22.19.7)(jiti@2.6.1)
 
 packages:
 

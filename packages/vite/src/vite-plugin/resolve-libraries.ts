@@ -9,7 +9,7 @@ import {
   astroLibrary,
   type ComponentLibrary,
   type Registry,
-} from '../registry/index.js';
+} from 'xmdx/registry';
 import type { XmdxPluginOptions } from './types.js';
 
 /**

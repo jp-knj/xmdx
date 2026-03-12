@@ -3,7 +3,7 @@
  * @module vite-plugin/collect-hooks
  */
 
-import type { XmdxPlugin, PluginHooks } from '../types.js';
+import type { XmdxPlugin, PluginHooks } from 'xmdx/types';
 
 /**
  * Collects hooks from an array of plugins, organizing them by hook type.

@@ -6,6 +6,10 @@
     "packages/xmdx": {
       "project": ["src/**/*.ts"],
       "ignoreBinaries": ["wasm-bindgen"],
+      "ignoreDependencies": ["shiki", "expressive-code"]
+    },
+    "packages/vite": {
+      "project": ["src/**/*.ts"],
       "ignoreDependencies": ["shiki", "expressive-code", "vite"]
     },
     "packages/astro-xmdx": {

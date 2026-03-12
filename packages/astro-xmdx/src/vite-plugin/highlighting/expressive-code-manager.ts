@@ -2,5 +2,5 @@
 export {
   ExpressiveCodeManager,
   DEFAULT_EXPRESSIVE_CODE_MODULE_ID,
-} from 'xmdx/vite-infra';
-export type { ExpressiveCodeSupport, ExpressiveCodeRenderResult } from 'xmdx/vite-infra';
+} from '@xmdx/vite';
+export type { ExpressiveCodeSupport, ExpressiveCodeRenderResult } from '@xmdx/vite';

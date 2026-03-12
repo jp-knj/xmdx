@@ -11,4 +11,4 @@ export type {
   ExportSpec,
   BatchError,
   XmdxPluginOptions,
-} from 'xmdx/vite-infra';
+} from '@xmdx/vite';

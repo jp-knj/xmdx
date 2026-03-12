@@ -6,4 +6,4 @@ export {
   selectCompatibleNodeFile,
   ENABLE_SHIKI,
   IS_MDAST,
-} from 'xmdx/vite-infra';
+} from '@xmdx/vite';

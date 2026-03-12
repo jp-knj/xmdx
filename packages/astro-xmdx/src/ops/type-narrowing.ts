@@ -1,6 +1,8 @@
 // Centralized type narrowing — the ONLY file allowed to use `as`.
 // Generic utilities are re-exported from xmdx/ops. Astro-specific casts remain here.
 
+import { isRecord } from 'xmdx/ops';
+
 // Re-export generic ops from xmdx
 export {
   parseJson,
@@ -20,17 +22,19 @@ export {
   asHastChildren,
   asShikiLanguage,
   asOptionalString,
+} from 'xmdx/ops';
+export {
   asMutableViteConfig,
   asViteWithOxc,
   asVitePlugin,
-} from 'xmdx/ops';
+} from '@xmdx/vite/ops';
 export type {
   OxcTransformResult,
   OxcTransformModule,
   EsbuildOutputFile,
   EsbuildBuildResult,
   EsbuildModule,
-} from 'xmdx/ops';
+} from '@xmdx/vite/ops';
 
 // --- Astro-specific casts below ---
 

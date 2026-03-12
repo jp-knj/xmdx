@@ -7,4 +7,4 @@ export {
   debugLog,
   DEBUG_TIMING,
   LOAD_PROFILE,
-} from 'xmdx/vite-infra';
+} from '@xmdx/vite';

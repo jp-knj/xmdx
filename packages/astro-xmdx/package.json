@@ -80,6 +80,7 @@
     "remark-directive": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "xmdx": "workspace:*",
+    "@xmdx/vite": "workspace:*",
     "@xmdx/napi": "workspace:*"
   },
   "devDependencies": {
