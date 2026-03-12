@@ -1,7 +1,8 @@
+import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import boundaries from 'eslint-plugin-boundaries';
 
-export default tseslint.config(
+export default defineConfig(
   // Global ignores
   { ignores: ['crates/**', 'target/**', 'node_modules/**', '**/dist/**', 'examples/**', 'fixtures/**', '**/wasm/**', '**/*.d.ts', 'eslint.config.ts'] },
 
