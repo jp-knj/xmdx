@@ -8,10 +8,10 @@ import { AstroError } from 'astro/errors';
 import { AstroJSX, jsx } from 'astro/jsx-runtime';
 import { renderJSX } from 'astro/runtime/server/index.js';
 import type { SSRResult } from 'astro';
-import { toError, hasAstroJsxMarker, hasMdxComponentSymbol, addErrorHint, asString } from './ops/type-narrowing.js';
+import { toError, hasAstroJsxMarker, hasMdxComponentSymbol, addErrorHint, callJsx, callRenderJSX } from './ops/type-narrowing.js';
 
 const slotName = (str: string): string =>
-  str.trim().replace(/[-_]([a-z])/g, (_, w) => w.toUpperCase());
+  str.trim().replace(/[-_]([a-z])/g, (_: string, w: string) => w.toUpperCase());
 
 type ComponentType = (props: Record<string, unknown>) => unknown;
 type Slots = { default?: unknown; [key: string]: unknown };
@@ -52,8 +52,8 @@ async function renderToStaticMarkup(
 
   const { result } = this;
   try {
-    const html = await renderJSX(result, jsx(Component, { ...props, ...slots, children }));
-    return { html: asString(html) };
+    const html = await callRenderJSX(renderJSX, result, callJsx(jsx, Component, { ...props, ...slots, children }));
+    return { html };
   } catch (e) {
     throwEnhancedErrorIfMdxComponent(toError(e), Component);
     throw e;

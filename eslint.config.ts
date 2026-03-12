@@ -9,22 +9,6 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
   { languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } } },
 
-  // Disable recommendedTypeChecked rules that are outside our plan scope.
-  // Plan scope: `as` bans, `no-unsafe-*`, `no-explicit-any`, boundaries.
-  // These can be promoted to error incrementally in future work.
-  {
-    rules: {
-      '@typescript-eslint/require-await': 'off',
-      '@typescript-eslint/no-floating-promises': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
-      '@typescript-eslint/no-redundant-type-constituents': 'off',
-      '@typescript-eslint/restrict-template-expressions': 'off',
-      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
-      '@typescript-eslint/no-unsafe-function-type': 'off',
-      'prefer-const': 'off',
-    },
-  },
-
   // Test files: not in tsconfig, so disable type-checked rules entirely
   {
     files: ['**/*.test.ts'],
@@ -33,6 +17,7 @@ export default tseslint.config(
       ...tseslint.configs.disableTypeChecked.rules,
       'no-restricted-syntax': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
     },
   },
 
@@ -52,6 +37,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-return': 'error',
       '@typescript-eslint/no-unsafe-enum-comparison': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
 
@@ -77,22 +63,6 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/unbound-method': 'off',
-    },
-  },
-
-  // Files that heavily interact with `any`-typed external APIs (esbuild, OXC, Astro runtime).
-  // These can't be fully typed without upstream changes.
-  {
-    files: [
-      'packages/astro-xmdx/src/vite-plugin/jsx-transform.ts',
-      'packages/astro-xmdx/src/server.ts',
-    ],
-    rules: {
-      '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
     },
   },
 

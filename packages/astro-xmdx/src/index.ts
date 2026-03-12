@@ -161,7 +161,7 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
         if (addContentEntryType) {
           addContentEntryType({
             extensions: ['.mdx'],
-            async getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
+            getEntryInfo({ fileUrl, contents }: { fileUrl: URL; contents: string }) {
               const parsed = safeParseFrontmatter(contents, fileURLToPath(fileUrl));
               return {
                 data: parsed.frontmatter,

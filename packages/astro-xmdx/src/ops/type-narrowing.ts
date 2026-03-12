@@ -176,6 +176,47 @@ export function asString(value: unknown): string {
   return value as string;
 }
 
+/**
+ * Typed interface for oxc-transform module (loaded via require()).
+ */
+export interface OxcTransformResult { code: string; map?: string }
+export interface OxcTransformModule {
+  transform: (filename: string, code: string, options: Record<string, unknown>) => OxcTransformResult;
+}
+
+/**
+ * Typed interface for esbuild module (loaded via require()).
+ */
+export interface EsbuildOutputFile { path: string; text: string }
+export interface EsbuildBuildResult {
+  outputFiles: EsbuildOutputFile[];
+}
+export interface EsbuildModule {
+  build: (options: Record<string, unknown>) => Promise<EsbuildBuildResult>;
+}
+
+/**
+ * Wraps the Astro `jsx()` call whose return type is `any`, narrowing to `unknown`.
+ */
+export function callJsx(
+  fn: (...args: any[]) => any,
+  component: unknown,
+  props: Record<string, unknown>,
+): unknown {
+  return fn(component, props);
+}
+
+/**
+ * Wraps `renderJSX()` whose return type is `any`, narrowing to `Promise<string>`.
+ */
+export async function callRenderJSX(
+  fn: (...args: any[]) => any,
+  result: unknown,
+  vnode: unknown,
+): Promise<string> {
+  return (await fn(result, vnode)) as string;
+}
+
 type AddPageExtensionFn = (ext: string) => void;
 type AddContentEntryTypeFn = (config: {
   extensions: string[];

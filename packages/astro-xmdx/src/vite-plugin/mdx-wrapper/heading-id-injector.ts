@@ -50,14 +50,6 @@ function normalizeHeadingText(text: string): string {
     .trim();
 }
 
-function slugifyHeadingText(text: string): string {
-  const slug = normalizeHeadingText(text)
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N} _-]/gu, '')
-    .replace(/ /g, '-');
-  return slug || 'heading';
-}
-
 /**
  * Like slugifyHeadingText but also strips underscores, matching the slug
  * algorithm used by mdxjs-rs. Used as a fallback when exact text matching

@@ -33,7 +33,7 @@ export interface Block {
   type: 'html' | 'component' | 'code';
   content?: string;
   name?: string;
-  props?: Record<string, PropValue | string | unknown>;
+  props?: Record<string, unknown>;
   slotChildren?: Block[];
   /** Code content (for type="code") */
   code?: string;

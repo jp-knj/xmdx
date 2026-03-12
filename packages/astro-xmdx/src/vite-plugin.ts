@@ -27,7 +27,6 @@ import {
 } from './constants.js';
 // Import from extracted vite-plugin modules
 import type {
-  XmdxBinding,
   XmdxCompiler,
   XmdxPluginOptions,
 } from './vite-plugin/types.js';

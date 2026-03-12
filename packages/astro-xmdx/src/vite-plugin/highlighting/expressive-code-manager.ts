@@ -124,15 +124,15 @@ export class ExpressiveCodeManager {
     if (this.engine) return this.engine;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.createEngine();
-    this.engine = await this.initPromise;
+    this.engine = this.createEngine();
+    this.initPromise = Promise.resolve(this.engine);
     return this.engine;
   }
 
   /**
    * Creates the ExpressiveCode engine with default configuration.
    */
-  private async createEngine(): Promise<ExpressiveCodeEngine | null> {
+  private createEngine(): ExpressiveCodeEngine | null {
     try {
       // Use require() to avoid Vite module runner issues during buildStart
       // (Vite's module runner may be closed when buildStart runs)
@@ -152,7 +152,7 @@ export class ExpressiveCodeManager {
       });
 
       return engine;
-    } catch (error) {
+    } catch {
       console.warn(
         '[xmdx] expressiveCode is enabled but the "expressive-code" package is not installed.\n' +
         'Install it with: npm install expressive-code\n' +

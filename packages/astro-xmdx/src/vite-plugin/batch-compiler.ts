@@ -207,7 +207,7 @@ export async function batchReadAndDetectFallbacks(
   return { inputs, sourceHashes, diskCacheHits };
 }
 
-export async function batchCompileFiles(
+export function batchCompileFiles(
   compiler: XmdxCompiler,
   mdInputs: BatchInput[],
   mdxInputs: BatchInput[],
@@ -217,7 +217,7 @@ export async function batchCompileFiles(
   fallbackReasons: Map<string, string>,
   originalSourceCache: Map<string, string>,
   processedSourceCache: Map<string, string>
-): Promise<BatchCompileStatsResult> {
+): BatchCompileStatsResult {
   let mdStats: BatchStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
   if (mdInputs.length > 0) {
     const mdBatchResult = compiler.compileBatchToModule(mdInputs, {
@@ -284,7 +284,7 @@ export async function batchJsxTransform(
         }
         usedParallel = true;
       } catch (workerErr) {
-        debugLog(`Worker JSX transform failed, falling back to single-threaded: ${workerErr}`);
+        debugLog(`Worker JSX transform failed, falling back to single-threaded: ${String(workerErr)}`);
       }
     }
 
@@ -299,7 +299,7 @@ export async function batchJsxTransform(
 
     return usedParallel;
   } catch (transformErr) {
-    warn(`[xmdx] Batch JSX transform failed, will use individual transforms: ${transformErr}`);
+    warn(`[xmdx] Batch JSX transform failed, will use individual transforms: ${String(transformErr)}`);
     return null;
   }
 }
@@ -623,7 +623,7 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       ? binding.createCompiler.bind(binding)
       : (cfg: Record<string, unknown>) => new binding.XmdxCompiler!(cfg);
     const compiler = createCompiler(deps.compilerOptions);
-    const stats = await batchCompileFiles(
+    const stats = batchCompileFiles(
       compiler,
       mdInputs,
       mdxInputs,
@@ -708,6 +708,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     debugTimeEnd('buildStart:total');
   } catch (err) {
     debugTimeEnd('buildStart:total');
-    deps.warn(`[xmdx] Batch compile skipped due to binding load failure: ${err}`);
+    deps.warn(`[xmdx] Batch compile skipped due to binding load failure: ${String(err)}`);
   }
 }

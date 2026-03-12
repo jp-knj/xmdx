@@ -98,7 +98,7 @@ const logBindingSource = (source: string): void => {
  */
 export async function loadXmdxBinding(): Promise<XmdxBinding> {
   if (!bindingPromise) {
-    bindingPromise = (async () => {
+    bindingPromise = (() => {
       const require = createRequire(import.meta.url);
       try {
         // Delegate platform/arch detection to NAPI-RS generated loader.

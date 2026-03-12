@@ -35,10 +35,10 @@ let compiler: XmdxCompiler | null = null;
  * console.log(result.frontmatter);
  * ```
  */
-export async function compile(
+export function compile(
   source: string,
   options: CompileOptions = {}
-): Promise<CompileResult> {
+): CompileResult {
   if (!compiler) {
     compiler = createCompiler({});
   }

@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile, rm, readdir, stat, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 import { parseJson } from '../../ops/type-narrowing.js';
@@ -125,7 +125,7 @@ export class DiskCache {
         const cacheFile = path.basename(cachePath);
         const idx = jsonFiles.indexOf(cacheFile);
         if (idx !== -1 && results[idx]) {
-          const entry = results[idx]!;
+          const entry = results[idx];
           if (entry.hash === manifestEntry.hash) {
             this.loadedEntries.set(filename, entry);
           }
