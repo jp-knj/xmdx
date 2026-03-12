@@ -5,7 +5,8 @@
     ".": {},
     "packages/xmdx": {
       "project": ["src/**/*.ts"],
-      "ignoreBinaries": ["wasm-bindgen"]
+      "ignoreBinaries": ["wasm-bindgen"],
+      "ignoreDependencies": ["shiki", "expressive-code", "vite"]
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],
