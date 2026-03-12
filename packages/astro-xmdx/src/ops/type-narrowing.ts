@@ -38,16 +38,14 @@ export type {
  * Checks if a value has a symbol property that indicates an MDX component.
  */
 export function hasMdxComponentSymbol(value: unknown): boolean {
-  return typeof value === 'object' && value !== null &&
-    Boolean((value as Record<symbol, unknown>)[Symbol.for('mdx-component')]);
+  return isRecord(value) && Boolean((value as Record<symbol, unknown>)[Symbol.for('mdx-component')]);
 }
 
 /**
  * Checks if a result has the AstroJSX marker.
  */
 export function hasAstroJsxMarker(result: unknown, marker: string | symbol): boolean {
-  return typeof result === 'object' && result !== null &&
-    Boolean((result as Record<string | symbol, unknown>)[marker]);
+  return isRecord(result) && Boolean((result as Record<string | symbol, unknown>)[marker]);
 }
 
 /**
