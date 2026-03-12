@@ -120,10 +120,7 @@ pub fn rewrite_task_list_items_napi(jsx_code: String) -> String {
 /// Matches heading JSX patterns against the provided headings list and wraps
 /// heading content in anchor links for self-linking.
 #[napi(js_name = "rewriteHeadingAutolinks")]
-pub fn rewrite_heading_autolinks_napi(
-    jsx_code: String,
-    headings: Vec<HeadingEntry>,
-) -> String {
+pub fn rewrite_heading_autolinks_napi(jsx_code: String, headings: Vec<HeadingEntry>) -> String {
     let core_headings: Vec<xmdx_core::MdxHeading> = headings
         .into_iter()
         .map(|h| xmdx_core::MdxHeading {
