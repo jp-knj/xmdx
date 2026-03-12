@@ -10,7 +10,7 @@
     },
     "packages/vite": {
       "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["shiki", "expressive-code", "vite"]
+      "ignoreDependencies": ["shiki", "expressive-code"]
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],

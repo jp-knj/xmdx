@@ -127,10 +127,16 @@ importers:
 
   packages/vite:
     dependencies:
+      '@xmdx/napi':
+        specifier: workspace:*
+        version: link:../../crates/napi
       xmdx:
         specifier: workspace:*
         version: link:../xmdx
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
       expressive-code:
         specifier: ^0.41.0
         version: 0.41.6
@@ -156,6 +162,9 @@ importers:
         specifier: ^4.0.3
         version: 4.0.3
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
       expressive-code:
         specifier: ^0.41.0
         version: 0.41.6

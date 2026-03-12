@@ -150,6 +150,7 @@
     "expressive-code": { "optional": true }
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "expressive-code": "^0.41.0",
     "miniflare": "^4.0.0",
     "rollup": ">=4.0.0",
