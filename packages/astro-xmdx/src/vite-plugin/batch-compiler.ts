@@ -21,15 +21,10 @@ import type { Transform } from '../pipeline/types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { ShikiManager } from './highlighting/shiki-manager.js';
 import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
-import { asSourceMap, asBinding } from '../ops/type-narrowing.js';
+import { asSourceMap, asBinding, parseJsonRecord } from '../ops/type-narrowing.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
-import type {
-  CachedMdxResult,
-  CachedModuleResult,
-  EsbuildCacheEntry,
-  PersistentCache,
-} from './cache/types.js';
+import type { EsbuildCacheEntry, PersistentCache } from './cache/types.js';
 import { debugLog, debugTime, debugTimeEnd } from './load-profiler.js';
 
 const require = createRequire(import.meta.url);
@@ -61,6 +56,7 @@ async function mapConcurrent<T, R>(
 interface BatchInput {
   id: string;
   source: string;
+  originalSource: string;
   filepath: string;
   contentHash: string;
 }
@@ -93,10 +89,6 @@ export interface BuildStartDeps {
   state: BuildState;
   diskCacheEnabled: boolean;
   persistentCache: PersistentCache;
-  originalSourceCache: Map<string, string>;
-  processedSourceCache: Map<string, string>;
-  moduleCompilationCache: Map<string, CachedModuleResult>;
-  mdxCompilationCache: Map<string, CachedMdxResult>;
   esbuildCache: Map<string, EsbuildCacheEntry>;
   fallbackFiles: Set<string>;
   fallbackReasons: Map<string, string>;
@@ -109,7 +101,6 @@ export interface BuildStartDeps {
   shikiManager: ShikiManager;
   ecManager: ExpressiveCodeManager;
   starlightComponents: XmdxPluginOptions['starlightComponents'];
-  parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>;
   transformPipeline: Transform;
   expressiveCode: ExpressiveCodeConfig | null;
   registry: Registry;
@@ -124,8 +115,6 @@ export async function batchReadAndDetectFallbacks(
   esbuildCache: Map<string, EsbuildCacheEntry>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>,
-  originalSourceCache: Map<string, string>,
-  processedSourceCache: Map<string, string>,
   processedFiles: Set<string>
 ): Promise<ReadAndDetectResult> {
   const fallbackStats = {
@@ -175,9 +164,7 @@ export async function batchReadAndDetectFallbacks(
         }
       }
 
-      originalSourceCache.set(file, rawSource);
-      processedSourceCache.set(file, processedSource);
-      return { id: file, source: processedSource, filepath: file, contentHash };
+      return { id: file, source: processedSource, originalSource: rawSource, filepath: file, contentHash };
     })
   );
 
@@ -207,17 +194,34 @@ export async function batchReadAndDetectFallbacks(
   return { inputs, sourceHashes, diskCacheHits };
 }
 
+interface CompileResultEntry {
+  id: string;
+  code: string;
+  frontmatterJson?: string;
+  headings: Array<{ depth: number; slug: string; text: string }>;
+  originalSource: string;
+  isMdx: boolean;
+}
+
+interface BatchCompileOutput {
+  stats: BatchCompileStatsResult;
+  results: CompileResultEntry[];
+}
+
 export function batchCompileFiles(
   compiler: XmdxCompiler,
   mdInputs: BatchInput[],
   mdxInputs: BatchInput[],
-  moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>,
-  originalSourceCache: Map<string, string>,
-  processedSourceCache: Map<string, string>
-): BatchCompileStatsResult {
+): BatchCompileOutput {
+  const results: CompileResultEntry[] = [];
+
+  const originalSources = new Map<string, string>();
+  for (const input of [...mdInputs, ...mdxInputs]) {
+    originalSources.set(input.id, input.originalSource);
+  }
+
   let mdStats: BatchStats = { succeeded: 0, total: 0, failed: 0, processingTimeMs: 0 };
   if (mdInputs.length > 0) {
     const mdBatchResult = compiler.compileBatchToModule(mdInputs, {
@@ -227,10 +231,13 @@ export function batchCompileFiles(
 
     for (const result of mdBatchResult.results) {
       if (result.result) {
-        moduleCompilationCache.set(result.id, {
-          ...result.result,
-          originalSource: originalSourceCache.get(result.id),
-          processedSource: processedSourceCache.get(result.id),
+        results.push({
+          id: result.id,
+          code: result.result.code,
+          frontmatterJson: result.result.frontmatterJson,
+          headings: result.result.headings || [],
+          originalSource: originalSources.get(result.id) ?? '',
+          isMdx: false,
         });
       } else if (result.error) {
         fallbackFiles.add(result.id);
@@ -248,10 +255,13 @@ export function batchCompileFiles(
 
     for (const result of mdxBatchResult.results) {
       if (result.result) {
-        mdxCompilationCache.set(result.id, {
-          ...result.result,
-          originalSource: originalSourceCache.get(result.id),
-          processedSource: processedSourceCache.get(result.id),
+        results.push({
+          id: result.id,
+          code: result.result.code,
+          frontmatterJson: result.result.frontmatterJson,
+          headings: result.result.headings || [],
+          originalSource: originalSources.get(result.id) ?? '',
+          isMdx: true,
         });
       } else if (result.error) {
         fallbackFiles.add(result.id);
@@ -260,7 +270,7 @@ export function batchCompileFiles(
     }
   }
 
-  return { md: mdStats, mdx: mdxStats };
+  return { stats: { md: mdStats, mdx: mdxStats }, results };
 }
 
 export async function batchJsxTransform(
@@ -307,19 +317,11 @@ export async function batchJsxTransform(
 export function persistCaches(
   persistentCache: PersistentCache,
   esbuildCache: Map<string, EsbuildCacheEntry>,
-  moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>
 ): void {
   for (const [k, v] of esbuildCache) {
     persistentCache.esbuild.set(k, v);
-  }
-  for (const [k, v] of moduleCompilationCache) {
-    persistentCache.moduleCompilation.set(k, v);
-  }
-  for (const [k, v] of mdxCompilationCache) {
-    persistentCache.mdxCompilation.set(k, v);
   }
   for (const file of fallbackFiles) {
     persistentCache.fallbackFiles.add(file);
@@ -332,19 +334,11 @@ export function persistCaches(
 function restorePersistentCaches(
   persistentCache: PersistentCache,
   esbuildCache: Map<string, EsbuildCacheEntry>,
-  moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
   fallbackFiles: Set<string>,
   fallbackReasons: Map<string, string>
 ): void {
   for (const [k, v] of persistentCache.esbuild) {
     esbuildCache.set(k, v);
-  }
-  for (const [k, v] of persistentCache.moduleCompilation) {
-    moduleCompilationCache.set(k, v);
-  }
-  for (const [k, v] of persistentCache.mdxCompilation) {
-    mdxCompilationCache.set(k, v);
   }
   for (const file of persistentCache.fallbackFiles) {
     fallbackFiles.add(file);
@@ -352,119 +346,6 @@ function restorePersistentCaches(
   for (const [k, v] of persistentCache.fallbackReasons) {
     fallbackReasons.set(k, v);
   }
-}
-
-async function preparePipelineInputs(
-  moduleCompilationCache: Map<string, CachedModuleResult>,
-  mdxCompilationCache: Map<string, CachedMdxResult>,
-  parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>,
-  originalSourceCache: Map<string, string>,
-  processedSourceCache: Map<string, string>,
-  registry: Registry,
-  expressiveCode: ExpressiveCodeConfig | null,
-  expressiveCodeCanRewrite: boolean,
-  starlightComponents: XmdxPluginOptions['starlightComponents'],
-  shikiManager: ShikiManager,
-  resolvedShiki: Awaited<ReturnType<ShikiManager['init']>>,
-  transformPipeline: Transform,
-  sourceHashes: Map<string, string>
-): Promise<Array<{ id: string; virtualId: string; jsx: string; contentHash?: string }>> {
-  const normalizedStarlightComponents = normalizeStarlightComponents(starlightComponents ?? false);
-  const PIPELINE_CONCURRENCY = 50;
-
-  const mdModuleEntries: Array<[string, CachedModuleResult]> = [];
-  for (const [filename, cached] of moduleCompilationCache) {
-    mdModuleEntries.push([filename, cached]);
-  }
-
-  const mdResults = await mapConcurrent(mdModuleEntries, PIPELINE_CONCURRENCY, async ([filename, cached]) => {
-    const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
-    const headings = cached.headings || [];
-    const jsxCode = cached.code;
-    const sourceForHooks =
-      originalSourceCache.get(filename) ??
-      cached.originalSource ??
-      processedSourceCache.get(filename) ??
-      cached.processedSource ??
-      '';
-
-    const ctx: TransformContext = {
-      code: jsxCode,
-      source: sourceForHooks,
-      filename,
-      frontmatter,
-      headings,
-      registry,
-      config: {
-        expressiveCode,
-        expressiveCodeCanRewrite,
-        starlightComponents: normalizedStarlightComponents,
-        shiki: shikiManager.forCode(jsxCode, resolvedShiki),
-      },
-    };
-    const transformed = await transformPipeline(ctx);
-    return {
-      id: filename,
-      virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
-      jsx: transformed.code,
-      contentHash: sourceHashes.get(filename),
-    };
-  });
-
-  const mdxEntries: Array<[string, CachedMdxResult]> = [];
-  for (const [filename, cached] of mdxCompilationCache) {
-    mdxEntries.push([filename, cached]);
-  }
-
-  const mdxResults = await mapConcurrent(mdxEntries, PIPELINE_CONCURRENCY, async ([filename, cached]) => {
-    const frontmatter = parseFrontmatterCached(cached.frontmatterJson, filename);
-    const headings = cached.headings || [];
-    const jsxCode = wrapMdxModule(
-      cached.code,
-      {
-        frontmatter,
-        headings,
-        registry,
-      },
-      filename
-    );
-    const sourceForHooks =
-      originalSourceCache.get(filename) ??
-      cached.originalSource ??
-      processedSourceCache.get(filename) ??
-      cached.processedSource ??
-      '';
-
-    const ctx: TransformContext = {
-      code: jsxCode,
-      source: sourceForHooks,
-      filename,
-      frontmatter,
-      headings,
-      registry,
-      config: {
-        expressiveCode,
-        expressiveCodeCanRewrite,
-        starlightComponents: normalizedStarlightComponents,
-        shiki: shikiManager.forCode(jsxCode, resolvedShiki),
-      },
-    };
-    const transformed = await transformPipeline(ctx);
-    return {
-      id: filename,
-      virtualId: `${VIRTUAL_MODULE_PREFIX}${filename}${OUTPUT_EXTENSION}`,
-      jsx: transformed.code,
-      contentHash: sourceHashes.get(filename),
-    };
-  });
-
-  const jsxInputs = [...mdResults, ...mdxResults];
-
-  debugLog(
-    `Pipeline processed ${jsxInputs.length} files for esbuild batch (${mdModuleEntries.length} MD modules, ${mdxEntries.length} MDX)`
-  );
-
-  return jsxInputs;
 }
 
 async function writeDiskCacheEntries(
@@ -529,8 +410,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     restorePersistentCaches(
       deps.persistentCache,
       deps.esbuildCache,
-      deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons
     );
@@ -591,8 +470,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     deps.esbuildCache,
     deps.fallbackFiles,
     deps.fallbackReasons,
-    deps.originalSourceCache,
-    deps.processedSourceCache,
     deps.processedFiles
   );
   debugTimeEnd('buildStart:readFiles');
@@ -623,16 +500,12 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
       ? binding.createCompiler.bind(binding)
       : (cfg: Record<string, unknown>) => new binding.XmdxCompiler!(cfg);
     const compiler = createCompiler(deps.compilerOptions);
-    const stats = batchCompileFiles(
+    const { stats, results: compileResults } = batchCompileFiles(
       compiler,
       mdInputs,
       mdxInputs,
-      deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons,
-      deps.originalSourceCache,
-      deps.processedSourceCache
     );
     debugTimeEnd('buildStart:batchCompile');
 
@@ -658,20 +531,49 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     debugTimeEnd('buildStart:shikiInit');
     debugTime('buildStart:pipelineProcessing');
 
-    const jsxInputs = await preparePipelineInputs(
-      deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
-      deps.parseFrontmatterCached,
-      deps.originalSourceCache,
-      deps.processedSourceCache,
-      deps.registry,
-      deps.expressiveCode,
-      expressiveCodeCanRewrite,
-      deps.starlightComponents,
-      deps.shikiManager,
-      finalResolvedShiki,
-      deps.transformPipeline,
-      sourceHashes
+    const normalizedStarlightComponents = normalizeStarlightComponents(deps.starlightComponents ?? false);
+    const PIPELINE_CONCURRENCY = 50;
+
+    const jsxInputs = await mapConcurrent(compileResults, PIPELINE_CONCURRENCY, async (entry) => {
+      let frontmatter: Record<string, unknown> = {};
+      if (entry.frontmatterJson) {
+        try {
+          frontmatter = parseJsonRecord(entry.frontmatterJson);
+        } catch {
+          // invalid frontmatter JSON, use empty object
+        }
+      }
+      const headings = entry.headings;
+
+      const jsxCode = entry.isMdx
+        ? wrapMdxModule(entry.code, { frontmatter, headings, registry: deps.registry }, entry.id)
+        : entry.code;
+
+      const ctx: TransformContext = {
+        code: jsxCode,
+        source: entry.originalSource,
+        filename: entry.id,
+        frontmatter,
+        headings,
+        registry: deps.registry,
+        config: {
+          expressiveCode: deps.expressiveCode,
+          expressiveCodeCanRewrite,
+          starlightComponents: normalizedStarlightComponents,
+          shiki: deps.shikiManager.forCode(jsxCode, finalResolvedShiki),
+        },
+      };
+      const transformed = await deps.transformPipeline(ctx);
+      return {
+        id: entry.id,
+        virtualId: `${VIRTUAL_MODULE_PREFIX}${entry.id}${OUTPUT_EXTENSION}`,
+        jsx: transformed.code,
+        contentHash: sourceHashes.get(entry.id),
+      };
+    });
+
+    debugLog(
+      `Pipeline processed ${jsxInputs.length} files for esbuild batch (${compileResults.filter((e) => !e.isMdx).length} MD modules, ${compileResults.filter((e) => e.isMdx).length} MDX)`
     );
     debugTimeEnd('buildStart:pipelineProcessing');
 
@@ -699,8 +601,6 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
     persistCaches(
       deps.persistentCache,
       deps.esbuildCache,
-      deps.moduleCompilationCache,
-      deps.mdxCompilationCache,
       deps.fallbackFiles,
       deps.fallbackReasons
     );

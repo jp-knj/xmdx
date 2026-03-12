@@ -12,15 +12,9 @@ function makeBuildStartDeps(overrides: Partial<BuildStartDeps> = {}): BuildStart
     diskCacheEnabled: false,
     persistentCache: {
       esbuild: new Map(),
-      moduleCompilation: new Map(),
-      mdxCompilation: new Map(),
       fallbackFiles: new Set(),
       fallbackReasons: new Map(),
     },
-    originalSourceCache: new Map(),
-    processedSourceCache: new Map(),
-    moduleCompilationCache: new Map(),
-    mdxCompilationCache: new Map(),
     esbuildCache: new Map(),
     fallbackFiles: new Set(),
     fallbackReasons: new Map(),
@@ -33,7 +27,6 @@ function makeBuildStartDeps(overrides: Partial<BuildStartDeps> = {}): BuildStart
     shikiManager: { init: async () => null, getFor: async () => null, forCode: () => null } as any,
     ecManager: { init: async () => {} } as any,
     starlightComponents: false,
-    parseFrontmatterCached: () => ({}),
     transformPipeline: async (ctx: any) => ctx,
     expressiveCode: null,
     registry: { components: new Map(), directives: new Map() } as any,
@@ -47,8 +40,6 @@ describe('handleBuildStart forceFallback', () => {
     const fallbackFiles = new Set<string>();
     const fallbackReasons = new Map<string, string>();
     const esbuildCache = new Map();
-    const moduleCompilationCache = new Map();
-    const mdxCompilationCache = new Map();
 
     // Mock glob to return test files without hitting filesystem
     // handleBuildStart uses require('glob').glob internally, so we test
@@ -62,8 +53,6 @@ describe('handleBuildStart forceFallback', () => {
       fallbackFiles,
       fallbackReasons,
       esbuildCache,
-      moduleCompilationCache,
-      mdxCompilationCache,
       loadBinding: async () => {
         loadBindingCalled = true;
         throw new Error('should not be called');
@@ -79,10 +68,6 @@ describe('handleBuildStart forceFallback', () => {
 
     // loadBinding should not have been called (batch compilation was skipped)
     expect(loadBindingCalled).toBe(false);
-
-    // No files should be in module/mdx compilation caches (batch was skipped)
-    expect(moduleCompilationCache.size).toBe(0);
-    expect(mdxCompilationCache.size).toBe(0);
   });
 
   test('does not skip batch compilation when forceFallback is false', async () => {

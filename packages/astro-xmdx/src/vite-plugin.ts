@@ -36,14 +36,12 @@ import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
 import { ShikiManager } from './vite-plugin/highlighting/shiki-manager.js';
 import { createLoadProfiler } from './vite-plugin/load-profiler.js';
 import type {
-  CachedMdxResult,
-  CachedModuleResult,
   EsbuildCacheEntry,
   PersistentCache,
 } from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
-import { parseJsonRecord, asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
+import { asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
 
 // Preserve public API — resolveLibraries was exported from this module
 export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
@@ -57,39 +55,8 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   let resolvedConfig: ResolvedConfig | undefined;
   const loadProfiler = createLoadProfiler();
   const sourceLookup = new Map<string, string>();
-  const originalSourceCache = new Map<string, string>();   // Raw markdown before preprocess hooks
-  const processedSourceCache = new Map<string, string>();  // Preprocessed markdown fed to compiler
-  const moduleCompilationCache = new Map<string, CachedModuleResult>();  // MD files compiled to modules via Rust
-  const mdxCompilationCache = new Map<string, CachedMdxResult>();        // MDX files compiled via mdxjs-rs
-  const esbuildCache = new Map<string, EsbuildCacheEntry>();  // Pre-compiled esbuild results
+  const esbuildCache = new Map<string, EsbuildCacheEntry>();
   const fallbackFiles = new Set<string>();
-
-  // PERF: Cache parsed frontmatter to avoid redundant JSON.parse calls
-  const frontmatterCache = new Map<string, Record<string, unknown>>();
-
-  /**
-   * Parse frontmatter JSON with caching.
-   * Returns cached result if available, otherwise parses and caches.
-   */
-  function parseFrontmatterCached(json: string | undefined, filename: string): Record<string, unknown> {
-    if (!json) return {};
-
-    // Include JSON content in cache key to invalidate on content change
-    const cacheKey = `${filename}:${json}`;
-    const cached = frontmatterCache.get(cacheKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    try {
-      const parsed = parseJsonRecord(json);
-      frontmatterCache.set(cacheKey, parsed);
-      return parsed;
-    } catch {
-      frontmatterCache.set(cacheKey, {});
-      return {};
-    }
-  }
 
   // Persistent cache for SSR/Client 2-pass builds
   // These survive between buildStart calls, avoiding redundant recompilation
@@ -99,8 +66,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   };
   const persistentCache: PersistentCache = {
     esbuild: new Map<string, EsbuildCacheEntry>(),
-    moduleCompilation: new Map<string, CachedModuleResult>(),
-    mdxCompilation: new Map<string, CachedMdxResult>(),
     fallbackFiles: new Set<string>(),
     fallbackReasons: new Map<string, string>(),
   };
@@ -285,10 +250,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         state: buildState,
         diskCacheEnabled,
         persistentCache,
-        originalSourceCache,
-        processedSourceCache,
-        moduleCompilationCache,
-        mdxCompilationCache,
         esbuildCache,
         fallbackFiles,
         fallbackReasons,
@@ -301,7 +262,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         shikiManager,
         ecManager,
         starlightComponents,
-        parseFrontmatterCached,
         transformPipeline,
         expressiveCode,
         registry,
@@ -394,10 +354,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         fallbackFiles,
         fallbackReasons,
         esbuildCache,
-        moduleCompilationCache,
-        mdxCompilationCache,
-        originalSourceCache,
-        processedSourceCache,
         processedFiles,
         registry,
         hasStarlightConfigured,
@@ -408,7 +364,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         ecManager,
         shikiManager,
         transformPipeline,
-        parseFrontmatterCached,
         compilerOptions,
         getCompiler,
         loadBinding: loadXmdxBinding,
