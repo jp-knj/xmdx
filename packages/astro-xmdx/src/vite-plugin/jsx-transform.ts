@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 import { ESBUILD_JSX_CONFIG, OXC_JSX_CONFIG } from '../constants.js';
+import { asViteWithOxc } from '../ops/type-narrowing.js';
 
 // Use createRequire to bypass Vite's SSR module runner, which may be
 // closed between build phases causing "Vite module runner has been closed".
@@ -33,13 +34,7 @@ async function resolveTransformFn(): Promise<TransformFn> {
   } catch {
     vite = await import('vite');
   }
-  const viteWithOxc = vite as typeof import('vite') & {
-    transformWithOxc?: (
-      code: string,
-      filename: string,
-      options: typeof OXC_JSX_CONFIG,
-    ) => Promise<TransformResult>;
-  };
+  const viteWithOxc = asViteWithOxc(vite);
 
   // Try Vite 8+ transformWithOxc first
   if (typeof viteWithOxc.transformWithOxc === 'function') {

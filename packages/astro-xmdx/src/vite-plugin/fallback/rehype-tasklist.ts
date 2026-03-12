@@ -3,6 +3,8 @@
  * @module vite-plugin/rehype-tasklist
  */
 
+import { asHastChildren } from '../../ops/type-narrowing.js';
+
 type HastNode = {
   type: string;
   [key: string]: unknown;
@@ -97,18 +99,18 @@ export function rehypeTasklistEnhancer() {
   return (tree: HastNode) => {
     const visit = (node: HastNode): void => {
       if (hasTaskListClass(node) && Array.isArray(node.children)) {
-        const children = node.children as HastNode[];
+        const children = asHastChildren<HastNode>(node.children)!;
         const firstMeaningfulIndex = children.findIndex((child) => !isWhitespaceText(child));
         const firstMeaningful = firstMeaningfulIndex >= 0 ? children[firstMeaningfulIndex] : undefined;
 
         if (isElement(firstMeaningful) && firstMeaningful.tagName === 'p' && Array.isArray(firstMeaningful.children)) {
-          firstMeaningful.children = wrapTaskItemChildren(firstMeaningful.children as HastNode[]);
+          firstMeaningful.children = wrapTaskItemChildren(asHastChildren<HastNode>(firstMeaningful.children)!);
         } else {
           node.children = wrapTaskItemChildren(children);
         }
       }
 
-      const children = Array.isArray(node.children) ? (node.children as HastNode[]) : null;
+      const children = asHastChildren<HastNode>(node.children);
       if (children) {
         for (const child of children) visit(child);
       }

@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rm, readdir, stat, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
+import { parseJson } from '../../ops/type-narrowing.js';
 
 /** Cache entry for a compiled file */
 export interface CacheEntry {
@@ -72,7 +73,7 @@ export class DiskCache {
       const manifestPath = path.join(this.cacheDir, MANIFEST_FILE);
       if (existsSync(manifestPath)) {
         const data = await readFile(manifestPath, 'utf8');
-        const loaded = JSON.parse(data) as CacheManifest;
+        const loaded = parseJson<CacheManifest>(data);
 
         // Version mismatch - clear cache
         if (loaded.version !== CACHE_VERSION) {
@@ -110,7 +111,7 @@ export class DiskCache {
         jsonFiles.map(async (file) => {
           try {
             const data = await readFile(path.join(entriesDir, file), 'utf8');
-            return JSON.parse(data) as CacheEntry & { _filename?: string };
+            return parseJson<CacheEntry & { _filename?: string }>(data);
           } catch {
             return null;
           }
@@ -166,7 +167,7 @@ export class DiskCache {
       }
 
       const data = await readFile(cachePath, 'utf8');
-      const cached = JSON.parse(data) as CacheEntry;
+      const cached = parseJson<CacheEntry>(data);
 
       // Double-check hash matches
       if (cached.hash !== sourceHash) {

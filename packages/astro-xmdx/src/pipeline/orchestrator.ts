@@ -44,13 +44,14 @@ const DEFAULT_CONTEXT: TransformContext = {
 export function createContext(
   overrides: Partial<TransformContext> = {}
 ): TransformContext {
+  const config: TransformConfig = {
+    ...DEFAULT_CONTEXT.config,
+    ...(overrides.config || {}),
+  };
   return {
     ...DEFAULT_CONTEXT,
     ...overrides,
-    config: {
-      ...DEFAULT_CONTEXT.config,
-      ...(overrides.config || {}),
-    } as TransformConfig,
+    config,
   };
 }
 

@@ -21,6 +21,7 @@ import type { Transform } from '../pipeline/types.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
 import type { ShikiManager } from './highlighting/shiki-manager.js';
 import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
+import { asSourceMap, asBinding } from '../ops/type-narrowing.js';
 import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
 import type {
@@ -43,7 +44,7 @@ async function mapConcurrent<T, R>(
   concurrency: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+  const results: R[] = new Array<R>(items.length);
   let nextIndex = 0;
   async function worker() {
     while (nextIndex < items.length) {
@@ -279,7 +280,7 @@ export async function batchJsxTransform(
           jsxInputs.map((input) => ({ id: input.id, jsx: input.jsx }))
         );
         for (const [id, result] of parallelResults) {
-          jsxCache.set(id, { code: result.code, map: result.map as SourceMapInput });
+          jsxCache.set(id, { code: result.code, map: asSourceMap(result.map) });
         }
         usedParallel = true;
       } catch (workerErr) {
@@ -555,18 +556,18 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
 
   let globModule: typeof import('glob');
   try {
-    globModule = require('glob');
+    globModule = asBinding<typeof import('glob')>(require('glob'));
   } catch {
     throw new Error(
       '[xmdx] glob is required for file discovery. Please install: npm install glob'
     );
   }
-  const { glob } = globModule as {
+  const { glob } = asBinding<{
     glob: (
       pattern: string,
       options: { cwd: string; ignore: string[]; absolute: boolean }
     ) => Promise<string[]>;
-  };
+  }>(globModule);
   const files = await glob('**/*.{md,mdx}', {
     cwd: deps.resolvedConfig.root,
     ignore: [...DEFAULT_IGNORE_PATTERNS],

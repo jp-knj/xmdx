@@ -225,7 +225,7 @@ export function detectUsedComponents(code: string, registry: Registry): UsedComp
       usedComponents.push({
         name: definition.name,
         modulePath: definition.modulePath,
-        exportType: definition.exportType as 'named' | 'default',
+        exportType: definition.exportType,
       });
     }
   }

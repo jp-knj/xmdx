@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { ExpressiveCodeConfig } from '../../utils/config.js';
+import { asBinding } from '../../ops/type-narrowing.js';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);
@@ -135,12 +136,12 @@ export class ExpressiveCodeManager {
     try {
       // Use require() to avoid Vite module runner issues during buildStart
       // (Vite's module runner may be closed when buildStart runs)
-      const { ExpressiveCode } = require('expressive-code') as {
+      const { ExpressiveCode } = asBinding<{
         ExpressiveCode: new (options: {
           useDarkModeMediaQuery?: boolean;
           themeCssSelector?: (theme: { type: string }) => string;
         }) => ExpressiveCodeEngine;
-      };
+      }>(require('expressive-code'));
 
       // Create engine with minimal configuration
       // Themes will be loaded from bundled defaults

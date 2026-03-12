@@ -5,7 +5,8 @@
 
 import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
+import type { CodeBlockRenderer } from '../types.js';
+import { parseJsonString } from '../ops/type-narrowing.js';
 
 // PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
 const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;
@@ -194,7 +195,7 @@ export function rewriteSetHtmlCodeBlocks(
     const literal = result.slice(start, end).trim();
     let html: string;
     try {
-      html = JSON.parse(literal) as string;
+      html = parseJsonString(literal);
     } catch {
       searchStart = end;
       continue;
@@ -300,7 +301,7 @@ function escapeRegExp(s: string): string {
  */
 export async function renderExpressiveCodeBlocks(
   code: string,
-  ecManager: ExpressiveCodeManager,
+  ecManager: CodeBlockRenderer,
   componentName = 'Code'
 ): Promise<RewriteResult> {
   // Quick bail-out checks
@@ -342,7 +343,7 @@ export async function renderExpressiveCodeBlocks(
     matches.map(async ({ codeProp, lang }) => {
       try {
         // Parse the JSON-encoded code value
-        const codeValue = JSON.parse(codeProp) as string;
+        const codeValue = parseJsonString(codeProp);
         // Skip empty code blocks
         if (!codeValue.trim()) return null;
         // Render through ExpressiveCode

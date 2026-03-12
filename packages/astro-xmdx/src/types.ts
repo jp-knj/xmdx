@@ -89,6 +89,15 @@ export interface MdxImportHandlingOptions {
   ignoreCodeFences?: boolean;
 }
 
+/**
+ * Interface for code block rendering engines (e.g. ExpressiveCode).
+ * Used to decouple transforms from concrete highlighting implementations.
+ */
+export interface CodeBlockRenderer {
+  readonly enabled: boolean;
+  render(code: string, lang?: string): Promise<string | null>;
+}
+
 // Re-export types from submodules for convenience
 export type { ExpressiveCodeConfig, StarlightUserConfig } from './utils/config.js';
 export type { ShikiHighlighter } from './transforms/shiki.js';

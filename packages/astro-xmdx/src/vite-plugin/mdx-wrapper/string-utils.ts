@@ -5,7 +5,7 @@
 
 /** Unescape common JS string escape sequences. */
 export function unescapeJsString(s: string): string {
-  return s.replace(/\\(["'\\nrt])/g, (_match, ch) => {
+  return s.replace(/\\(["'\\nrt])/g, (_match, ch: string) => {
     switch (ch) {
       case 'n': return '\n';
       case 'r': return '\r';

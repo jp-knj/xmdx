@@ -4,6 +4,7 @@
  */
 
 import type { HeadingEntry } from 'xmdx';
+import { asPropValue } from '../ops/type-narrowing.js';
 
 /**
  * Minimal registry interface consumed by blocksToJsx.
@@ -84,7 +85,7 @@ function slotChildrenToHtml(
       const slotProp = block.props?.slot;
       const slotName =
         typeof slotProp === 'object' && slotProp !== null && 'type' in slotProp && 'value' in slotProp
-          ? (slotProp as PropValue).value
+          ? asPropValue<PropValue>(slotProp).value
           : typeof slotProp === 'string'
             ? slotProp
             : undefined;
@@ -98,7 +99,7 @@ function slotChildrenToHtml(
       if (block.props) {
         for (const [key, value] of Object.entries(block.props)) {
           if (typeof value === 'object' && value !== null && 'type' in value && 'value' in value) {
-            const pv = value as PropValue;
+            const pv = asPropValue<PropValue>(value);
             if (isFragmentSlot && key === 'slot') {
               result += ` slot="${escapeJsString(pv.value)}"`;
             } else if (pv.type === 'literal') {
@@ -662,7 +663,7 @@ export function blocksToJsx(
           const slotProp = child.props.slot;
           const slotName =
             typeof slotProp === 'object' && slotProp !== null && 'type' in slotProp && 'value' in slotProp
-              ? (slotProp as PropValue).value
+              ? asPropValue<PropValue>(slotProp).value
               : typeof slotProp === 'string'
                 ? slotProp
                 : undefined;
@@ -717,7 +718,7 @@ export function blocksToJsx(
             .map(([key, value]) => {
               // Handle PropValue enum from Rust: { type: "literal"|"expression", value: string }
               if (typeof value === 'object' && value !== null && 'type' in value && 'value' in value) {
-                const propValue = value as PropValue;
+                const propValue = asPropValue<PropValue>(value);
                 if (propValue.type === 'literal') {
                   return `${key}="${escapeJsString(propValue.value)}"`;
                 } else if (propValue.type === 'expression') {

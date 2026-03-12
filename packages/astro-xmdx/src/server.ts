@@ -8,12 +8,12 @@ import { AstroError } from 'astro/errors';
 import { AstroJSX, jsx } from 'astro/jsx-runtime';
 import { renderJSX } from 'astro/runtime/server/index.js';
 import type { SSRResult } from 'astro';
+import { toError, hasAstroJsxMarker, hasMdxComponentSymbol, addErrorHint, asString } from './ops/type-narrowing.js';
 
 const slotName = (str: string): string =>
   str.trim().replace(/[-_]([a-z])/g, (_, w) => w.toUpperCase());
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ComponentType = (props: Record<string, unknown>) => any;
+type ComponentType = (props: Record<string, unknown>) => unknown;
 type Slots = { default?: unknown; [key: string]: unknown };
 
 async function check(
@@ -31,10 +31,9 @@ async function check(
 
   try {
     const result = await Component({ ...props, ...slots, children });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (result as any)?.[AstroJSX] ?? false;
+    return hasAstroJsxMarker(result, AstroJSX);
   } catch (e) {
-    throwEnhancedErrorIfMdxComponent(e as Error, Component);
+    throwEnhancedErrorIfMdxComponent(toError(e), Component);
   }
   return false;
 }
@@ -54,20 +53,17 @@ async function renderToStaticMarkup(
   const { result } = this;
   try {
     const html = await renderJSX(result, jsx(Component, { ...props, ...slots, children }));
-    return { html: html as string };
+    return { html: asString(html) };
   } catch (e) {
-    throwEnhancedErrorIfMdxComponent(e as Error, Component);
+    throwEnhancedErrorIfMdxComponent(toError(e), Component);
     throw e;
   }
 }
 
 function throwEnhancedErrorIfMdxComponent(error: Error, Component: ComponentType): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((Component as any)[Symbol.for('mdx-component')]) {
+  if (hasMdxComponentSymbol(Component)) {
     if (AstroError.is(error)) return;
-    (error as Error & { title?: string; hint?: string }).title = error.name;
-    (error as Error & { hint?: string }).hint =
-      'This issue often occurs when your MDX component encounters runtime errors.';
+    addErrorHint(error, error.name, 'This issue often occurs when your MDX component encounters runtime errors.');
     throw error;
   }
 }

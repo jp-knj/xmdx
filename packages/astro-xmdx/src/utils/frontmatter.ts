@@ -5,6 +5,7 @@
  */
 
 import matter from 'gray-matter';
+import { toError } from '../ops/type-narrowing.js';
 
 /**
  * Result of parsing frontmatter from a file.
@@ -35,7 +36,7 @@ export function safeParseFrontmatter(
     };
   } catch (error) {
     console.warn(
-      `[xmdx] Failed to parse frontmatter in ${filename}: ${(error as Error).message}`
+      `[xmdx] Failed to parse frontmatter in ${filename}: ${toError(error).message}`
     );
     return {
       frontmatter: {},

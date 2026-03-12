@@ -6,6 +6,8 @@
 /**
  * Shiki highlighter function type.
  */
+import { parseJsonString } from '../ops/type-narrowing.js';
+
 export type ShikiHighlighter = (code: string, lang?: string) => Promise<string>;
 
 // PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
@@ -309,7 +311,7 @@ export async function highlightJsxCodeBlocks(
     // PERF: Reset pre-compiled regex for reuse
     JSX_STRING_DECODE_REGEX.lastIndex = 0;
     const codeText = decodeHtmlEntities(
-      rawContent.replace(JSX_STRING_DECODE_REGEX, (_, str) => decodeJsEscapes(str))
+      rawContent.replace(JSX_STRING_DECODE_REGEX, (_, str: string) => decodeJsEscapes(str))
     ).trimEnd();
 
     if (!codeText) {
@@ -474,7 +476,7 @@ export async function rewriteAstroSetHtml(
 
     let html: string;
     try {
-      html = JSON.parse(literal) as string;
+      html = parseJsonString(literal);
     } catch {
       searchStart = end;
       continue;

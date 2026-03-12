@@ -5,6 +5,7 @@
  */
 
 import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
+import { parseJsonRecord, asModule } from './ops/type-narrowing.js';
 
 interface WasmModule {
   default: () => Promise<unknown>;
@@ -21,7 +22,7 @@ let initPromise: Promise<WasmModule> | null = null;
 async function loadWasm(): Promise<WasmModule> {
   if (!initPromise) {
     initPromise = (async () => {
-      const mod = await import('../wasm/xmdx_wasm.js') as WasmModule;
+      const mod = asModule<WasmModule>(await import('../wasm/xmdx_wasm.js'));
       await mod.default();
       return mod;
     })();
@@ -64,7 +65,7 @@ export async function compile(
 
   return {
     code: result.code,
-    frontmatter: JSON.parse(result.frontmatter_json) as Record<string, unknown>,
+    frontmatter: parseJsonRecord(result.frontmatter_json),
     headings: result.headings,
     hasUserDefaultExport: result.has_user_default_export,
   };

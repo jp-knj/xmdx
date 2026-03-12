@@ -6,6 +6,7 @@
 
 import { createCompiler, type XmdxCompiler } from '@xmdx/napi';
 import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
+import { parseJsonRecord, asModule } from './ops/type-narrowing.js';
 
 let compiler: XmdxCompiler | null = null;
 
@@ -49,8 +50,8 @@ export async function compile(
 
   return {
     code: result.code,
-    frontmatter: JSON.parse(result.frontmatterJson) as Record<string, unknown>,
-    headings: result.headings as HeadingEntry[],
+    frontmatter: parseJsonRecord(result.frontmatterJson),
+    headings: asModule<HeadingEntry[]>(result.headings),
     hasUserDefaultExport: result.hasUserDefaultExport ?? false,
   };
 }

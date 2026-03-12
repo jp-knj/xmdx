@@ -4,6 +4,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { asBinding } from '../ops/type-narrowing.js';
 import type { XmdxBinding } from './types.js';
 
 let bindingPromise: Promise<XmdxBinding> | undefined;
@@ -101,7 +102,7 @@ export async function loadXmdxBinding(): Promise<XmdxBinding> {
       const require = createRequire(import.meta.url);
       try {
         // Delegate platform/arch detection to NAPI-RS generated loader.
-        const binding = require('@xmdx/napi') as XmdxBinding;
+        const binding = asBinding<XmdxBinding>(require('@xmdx/napi'));
         logBindingSource('@xmdx/napi');
         return binding;
       } catch (err) {

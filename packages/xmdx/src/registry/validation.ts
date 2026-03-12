@@ -4,13 +4,10 @@
  */
 
 import type {
-  ComponentDefinition,
-  DirectiveMapping,
-  ComponentLibrary,
-  Registry,
   ValidationError,
   ValidationResult,
 } from './types.js';
+import { isRecord, nameOf, directiveNameOf, asFunction } from '../ops/type-narrowing.js';
 
 /**
  * Validate a component definition has required fields.
@@ -18,7 +15,7 @@ import type {
 function validateComponent(component: unknown): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (!component || typeof component !== 'object') {
+  if (!isRecord(component)) {
     errors.push({
       type: 'component',
       name: 'unknown',
@@ -27,20 +24,18 @@ function validateComponent(component: unknown): ValidationError[] {
     return errors;
   }
 
-  const comp = component as Record<string, unknown>;
-
-  if (typeof comp.name !== 'string' || comp.name.length === 0) {
+  if (typeof component.name !== 'string' || component.name.length === 0) {
     errors.push({
       type: 'component',
-      name: (comp.name as string) || 'unknown',
+      name: nameOf(component),
       message: 'Component must have a non-empty "name" string',
     });
   }
 
-  if (typeof comp.modulePath !== 'string' || comp.modulePath.length === 0) {
+  if (typeof component.modulePath !== 'string' || component.modulePath.length === 0) {
     errors.push({
       type: 'component',
-      name: (comp.name as string) || 'unknown',
+      name: nameOf(component),
       message: 'Component must have a non-empty "modulePath" string',
     });
   }
@@ -57,7 +52,7 @@ function validateDirectiveMapping(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (!directive || typeof directive !== 'object') {
+  if (!isRecord(directive)) {
     errors.push({
       type: 'directive',
       name: 'unknown',
@@ -66,27 +61,25 @@ function validateDirectiveMapping(
     return errors;
   }
 
-  const dir = directive as Record<string, unknown>;
-
-  if (typeof dir.directive !== 'string' || dir.directive.length === 0) {
+  if (typeof directive.directive !== 'string' || directive.directive.length === 0) {
     errors.push({
       type: 'directive',
-      name: (dir.directive as string) || 'unknown',
+      name: directiveNameOf(directive),
       message: 'Directive mapping must have a non-empty "directive" string',
     });
   }
 
-  if (typeof dir.component !== 'string' || dir.component.length === 0) {
+  if (typeof directive.component !== 'string' || directive.component.length === 0) {
     errors.push({
       type: 'directive',
-      name: (dir.directive as string) || 'unknown',
+      name: directiveNameOf(directive),
       message: 'Directive mapping must have a non-empty "component" string',
     });
-  } else if (!componentNames.has(dir.component as string)) {
+  } else if (!componentNames.has(directive.component)) {
     errors.push({
       type: 'directive',
-      name: (dir.directive as string) || 'unknown',
-      message: `Directive mapping references unknown component "${dir.component}"`,
+      name: directiveNameOf(directive),
+      message: `Directive mapping references unknown component "${directive.component}"`,
     });
   }
 
@@ -109,7 +102,7 @@ function validateDirectiveMapping(
 export function validateLibrary(library: unknown): ValidationResult {
   const errors: ValidationError[] = [];
 
-  if (!library || typeof library !== 'object') {
+  if (!isRecord(library)) {
     return {
       valid: false,
       errors: [{
@@ -120,22 +113,21 @@ export function validateLibrary(library: unknown): ValidationResult {
     };
   }
 
-  const lib = library as Partial<ComponentLibrary>;
-
   // Validate components
-  const components = lib.components ?? [];
+  const components = Array.isArray(library.components) ? library.components : [];
   const componentNames = new Set<string>();
 
   for (const component of components) {
     const componentErrors = validateComponent(component);
     errors.push(...componentErrors);
-    if ((component as ComponentDefinition)?.name) {
-      componentNames.add((component as ComponentDefinition).name);
+    const name = nameOf(component);
+    if (name !== 'unknown') {
+      componentNames.add(name);
     }
   }
 
   // Validate directive mappings
-  const directives = lib.directiveMappings ?? [];
+  const directives = Array.isArray(library.directiveMappings) ? library.directiveMappings : [];
   for (const directive of directives) {
     const directiveErrors = validateDirectiveMapping(directive, componentNames);
     errors.push(...directiveErrors);
@@ -165,7 +157,7 @@ export function validateLibrary(library: unknown): ValidationResult {
 export function validateRegistry(registry: unknown): ValidationResult {
   const errors: ValidationError[] = [];
 
-  if (!registry || typeof registry !== 'object') {
+  if (!isRecord(registry)) {
     return {
       valid: false,
       errors: [{
@@ -176,24 +168,32 @@ export function validateRegistry(registry: unknown): ValidationResult {
     };
   }
 
-  const reg = registry as Partial<Registry>;
-
   // Validate all components
-  const allComponents = reg.getAllComponents?.() ?? [];
+  const getAllComponents = typeof registry.getAllComponents === 'function'
+    ? asFunction<() => unknown[]>(registry.getAllComponents)
+    : undefined;
+  const allComponents = getAllComponents?.() ?? [];
   const componentNames = new Set<string>();
 
   for (const component of allComponents) {
     const componentErrors = validateComponent(component);
     errors.push(...componentErrors);
-    if ((component as ComponentDefinition)?.name) {
-      componentNames.add((component as ComponentDefinition).name);
+    const name = nameOf(component);
+    if (name !== 'unknown') {
+      componentNames.add(name);
     }
   }
 
   // Validate directive mappings
-  const supportedDirectives = reg.getSupportedDirectives?.() ?? [];
+  const getSupportedDirectives = typeof registry.getSupportedDirectives === 'function'
+    ? asFunction<() => string[]>(registry.getSupportedDirectives)
+    : undefined;
+  const getDirectiveMapping = typeof registry.getDirectiveMapping === 'function'
+    ? asFunction<(name: string) => unknown>(registry.getDirectiveMapping)
+    : undefined;
+  const supportedDirectives = getSupportedDirectives?.() ?? [];
   for (const directiveName of supportedDirectives) {
-    const mapping = reg.getDirectiveMapping?.(directiveName);
+    const mapping = getDirectiveMapping?.(directiveName);
     if (mapping) {
       const directiveErrors = validateDirectiveMapping(mapping, componentNames);
       errors.push(...directiveErrors);
