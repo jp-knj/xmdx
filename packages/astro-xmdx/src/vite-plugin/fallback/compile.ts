@@ -11,17 +11,15 @@
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import { starlightLibrary } from 'xmdx/registry';
-import type { XmdxBinding } from '@xmdx/vite';
-import { transformJsx } from '../jsx-transform.js';
+import { transformJsx, loadXmdxBinding } from '@xmdx/vite';
+import type { XmdxBinding, ExpressiveCodeManager } from '@xmdx/vite';
 import { compile as compileMdx } from '@mdx-js/mdx';
 import remarkGfm from 'remark-gfm';
 import remarkDirective from 'remark-directive';
-import { stripFrontmatter } from '../../utils/frontmatter.js';
-import { loadXmdxBinding } from '../binding-loader.js';
+import { stripFrontmatter } from 'xmdx/utils/frontmatter';
 import { injectHeadingIds, repairHeadings } from '../mdx-wrapper/heading-id-injector.js';
-import { collectImportedNames, insertAfterImports } from '../../utils/imports.js';
-import type { ExpressiveCodeConfig } from '../../utils/config.js';
-import type { ExpressiveCodeManager } from '../highlighting/expressive-code-manager.js';
+import { collectImportedNames, insertAfterImports } from 'xmdx/utils/imports';
+import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
 
 /**
  * Options for ExpressiveCode pre-rendering in fallback compilation.

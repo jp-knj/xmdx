@@ -6,7 +6,7 @@ import {
   deriveAstroUrl,
   deriveFileOptions,
   shouldCompile,
-} from './paths.js';
+} from 'xmdx/utils/paths';
 
 describe('stripQuery', () => {
   test('returns path unchanged when no query string', () => {

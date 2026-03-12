@@ -7,17 +7,31 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
-import { DiskCache } from './vite-plugin/cache/disk-cache.js';
+import {
+  DiskCache,
+  collectHooks,
+  resolveLibraries,
+  ShikiManager,
+  ExpressiveCodeManager,
+  createLoadProfiler,
+  loadXmdxBinding,
+  ENABLE_SHIKI,
+} from '@xmdx/vite';
+import type {
+  EsbuildCacheEntry,
+  PersistentCache,
+  XmdxCompiler,
+  XmdxPluginOptions,
+} from '@xmdx/vite';
+import type { TransformContext } from 'xmdx/pipeline';
 import {
   starlightLibrary,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
-import { resolveExpressiveCodeConfig } from './utils/config.js';
-import { ExpressiveCodeManager } from './vite-plugin/highlighting/expressive-code-manager.js';
+import { resolveExpressiveCodeConfig } from 'xmdx/utils/config';
 import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
-import type { TransformContext } from './pipeline/types.js';
-import { detectProblematicMdxPatterns } from './utils/mdx-detection.js';
-import { stripQuery, shouldCompile } from './utils/paths.js';
+import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
+import { stripQuery, shouldCompile } from 'xmdx/utils/paths';
 import {
   VIRTUAL_MODULE_PREFIX,
   OUTPUT_EXTENSION,
@@ -25,26 +39,12 @@ import {
   EC_STYLES_MODULE_ID,
   EC_STYLES_VIRTUAL_ID,
 } from './constants.js';
-// Import from extracted vite-plugin modules
-import type {
-  XmdxCompiler,
-  XmdxPluginOptions,
-} from './vite-plugin/types.js';
-import { resolveLibraries } from './vite-plugin/resolve-libraries.js';
-import { collectHooks } from './vite-plugin/collect-hooks.js';
-import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
-import { ShikiManager } from './vite-plugin/highlighting/shiki-manager.js';
-import { createLoadProfiler } from './vite-plugin/load-profiler.js';
-import type {
-  EsbuildCacheEntry,
-  PersistentCache,
-} from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
 import { asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
 
 // Preserve public API — resolveLibraries was exported from this module
-export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
+export { resolveLibraries } from '@xmdx/vite';
 
 /**
  * Creates the Xmdx Vite plugin that intercepts `.md`/`.mdx` files

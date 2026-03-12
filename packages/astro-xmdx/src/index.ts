@@ -10,7 +10,7 @@ import type { ComponentLibrary } from 'xmdx/registry';
 import { starlightLibrary, astroLibrary } from 'xmdx/registry';
 import { xmdxPlugin } from './vite-plugin.js';
 import { mergePresets, STARLIGHT_DEFAULT_ALLOW_IMPORTS, type PresetConfig } from './presets/index.js';
-import { safeParseFrontmatter } from './utils/frontmatter.js';
+import { safeParseFrontmatter } from 'xmdx/utils/frontmatter';
 import { findStarlightIntegration, applyStarlightOverrides } from './utils/starlight-detection.js';
 import type { XmdxPlugin, MdxImportHandlingOptions } from './types.js';
 import { asMutableConfig, asIntegrationArray, asVitePlugin, getAddPageExtension, getAddContentEntryType, asOptionalString } from './ops/type-narrowing.js';

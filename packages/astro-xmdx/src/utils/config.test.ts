@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { resolveExpressiveCodeConfig, resolveStarlightConfig } from './config.js';
+import { resolveExpressiveCodeConfig, resolveStarlightConfig } from 'xmdx/utils/config';
 import {
   createRegistry,
   starlightLibrary,
