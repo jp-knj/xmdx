@@ -5,7 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { SHIKI_THEME } from '../../constants.js';
-import { asShikiLanguage, asModule } from '../../ops/type-narrowing.js';
+import { asShikiLanguage, asModule } from '../../ops/casts.js';
 import type { ShikiHighlighter } from '../../transforms/shiki.js';
 
 interface ShikiModule {

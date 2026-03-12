@@ -2,9 +2,7 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["exports", "types", "enumMembers", "unresolved"],
   "workspaces": {
-    ".": {
-      "ignoreDependencies": ["eslint-plugin-boundaries"]
-    },
+    ".": {},
     "packages/xmdx": {
       "project": ["src/**/*.ts"],
       "ignoreBinaries": ["wasm-bindgen"]

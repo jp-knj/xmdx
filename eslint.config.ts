@@ -42,9 +42,9 @@ export default defineConfig(
     },
   },
 
-  // ops/type-narrowing.ts: allow `as` + `any` (the ONE exception)
+  // ops modules: allow `as` + `any` (cast boundaries)
   {
-    files: ['packages/*/src/ops/type-narrowing.ts'],
+    files: ['packages/*/src/ops/type-narrowing.ts', 'packages/*/src/ops/casts.ts', 'packages/*/src/ops/json.ts', 'packages/*/src/ops/errors.ts', 'packages/*/src/ops/vite.ts'],
     rules: {
       'no-restricted-syntax': 'off',
       '@typescript-eslint/consistent-type-assertions': 'off',
@@ -54,6 +54,17 @@ export default defineConfig(
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+    },
+  },
+
+  // xmdx: prevent reverse-flow imports from astro-xmdx
+  {
+    files: ['packages/xmdx/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['astro-xmdx', 'astro-xmdx/*'], message: 'xmdx must not import from astro-xmdx (reverse dependency flow).' }],
+      }],
     },
   },
 
@@ -67,7 +78,41 @@ export default defineConfig(
     },
   },
 
-  // Boundaries (astro-xmdx only)
+  // Boundaries (xmdx)
+  {
+    files: ['packages/xmdx/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    plugins: { boundaries },
+    settings: {
+      'boundaries/elements': [
+        { type: 'types',        pattern: ['src/types.ts', 'src/constants.ts'], mode: 'file' },
+        { type: 'ops',          pattern: 'src/ops/*' },
+        { type: 'utils',        pattern: 'src/utils/*' },
+        { type: 'registry',     pattern: 'src/registry/*' },
+        { type: 'transforms',   pattern: 'src/transforms/*' },
+        { type: 'pipeline',     pattern: 'src/pipeline/*' },
+        { type: 'vite-infra',   pattern: ['src/vite-plugin/*', 'src/vite-plugin/cache/*', 'src/vite-plugin/highlighting/*'] },
+        { type: 'entry',        pattern: ['src/node.ts', 'src/browser.ts'], mode: 'file' },
+      ],
+      'boundaries/ignore': ['**/*.test.ts'],
+    },
+    rules: {
+      'boundaries/element-types': ['error', {
+        default: 'disallow',
+        rules: [
+          { from: 'ops',          allow: ['types'] },
+          { from: 'utils',        allow: ['types', 'ops', 'registry'] },
+          { from: 'registry',     allow: ['types', 'ops'] },
+          { from: 'transforms',   allow: ['types', 'ops', 'utils', 'registry'] },
+          { from: 'pipeline',     allow: ['types', 'ops', 'utils', 'transforms'] },
+          { from: 'vite-infra',   allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline'] },
+          { from: 'entry',        allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline', 'vite-infra'] },
+        ],
+      }],
+    },
+  },
+
+  // Boundaries (astro-xmdx)
   {
     files: ['packages/astro-xmdx/src/**/*.ts'],
     ignores: ['**/*.test.ts'],

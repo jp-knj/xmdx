@@ -52,6 +52,66 @@
       "types": "./wasm/xmdx_wasm.d.ts",
       "import": "./wasm/xmdx_wasm.js",
       "default": "./wasm/xmdx_wasm.js"
+    },
+    "./ops": {
+      "types": "./src/ops/index.ts",
+      "import": "./src/ops/index.ts",
+      "default": "./src/ops/index.ts"
+    },
+    "./constants": {
+      "types": "./src/constants.ts",
+      "import": "./src/constants.ts",
+      "default": "./src/constants.ts"
+    },
+    "./utils/mdx-detection": {
+      "types": "./src/utils/mdx-detection.ts",
+      "import": "./src/utils/mdx-detection.ts",
+      "default": "./src/utils/mdx-detection.ts"
+    },
+    "./utils/imports": {
+      "types": "./src/utils/imports.ts",
+      "import": "./src/utils/imports.ts",
+      "default": "./src/utils/imports.ts"
+    },
+    "./utils/paths": {
+      "types": "./src/utils/paths.ts",
+      "import": "./src/utils/paths.ts",
+      "default": "./src/utils/paths.ts"
+    },
+    "./utils/config": {
+      "types": "./src/utils/config.ts",
+      "import": "./src/utils/config.ts",
+      "default": "./src/utils/config.ts"
+    },
+    "./utils/frontmatter": {
+      "types": "./src/utils/frontmatter.ts",
+      "import": "./src/utils/frontmatter.ts",
+      "default": "./src/utils/frontmatter.ts"
+    },
+    "./utils/validation": {
+      "types": "./src/utils/validation.ts",
+      "import": "./src/utils/validation.ts",
+      "default": "./src/utils/validation.ts"
+    },
+    "./transforms": {
+      "types": "./src/transforms/index.ts",
+      "import": "./src/transforms/index.ts",
+      "default": "./src/transforms/index.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "import": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./pipeline": {
+      "types": "./src/pipeline/index.ts",
+      "import": "./src/pipeline/index.ts",
+      "default": "./src/pipeline/index.ts"
+    },
+    "./vite-infra": {
+      "types": "./src/vite-plugin/index.ts",
+      "import": "./src/vite-plugin/index.ts",
+      "default": "./src/vite-plugin/index.ts"
     }
   },
   "main": "./src/node.ts",
@@ -83,10 +143,25 @@
     "provenance": true
   },
   "dependencies": {
-    "@xmdx/napi": "workspace:*"
+    "@xmdx/napi": "workspace:*",
+    "gray-matter": "^4.0.3"
+  },
+  "peerDependencies": {
+    "shiki": "^3.22.0",
+    "expressive-code": "^0.41.0",
+    "vite": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "shiki": { "optional": true },
+    "expressive-code": { "optional": true },
+    "vite": { "optional": true }
   },
   "devDependencies": {
+    "expressive-code": "^0.41.0",
     "miniflare": "^4.0.0",
-    "typescript": "^5.9.0"
+    "rollup": ">=4.0.0",
+    "shiki": "^3.22.0",
+    "typescript": "^5.9.0",
+    "vite": ">=5.0.0"
   }
 }

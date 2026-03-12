@@ -1,80 +1,12 @@
-/**
- * Shared constants for astro-xmdx
- * @module constants
- */
-
-/**
- * Virtual module prefix for Vite module resolution.
- * The null byte prefix ensures these are treated as virtual modules.
- */
-export const VIRTUAL_MODULE_PREFIX = '\0xmdx:';
-
-/**
- * File extension for compiled xmdx JSX output.
- */
-export const OUTPUT_EXTENSION = '.xmdx.jsx';
-
-/**
- * esbuild configuration for JSX transformation.
- * Used to transform JSX syntax into function calls compatible with Astro's runtime.
- * @deprecated Will be removed when Vite 8 becomes the minimum supported version.
- */
-export const ESBUILD_JSX_CONFIG = {
-  loader: 'jsx' as const,
-  jsx: 'transform' as const,
-  jsxFactory: '_jsx',
-  jsxFragment: '_Fragment',
-  target: 'es2020' as const,
-  minify: false,
-} as const;
-
-/**
- * OXC configuration for JSX transformation (Vite 8+).
- * Equivalent to ESBUILD_JSX_CONFIG but using OXC's option schema.
- * In Vite 8, esbuild.jsx='transform' maps to oxc.jsx={runtime:'classic'}.
- */
-export const OXC_JSX_CONFIG: Record<string, unknown> = {
-  lang: 'jsx',
-  jsx: {
-    runtime: 'classic',
-    pragma: '_jsx',
-    pragmaFrag: '_Fragment',
-  },
-  sourcemap: true,
-} as const;
-
-/**
- * Shiki syntax highlighting theme configuration.
- * Uses CSS variables for theming compatibility with Astro.
- */
-export const SHIKI_THEME = {
-  /** Theme name used by shiki */
-  name: 'astro-code',
-  /** CSS variable prefix for syntax highlighting colors */
-  variablePrefix: '--astro-code-',
-  /** CSS class name added to highlighted code blocks */
-  className: 'astro-code',
-} as const;
-
-/**
- * Default glob patterns to ignore when scanning for markdown files.
- */
-export const DEFAULT_IGNORE_PATTERNS = ['node_modules/**', 'dist/**'] as const;
-
-/**
- * CSS @layer order declaration for Starlight.
- * Injected as inline <style> in dev mode, Head.astro overlay in build.
- */
-export const STARLIGHT_LAYER_ORDER = '@layer starlight.base, starlight.reset, starlight.core, starlight.content, starlight.components, starlight.utils;';
-
-/**
- * Public specifier for ExpressiveCode collected CSS styles.
- * Used in generated import statements — does NOT include the \0 prefix.
- */
-export const EC_STYLES_MODULE_ID = 'xmdx:ec-styles.css';
-
-/**
- * Virtual module ID for ExpressiveCode collected CSS styles.
- * The \0-prefixed resolved ID used internally by Vite hooks.
- */
-export const EC_STYLES_VIRTUAL_ID = '\0xmdx:ec-styles.css';
+// Re-export from xmdx — canonical source moved to xmdx/constants
+export {
+  VIRTUAL_MODULE_PREFIX,
+  OUTPUT_EXTENSION,
+  ESBUILD_JSX_CONFIG,
+  OXC_JSX_CONFIG,
+  SHIKI_THEME,
+  DEFAULT_IGNORE_PATTERNS,
+  STARLIGHT_LAYER_ORDER,
+  EC_STYLES_MODULE_ID,
+  EC_STYLES_VIRTUAL_ID,
+} from 'xmdx/constants';
