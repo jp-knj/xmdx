@@ -7,7 +7,7 @@
 import { test, expect, describe } from 'bun:test';
 import { compile as compileMdx } from '@mdx-js/mdx';
 import remarkGfm from 'remark-gfm';
-import { loadXmdxBinding } from '../binding-loader.js';
+import { loadXmdxBinding } from '@xmdx/vite';
 import { injectHeadingIds, repairHeadings } from '../mdx-wrapper/heading-id-injector.js';
 
 describe('Rust post-processing on @mdx-js/mdx output', () => {

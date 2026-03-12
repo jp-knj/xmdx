@@ -8,7 +8,7 @@ import {
   stripExpressiveCodeImport,
   renderExpressiveCodeBlocks,
 } from './expressive-code.js';
-import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
+import type { ExpressiveCodeManager } from '@xmdx/vite';
 
 describe('decodeHtmlEntities', () => {
   test('returns value as-is when empty', () => {

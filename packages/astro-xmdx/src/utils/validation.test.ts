@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { stripHeadingsMeta } from './validation.js';
+import { stripHeadingsMeta } from 'xmdx/utils/validation';
 
 describe('stripHeadingsMeta', () => {
   test('returns code unchanged when no headings metadata', () => {
