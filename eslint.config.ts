@@ -12,7 +12,7 @@ export default defineConfig(
 
   // Test files: not in tsconfig, so disable type-checked rules entirely
   {
-    files: ['**/*.test.ts'],
+    files: ['**/*.test.ts', 'test/**/*.ts'],
     ...tseslint.configs.disableTypeChecked,
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,
