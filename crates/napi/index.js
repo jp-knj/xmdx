@@ -579,16 +579,21 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { XmdxCompiler, compileBatch, compileBatchToModule, compileIr, compileMdxBatch, createCompiler, FileInputType, hasPascalCaseTag, htmlEntitiesToJsx, ImportKind, parseBlocks, parseFrontmatter } = nativeBinding
+const { XmdxCompiler, compileBatch, compileBatchToModule, compileIr, compileMdxBatch, createCompiler, extractHeadings, FileInputType, hasPascalCaseTag, htmlEntitiesToJsx, ImportKind, parseBlocks, parseFrontmatter, rewriteDirectives, rewriteHeadingAutolinks, rewriteTaskListItems, stripCustomIds } = nativeBinding
 export { XmdxCompiler }
 export { compileBatch }
 export { compileBatchToModule }
 export { compileIr }
 export { compileMdxBatch }
 export { createCompiler }
+export { extractHeadings }
 export { FileInputType }
 export { hasPascalCaseTag }
 export { htmlEntitiesToJsx }
 export { ImportKind }
 export { parseBlocks }
 export { parseFrontmatter }
+export { rewriteDirectives }
+export { rewriteHeadingAutolinks }
+export { rewriteTaskListItems }
+export { stripCustomIds }

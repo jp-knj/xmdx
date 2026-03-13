@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { pipe, when } from './pipeline/pipe.js';
+import { pipe, when } from 'xmdx/pipeline';
 import type { TransformContext, TransformConfig } from './types.js';
 
 interface TestContext {

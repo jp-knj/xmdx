@@ -10,22 +10,31 @@ import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
-import { batchTransformJsx } from './jsx-transform.js';
-import { runParallelJsxTransform } from './jsx-worker-pool.js';
-import { DiskCache } from './cache/disk-cache.js';
+import {
+  batchTransformJsx,
+  runParallelJsxTransform,
+  DiskCache,
+  normalizeStarlightComponents,
+  debugLog,
+  debugTime,
+  debugTimeEnd,
+} from '@xmdx/vite';
+import type {
+  ShikiManager,
+  ExpressiveCodeManager,
+  EsbuildCacheEntry,
+  PersistentCache,
+  XmdxBinding,
+  XmdxCompiler,
+  XmdxPluginOptions,
+} from '@xmdx/vite';
+import type { Transform } from 'xmdx/pipeline';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
-import { normalizeStarlightComponents } from './normalize-config.js';
-import type { XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
 import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
-import type { Transform } from '../pipeline/types.js';
-import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { ShikiManager } from './highlighting/shiki-manager.js';
-import type { ExpressiveCodeManager } from './highlighting/expressive-code-manager.js';
+import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
 import { asSourceMap, asBinding, parseJsonRecord } from '../ops/type-narrowing.js';
-import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
+import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
 import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
-import type { EsbuildCacheEntry, PersistentCache } from './cache/types.js';
-import { debugLog, debugTime, debugTimeEnd } from './load-profiler.js';
 
 const require = createRequire(import.meta.url);
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { pipe, when, tap } from './pipe.js';
+import { pipe, when, tap } from 'xmdx/pipeline';
 
 describe('pipe', () => {
   it('should compose sync functions', async () => {

@@ -6,7 +6,7 @@
 import path from 'node:path';
 import type { ComponentLibrary, ComponentDefinition } from 'xmdx/registry';
 import { isRecord } from '../ops/type-narrowing.js';
-import { normalizePath } from './paths.js';
+import { normalizePath } from 'xmdx/utils/paths';
 
 /**
  * Result of finding the Starlight integration in an Astro config.
