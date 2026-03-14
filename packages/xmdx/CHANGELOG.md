@@ -1,5 +1,15 @@
 # xmdx
 
+## 0.0.9
+
+### Patch Changes
+
+- 2c20fd4: fix: fence closing now follows CommonMark rules for indented openers; Shiki fallback runs when ExpressiveCode peer is unavailable
+- 2c20fd4: fix: preserve valid href output for HTML anchors and component props in generated xmdx JSX
+- 2c20fd4: Restore expressive-code as direct dependency, add astro-expressive-code runtime dependency, and re-initialize Shiki after enabling fallback in batch compilation path
+- 2c20fd4: fix: update Shiki integration, restore ExpressiveCode pre-render rewrite path, and reject fence closers with info strings
+  - @xmdx/napi@0.0.8
+
 ## 0.0.9-next.3
 
 ### Patch Changes
