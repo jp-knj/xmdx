@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { stripCodeFences, detectProblematicMdxPatterns } from './mdx-detection.js';
+import { stripCodeFences, detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
 import { STARLIGHT_DEFAULT_ALLOW_IMPORTS } from '../presets/index.js';
 
 describe('stripCodeFences', () => {

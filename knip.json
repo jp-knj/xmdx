@@ -5,7 +5,12 @@
     ".": {},
     "packages/xmdx": {
       "project": ["src/**/*.ts"],
-      "ignoreBinaries": ["wasm-bindgen"]
+      "ignoreBinaries": ["wasm-bindgen"],
+      "ignoreDependencies": ["shiki", "expressive-code"]
+    },
+    "packages/vite": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["shiki", "expressive-code"]
     },
     "packages/astro-xmdx": {
       "project": ["src/**/*.ts"],
@@ -16,8 +21,7 @@
     },
     "crates/napi": {
       "project": ["**/*.{js,ts}"],
-      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"],
-      "ignoreBinaries": ["artifacts"]
+      "ignoreDependencies": ["@xmdx/napi-.*", "prettier"]
     }
   },
   "ignoreWorkspaces": ["examples/*"]

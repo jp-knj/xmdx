@@ -8,7 +8,7 @@ import {
   stripExpressiveCodeImport,
   renderExpressiveCodeBlocks,
 } from './expressive-code.js';
-import type { ExpressiveCodeManager } from '../vite-plugin/highlighting/expressive-code-manager.js';
+import type { ExpressiveCodeManager } from '@xmdx/vite';
 
 describe('decodeHtmlEntities', () => {
   test('returns value as-is when empty', () => {
@@ -458,7 +458,7 @@ describe('renderExpressiveCodeBlocks', () => {
   test('full flow: inject import → pre-render all → strip dead import', async () => {
     const config = { component: 'Code', moduleId: 'astro-expressive-code/components' };
     // Simulate transform pipeline: start with code that has a Code component + import
-    let code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"console.log('hi')"} lang="js" __xmdx />`;
+    const code = `import { Code } from 'astro-expressive-code/components';\n\n<Code code={"console.log('hi')"} lang="js" __xmdx />`;
     const ecm = mockEcManager();
     // Pre-render all Code components
     const result = await renderExpressiveCodeBlocks(code, ecm);

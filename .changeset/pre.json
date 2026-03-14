@@ -2,8 +2,20 @@
   "mode": "pre",
   "tag": "next",
   "initialVersions": {
-    "xmdx": "0.0.4",
-    "astro-xmdx": "0.0.5",
-    "@xmdx/astro-loader": "0.0.1"
-  }
+    "xmdx": "0.0.8",
+    "astro-xmdx": "0.0.9",
+    "@xmdx/astro-loader": "0.0.1",
+    "@xmdx/napi": "0.0.7"
+  },
+  "changesets": [
+    "bump-napi-dependency",
+    "fix-fence-indent-tracking",
+    "fix-href-xmdx-output",
+    "fix-mdx-heading-extraction",
+    "fix-vite-module-runner",
+    "heading-id-priority",
+    "pnpm-strict-resolve",
+    "reduce-bundle-size",
+    "shiki-expressive-code-fixes"
+  ]
 }

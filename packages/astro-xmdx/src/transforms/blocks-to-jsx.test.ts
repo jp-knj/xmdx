@@ -135,6 +135,17 @@ describe('blocksToJsx', () => {
       expect(result).toContain('set:html=');
     });
 
+    it('should embed top-level HTML blocks directly when they contain components', () => {
+      const blocks: Block[] = [
+        { type: 'html', content: '<p><Card href={"https://example.com?a=1&b=2"}>docs</Card></p>' },
+      ];
+
+      const result = blocksToJsx(blocks);
+
+      expect(result).toContain('<p><Card href={"https://example.com?a=1&b=2"}>docs</Card></p>');
+      expect(result).not.toContain('set:html={"<p><Card');
+    });
+
     it('should include runtime imports', () => {
       const blocks: Block[] = [];
 

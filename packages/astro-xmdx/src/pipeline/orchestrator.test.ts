@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { createPipeline, createCustomPipeline, createContext } from './orchestrator.js';
-import type { TransformContext } from './types.js';
+import { createPipeline, createCustomPipeline, createContext } from 'xmdx/pipeline';
+import type { TransformContext } from 'xmdx/pipeline';
 
 describe('createContext', () => {
   it('should create context with default values', () => {

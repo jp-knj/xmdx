@@ -8,24 +8,19 @@ import type { ResolvedConfig } from 'vite';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import { blocksToJsx } from '../transforms/blocks-to-jsx.js';
-import { stripFrontmatter } from '../utils/frontmatter.js';
-import { detectProblematicMdxPatterns } from '../utils/mdx-detection.js';
-import { extractImportStatements } from '../utils/imports.js';
-import { deriveFileOptions, stripQuery } from '../utils/paths.js';
+import { stripFrontmatter } from 'xmdx/utils/frontmatter';
+import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
+import { extractImportStatements } from 'xmdx/utils/imports';
+import { deriveFileOptions, stripQuery } from 'xmdx/utils/paths';
 import { OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
-import { transformJsx } from './jsx-transform.js';
+import { transformJsx, normalizeStarlightComponents, LOAD_PROFILE, IS_MDAST } from '@xmdx/vite';
+import type { ShikiManager, ExpressiveCodeManager, EsbuildCacheEntry, LoadProfiler, CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from '@xmdx/vite';
+import type { Transform } from 'xmdx/pipeline';
 import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '../types.js';
-import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { Transform } from '../pipeline/types.js';
-import { IS_MDAST } from './binding-loader.js';
-import type { CachedMdxResult, CachedModuleResult, EsbuildCacheEntry } from './cache/types.js';
+import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
 import { compileFallbackModule } from './fallback/compile.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
-import { normalizeStarlightComponents } from './normalize-config.js';
-import type { LoadProfiler } from './load-profiler.js';
-import { LOAD_PROFILE } from './load-profiler.js';
-import type { ShikiManager } from './highlighting/shiki-manager.js';
-import type { CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from './types.js';
+import { parseJsonRecord, asSourceMap, toError } from '../ops/type-narrowing.js';
 
 interface LoadState {
   totalProcessingTimeMs: number;
@@ -36,10 +31,6 @@ export interface LoadHandlerDeps {
   fallbackFiles: Set<string>;
   fallbackReasons: Map<string, string>;
   esbuildCache: Map<string, EsbuildCacheEntry>;
-  moduleCompilationCache: Map<string, CachedModuleResult>;
-  mdxCompilationCache: Map<string, CachedMdxResult>;
-  originalSourceCache: Map<string, string>;
-  processedSourceCache: Map<string, string>;
   processedFiles: Set<string>;
   registry: Registry;
   hasStarlightConfigured: boolean;
@@ -47,9 +38,9 @@ export interface LoadHandlerDeps {
   mdxOptions: MdxImportHandlingOptions | undefined;
   starlightComponents: XmdxPluginOptions['starlightComponents'];
   expressiveCode: ExpressiveCodeConfig | null;
+  ecManager: ExpressiveCodeManager;
   shikiManager: ShikiManager;
   transformPipeline: Transform;
-  parseFrontmatterCached: (json: string | undefined, filename: string) => Record<string, unknown>;
   compilerOptions: Record<string, unknown>;
   getCompiler: () => Promise<XmdxCompiler>;
   loadBinding: () => Promise<XmdxBinding>;
@@ -103,6 +94,13 @@ async function runPipelineAndEsbuild(
   deps: LoadHandlerDeps
 ): Promise<PipelineResult> {
   const normalizedStarlightComponents = normalizeStarlightComponents(deps.starlightComponents ?? false);
+  const expressiveCodeCanRewrite = deps.expressiveCode
+    ? await deps.ecManager.canRewrite(deps.expressiveCode.moduleId, deps.resolvedConfig?.root)
+    : false;
+  // Fallback: enable Shiki only when ExpressiveCode cannot safely rewrite/pre-render.
+  if (deps.expressiveCode && !expressiveCodeCanRewrite) {
+    deps.shikiManager.enable();
+  }
   const ctx: TransformContext = {
     code: input.code,
     source: input.source,
@@ -112,6 +110,7 @@ async function runPipelineAndEsbuild(
     registry: deps.registry,
     config: {
       expressiveCode: deps.expressiveCode,
+      expressiveCodeCanRewrite,
       starlightComponents: normalizedStarlightComponents,
       shiki: await deps.shikiManager.getFor(input.code),
     },
@@ -146,131 +145,6 @@ export function loadFromEsbuildCache(
   return cachedEsbuildResult;
 }
 
-function getSourceForHooks(
-  filename: string,
-  cached: { originalSource?: string; processedSource?: string },
-  originalSourceCache: Map<string, string>,
-  processedSourceCache: Map<string, string>
-): string {
-  return (
-    originalSourceCache.get(filename) ??
-    cached.originalSource ??
-    processedSourceCache.get(filename) ??
-    cached.processedSource ??
-    ''
-  );
-}
-
-export async function loadCachedModule(
-  id: string,
-  filename: string,
-  cachedModule: CachedModuleResult,
-  loadStart: number,
-  deps: LoadHandlerDeps
-): Promise<PipelineResult> {
-  const startTime = performance.now();
-  const frontmatter = deps.parseFrontmatterCached(cachedModule.frontmatterJson, filename);
-  const headings = cachedModule.headings || [];
-
-  const result: CompileResult = {
-    code: cachedModule.code,
-    map: null,
-    frontmatter_json: cachedModule.frontmatterJson,
-    headings,
-    imports: [],
-  };
-
-  deps.state.totalProcessingTimeMs += performance.now() - startTime;
-  deps.processedFiles.add(filename);
-
-  const sourceForHooks =
-    getSourceForHooks(filename, cachedModule, deps.originalSourceCache, deps.processedSourceCache) ||
-    (await readFile(filename, 'utf8'));
-
-  const final = await runPipelineAndEsbuild(
-    {
-      id,
-      filename,
-      code: result.code,
-      source: sourceForHooks,
-      frontmatter,
-      headings,
-    },
-    deps
-  );
-
-  if (deps.loadProfiler) {
-    const elapsed = performance.now() - loadStart;
-    deps.loadProfiler.cacheHits++;
-    deps.loadProfiler.recordFile(filename, elapsed);
-  }
-
-  return {
-    code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
-  };
-}
-
-export async function loadCachedMdx(
-  id: string,
-  filename: string,
-  cachedMdx: CachedMdxResult,
-  loadStart: number,
-  deps: LoadHandlerDeps
-): Promise<PipelineResult> {
-  const startTime = performance.now();
-  const frontmatter = deps.parseFrontmatterCached(cachedMdx.frontmatterJson, filename);
-  const headings = cachedMdx.headings || [];
-
-  const jsxCode = wrapMdxModule(
-    cachedMdx.code,
-    {
-      frontmatter,
-      headings,
-      registry: deps.registry,
-    },
-    filename
-  );
-
-  const result: CompileResult = {
-    code: jsxCode,
-    map: null,
-    frontmatter_json: cachedMdx.frontmatterJson,
-    headings,
-    imports: [],
-  };
-
-  deps.state.totalProcessingTimeMs += performance.now() - startTime;
-  deps.processedFiles.add(filename);
-
-  const sourceForHooks =
-    getSourceForHooks(filename, cachedMdx, deps.originalSourceCache, deps.processedSourceCache) ||
-    (await readFile(filename, 'utf8'));
-
-  const final = await runPipelineAndEsbuild(
-    {
-      id,
-      filename,
-      code: result.code,
-      source: sourceForHooks,
-      frontmatter,
-      headings,
-    },
-    deps
-  );
-
-  if (deps.loadProfiler) {
-    const elapsed = performance.now() - loadStart;
-    deps.loadProfiler.cacheHits++;
-    deps.loadProfiler.recordFile(filename, elapsed);
-  }
-
-  return {
-    code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
-  };
-}
-
 export async function loadCacheMiss(
   id: string,
   filename: string,
@@ -281,13 +155,11 @@ export async function loadCacheMiss(
 
   const currentCompiler = await deps.getCompiler();
   const source = await readFile(filename, 'utf8');
-  deps.originalSourceCache.set(filename, source);
 
   let processedSource = source;
   for (const preprocessHook of deps.hooks.preprocess) {
     processedSource = preprocessHook(processedSource, filename);
   }
-  deps.processedSourceCache.set(filename, processedSource);
 
   const detection = detectProblematicMdxPatterns(processedSource, deps.mdxOptions, filename);
   if (detection.hasProblematicPatterns) {
@@ -323,7 +195,7 @@ export async function loadCacheMiss(
 
     if (mdxResult.result.frontmatterJson) {
       try {
-        frontmatter = JSON.parse(mdxResult.result.frontmatterJson) as Record<string, unknown>;
+        frontmatter = parseJsonRecord(mdxResult.result.frontmatterJson);
       } catch {
         frontmatter = {};
       }
@@ -370,7 +242,7 @@ export async function loadCacheMiss(
     result = currentCompiler.compile(processedSource, filename, fileOptions);
     if (result.frontmatter_json) {
       try {
-        frontmatter = JSON.parse(result.frontmatter_json) as Record<string, unknown>;
+        frontmatter = parseJsonRecord(result.frontmatter_json);
       } catch {
         frontmatter = {};
       }
@@ -419,7 +291,7 @@ export async function loadCacheMiss(
 
   return {
     code: final.code,
-    map: final.map ?? (result.map as SourceMapInput | undefined) ?? undefined,
+    map: final.map ?? asSourceMap(result.map) ?? undefined,
   };
 }
 
@@ -429,7 +301,7 @@ export async function loadWithFallback(
   error: unknown,
   deps: LoadHandlerDeps
 ): Promise<PipelineResult> {
-  const message = (error as Error)?.message || String(error);
+  const message = toError(error).message;
   deps.fallbackFiles.add(filename);
   deps.fallbackReasons.set(filename, message);
   deps.warn(`[xmdx] Falling back to @mdx-js/mdx for ${filename}: ${message}`);
@@ -475,21 +347,9 @@ export async function handleLoad(
       return loadFromEsbuildCache(filename, cachedEsbuildResult, loadStart, deps);
     }
 
-    const cachedModule = deps.moduleCompilationCache.get(filename);
-    const cachedMdx = deps.mdxCompilationCache.get(filename);
-    const isMdx = filename.endsWith('.mdx');
-
-    if (cachedModule && !isMdx) {
-      return loadCachedModule(id, filename, cachedModule, loadStart, deps);
-    }
-
-    if (cachedMdx && isMdx) {
-      return loadCachedMdx(id, filename, cachedMdx, loadStart, deps);
-    }
-
     return loadCacheMiss(id, filename, loadStart, deps);
   } catch (error) {
-    const message = (error as Error)?.message || String(error);
+    const message = toError(error).message;
     if (shouldUseFallback(message)) {
       return loadWithFallback(id, filename, error, deps);
     }

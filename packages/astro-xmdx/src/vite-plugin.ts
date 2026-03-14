@@ -7,17 +7,31 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
-import { DiskCache } from './vite-plugin/cache/disk-cache.js';
+import {
+  DiskCache,
+  collectHooks,
+  resolveLibraries,
+  ShikiManager,
+  ExpressiveCodeManager,
+  createLoadProfiler,
+  loadXmdxBinding,
+  ENABLE_SHIKI,
+} from '@xmdx/vite';
+import type {
+  EsbuildCacheEntry,
+  PersistentCache,
+  XmdxCompiler,
+  XmdxPluginOptions,
+} from '@xmdx/vite';
+import type { TransformContext } from 'xmdx/pipeline';
 import {
   starlightLibrary,
 } from 'xmdx/registry';
 import { createPipeline } from './pipeline/index.js';
-import { resolveExpressiveCodeConfig } from './utils/config.js';
-import { ExpressiveCodeManager } from './vite-plugin/highlighting/expressive-code-manager.js';
+import { resolveExpressiveCodeConfig } from 'xmdx/utils/config';
 import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
-import type { TransformContext } from './pipeline/types.js';
-import { detectProblematicMdxPatterns } from './utils/mdx-detection.js';
-import { stripQuery, shouldCompile } from './utils/paths.js';
+import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
+import { stripQuery, shouldCompile } from 'xmdx/utils/paths';
 import {
   VIRTUAL_MODULE_PREFIX,
   OUTPUT_EXTENSION,
@@ -25,28 +39,12 @@ import {
   EC_STYLES_MODULE_ID,
   EC_STYLES_VIRTUAL_ID,
 } from './constants.js';
-// Import from extracted vite-plugin modules
-import type {
-  XmdxBinding,
-  XmdxCompiler,
-  XmdxPluginOptions,
-} from './vite-plugin/types.js';
-import { resolveLibraries } from './vite-plugin/resolve-libraries.js';
-import { collectHooks } from './vite-plugin/collect-hooks.js';
-import { loadXmdxBinding, ENABLE_SHIKI } from './vite-plugin/binding-loader.js';
-import { ShikiManager } from './vite-plugin/highlighting/shiki-manager.js';
-import { createLoadProfiler } from './vite-plugin/load-profiler.js';
-import type {
-  CachedMdxResult,
-  CachedModuleResult,
-  EsbuildCacheEntry,
-  PersistentCache,
-} from './vite-plugin/cache/types.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
+import { asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
 
 // Preserve public API — resolveLibraries was exported from this module
-export { resolveLibraries } from './vite-plugin/resolve-libraries.js';
+export { resolveLibraries } from '@xmdx/vite';
 
 /**
  * Creates the Xmdx Vite plugin that intercepts `.md`/`.mdx` files
@@ -57,50 +55,17 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
   let resolvedConfig: ResolvedConfig | undefined;
   const loadProfiler = createLoadProfiler();
   const sourceLookup = new Map<string, string>();
-  const originalSourceCache = new Map<string, string>();   // Raw markdown before preprocess hooks
-  const processedSourceCache = new Map<string, string>();  // Preprocessed markdown fed to compiler
-  const moduleCompilationCache = new Map<string, CachedModuleResult>();  // MD files compiled to modules via Rust
-  const mdxCompilationCache = new Map<string, CachedMdxResult>();        // MDX files compiled via mdxjs-rs
-  const esbuildCache = new Map<string, EsbuildCacheEntry>();  // Pre-compiled esbuild results
+  const esbuildCache = new Map<string, EsbuildCacheEntry>();
   const fallbackFiles = new Set<string>();
-
-  // PERF: Cache parsed frontmatter to avoid redundant JSON.parse calls
-  const frontmatterCache = new Map<string, Record<string, unknown>>();
-
-  /**
-   * Parse frontmatter JSON with caching.
-   * Returns cached result if available, otherwise parses and caches.
-   */
-  function parseFrontmatterCached(json: string | undefined, filename: string): Record<string, unknown> {
-    if (!json) return {};
-
-    // Include JSON content in cache key to invalidate on content change
-    const cacheKey = `${filename}:${json}`;
-    const cached = frontmatterCache.get(cacheKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    try {
-      const parsed = JSON.parse(json) as Record<string, unknown>;
-      frontmatterCache.set(cacheKey, parsed);
-      return parsed;
-    } catch {
-      frontmatterCache.set(cacheKey, {});
-      return {};
-    }
-  }
 
   // Persistent cache for SSR/Client 2-pass builds
   // These survive between buildStart calls, avoiding redundant recompilation
-  const buildState = {
+  const buildState: { buildPassCount: number; diskCache: DiskCache | null } = {
     buildPassCount: 0,
-    diskCache: null as DiskCache | null,
+    diskCache: null,
   };
   const persistentCache: PersistentCache = {
     esbuild: new Map<string, EsbuildCacheEntry>(),
-    moduleCompilation: new Map<string, CachedModuleResult>(),
-    mdxCompilation: new Map<string, CachedMdxResult>(),
     fallbackFiles: new Set<string>(),
     fallbackReasons: new Map<string, string>(),
   };
@@ -160,6 +125,11 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
     value && value.startsWith(VIRTUAL_MODULE_PREFIX)
       ? value.slice(VIRTUAL_MODULE_PREFIX.length)
       : value;
+  const toVirtualId = (resolvedId: string): string => {
+    const virtualId = `${VIRTUAL_MODULE_PREFIX}${resolvedId}${OUTPUT_EXTENSION}`;
+    sourceLookup.set(virtualId, resolvedId);
+    return virtualId;
+  };
 
   // Enable Shiki when:
   // 1. XMDX_SHIKI=1 env var is set, OR
@@ -215,24 +185,24 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       loadProfiler?.setRoot(config.root);
 
       // Vite 8+: use oxc config; Vite 7 and below: use esbuild config
-      const configAny = config as Record<string, unknown>;
-      if ('oxc' in configAny && configAny.oxc !== false) {
+      const mutableConfig = asMutableViteConfig(config);
+      if ('oxc' in mutableConfig && mutableConfig.oxc !== false) {
         // Vite 8+ with OXC support
-        const oxcConfig = (configAny.oxc ?? {}) as Record<string, unknown>;
+        const oxcConfig = asMutableConfig(mutableConfig.oxc ?? {});
         if (oxcConfig.jsx == null) {
           oxcConfig.jsx = {
             runtime: 'automatic',
             importSource: 'astro',
           };
         }
-        configAny.oxc = oxcConfig;
+        mutableConfig.oxc = oxcConfig;
       } else if (config.esbuild == null) {
-        (config as { esbuild: object }).esbuild = {
+        asMutableConfig(config).esbuild = {
           jsx: 'automatic',
           jsxImportSource: 'astro',
         };
       } else if (config.esbuild !== false) {
-        const esbuildConfig = config.esbuild as Record<string, unknown>;
+        const esbuildConfig = asMutableConfig(config.esbuild);
         if (esbuildConfig.jsx == null) {
           esbuildConfig.jsx = 'automatic';
         }
@@ -241,21 +211,21 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
       }
       // Ensure native binding is treated as external to avoid Vite SSR runner involvement
-      const optimizeDeps = (config as Record<string, any>).optimizeDeps ?? {};
+      const optimizeDeps = mutableConfig.optimizeDeps ?? {};
       const exclude: string[] = optimizeDeps.exclude ?? [];
       if (!exclude.includes('@xmdx/napi')) {
         exclude.push('@xmdx/napi');
       }
       optimizeDeps.exclude = exclude;
-      (config as Record<string, any>).optimizeDeps = optimizeDeps;
+      mutableConfig.optimizeDeps = optimizeDeps;
 
-      const ssr = (config as Record<string, any>).ssr ?? {};
+      const ssr = mutableConfig.ssr ?? {};
       const ssrExternal: string[] = ssr.external ?? [];
       if (!ssrExternal.includes('@xmdx/napi')) {
         ssrExternal.push('@xmdx/napi');
       }
       ssr.external = ssrExternal;
-      (config as Record<string, any>).ssr = ssr;
+      mutableConfig.ssr = ssr;
       // Note: Binding/compiler initialization deferred to buildStart/load hooks
       // to avoid Vite module runner timing issues with async imports
     },
@@ -280,10 +250,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         state: buildState,
         diskCacheEnabled,
         persistentCache,
-        originalSourceCache,
-        processedSourceCache,
-        moduleCompilationCache,
-        mdxCompilationCache,
         esbuildCache,
         fallbackFiles,
         fallbackReasons,
@@ -296,7 +262,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         shikiManager,
         ecManager,
         starlightComponents,
-        parseFrontmatterCached,
         transformPipeline,
         expressiveCode,
         registry,
@@ -313,13 +278,26 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
       const normalizedSource = unwrapVirtual(sourceId) ?? sourceId;
       const cleanId = stripQuery(normalizedSource);
       if (!include(cleanId)) {
-        if (
-          importer?.startsWith(VIRTUAL_MODULE_PREFIX) &&
-          normalizedImporter &&
-          !path.isAbsolute(sourceId) &&
-          sourceId.startsWith('.')
-        ) {
-          return path.resolve(path.dirname(normalizedImporter), sourceId);
+        if (importer?.startsWith(VIRTUAL_MODULE_PREFIX) && normalizedImporter) {
+          if (!path.isAbsolute(sourceId) && sourceId.startsWith('.')) {
+            const resolvedId = path.resolve(path.dirname(normalizedImporter), sourceId);
+            return include(resolvedId) ? toVirtualId(resolvedId) : resolvedId;
+          }
+          // Bare specifiers from virtual modules should resolve exactly as they would
+          // from the consumer app. Do not fall back to astro-xmdx's private dependency tree.
+          {
+            const resolved = await this.resolve(sourceId, normalizedImporter, {
+              skipSelf: true,
+            });
+            if (resolved?.id) {
+              const resolvedId = stripQuery(unwrapVirtual(resolved.id) ?? resolved.id);
+              if (include(resolvedId)) {
+                return toVirtualId(resolvedId);
+              }
+              return resolved;
+            }
+            return null;
+          }
         }
         return null;
       }
@@ -364,9 +342,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         }
       }
 
-      const virtualId = `${VIRTUAL_MODULE_PREFIX}${resolvedId}${OUTPUT_EXTENSION}`;
-      sourceLookup.set(virtualId, resolvedId);
-      return virtualId;
+      return toVirtualId(resolvedId);
     },
 
     async load(id) {
@@ -378,10 +354,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         fallbackFiles,
         fallbackReasons,
         esbuildCache,
-        moduleCompilationCache,
-        mdxCompilationCache,
-        originalSourceCache,
-        processedSourceCache,
         processedFiles,
         registry,
         hasStarlightConfigured,
@@ -389,9 +361,9 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         mdxOptions,
         starlightComponents,
         expressiveCode,
+        ecManager,
         shikiManager,
         transformPipeline,
-        parseFrontmatterCached,
         compilerOptions,
         getCompiler,
         loadBinding: loadXmdxBinding,
@@ -401,14 +373,14 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         warn: this.warn.bind(this),
         addWatchFile: this.addWatchFile.bind(this),
         invalidateModule: (moduleId: string) => {
-          const config = resolvedConfig as unknown as {
+          const config = asBinding<{
             server?: {
               moduleGraph?: {
                 getModuleById: (id: string) => object | null;
                 invalidateModule: (mod: object) => void;
               };
             };
-          };
+          }>(resolvedConfig);
           if (config?.server?.moduleGraph) {
             const mod = config.server.moduleGraph.getModuleById(moduleId);
             if (mod) {
@@ -443,7 +415,7 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
             : '0%',
         preValidationSkips: {
           count: 0,
-          files: [] as string[],
+          files: [] satisfies string[],
         },
         runtimeFallbacks: {
           count: fallbackFiles.size,

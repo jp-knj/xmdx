@@ -198,7 +198,7 @@ pub fn compile_mdx(
 ///
 /// For loose lists (where items are wrapped in `<p>`), it replaces the `<p>` wrapper
 /// with the `<label>` wrapper and adds `<span>` around the text content.
-fn rewrite_task_list_items(code: &str) -> String {
+pub fn rewrite_task_list_items(code: &str) -> String {
     // Marker that identifies task list item children arrays
     let marker = "\"task-list-item\"";
     if !code.contains(marker) {
@@ -962,29 +962,32 @@ fn escape_html_for_js(s: &str) -> String {
 /// MDX treats `{...}` as JSX expressions, so we need to remove `{#id}` from
 /// heading lines before passing to mdxjs-rs. The IDs have already been extracted
 /// by `extract_headings_from_source`.
-fn strip_custom_ids_from_headings(source: &str) -> String {
+pub fn strip_custom_ids_from_headings(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
-    let mut fence_state: Option<(char, usize)> = None;
+    let mut fence_state: Option<(char, usize, usize)> = None; // (marker, len, indent)
 
     for line in source.lines() {
         let trimmed = line.trim();
 
-        // Track fenced code blocks — parse_fence_marker rejects lines with
-        // 4+ leading spaces (indented code blocks per CommonMark).
-        if let Some((marker, len)) = parse_fence_marker(line) {
-            if let Some((open_marker, open_len)) = fence_state {
-                if marker == open_marker && len >= open_len {
+        // Track fenced code blocks
+        if let Some((indent, marker, len)) = parse_fence_marker(line) {
+            if let Some((open_marker, open_len, open_indent)) = fence_state {
+                if marker == open_marker
+                    && len >= open_len
+                    && fence_closes(open_indent, indent)
+                    && fence_marker_is_valid_closer(line)
+                {
                     fence_state = None;
                 }
             } else {
-                fence_state = Some((marker, len));
+                fence_state = Some((marker, len, indent));
             }
             result.push_str(line);
             result.push('\n');
             continue;
         }
 
-        if fence_state.is_some() || is_indented_code_block(line) || !trimmed.starts_with('#') {
+        if fence_state.is_some() || !trimmed.starts_with('#') {
             result.push_str(line);
             result.push('\n');
             continue;
@@ -1043,39 +1046,40 @@ pub fn is_indented_code_block(line: &str) -> bool {
 ///
 /// This function parses the source looking for ATX-style headings (`# Heading`)
 /// and extracts their depth, text, and generates slugs.
-fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
+pub fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
     let mut headings = Vec::new();
-    let mut fence_state: Option<(char, usize)> = None; // (marker_char, marker_len)
+    let mut fence_state: Option<(char, usize, usize)> = None; // (marker_char, marker_len, indent)
     let mut slugger = Slugger::new();
 
     for line in source.lines() {
         let trimmed = line.trim();
 
-        // Track fenced code blocks — parse_fence_marker rejects lines with
-        // 4+ leading spaces (indented code blocks per CommonMark).
-        if let Some((marker, len)) = parse_fence_marker(line) {
-            if let Some((open_marker, open_len)) = fence_state {
+        // Track fenced code blocks
+        if let Some((indent, marker, len)) = parse_fence_marker(line) {
+            if let Some((open_marker, open_len, open_indent)) = fence_state {
                 // Inside a code block - check if this closes it
-                if marker == open_marker && len >= open_len {
+                // Only close if same marker, enough length, and the closer uses a
+                // valid indentation for the opener style (CommonMark top-level or
+                // MDX-indented fences inside JSX/components).
+                if marker == open_marker
+                    && len >= open_len
+                    && fence_closes(open_indent, indent)
+                    && fence_marker_is_valid_closer(line)
+                {
                     fence_state = None;
                 }
-                // Note: if markers don't match, we stay inside the code block
+                // Note: if markers don't match or indent is deeper, we stay inside
             } else {
                 // Not in a code block - this opens one
-                fence_state = Some((marker, len));
+                fence_state = Some((marker, len, indent));
             }
             continue;
         }
 
-        // Inside a fenced code block or indented code block - skip
-        if fence_state.is_some() || is_indented_code_block(line) {
-            continue;
-        }
-
-        // Skip indented code blocks (4+ spaces or tab) before parsing
-        // Per CommonMark, these are code blocks and should not be parsed as headings
-        // Note: This only applies to lines that are NOT fence markers (already handled above)
-        if is_indented_code_block(line) {
+        // Inside a fenced code block - skip
+        // Note: indented code blocks are NOT checked here because MDX disables
+        // them (content inside JSX components is commonly indented 4+ spaces).
+        if fence_state.is_some() {
             continue;
         }
 
@@ -1099,39 +1103,51 @@ fn extract_headings_from_source(source: &str) -> Vec<MdxHeading> {
 }
 
 /// Parses a fence marker from an *original* (non-trimmed) line, returning
-/// `(marker_char, marker_len)` if valid per CommonMark rules:
-///   - Up to 3 spaces of leading indentation are allowed.
-///   - 4+ spaces makes the line an indented code block, not a fence.
-///   - The marker itself must be 3+ consecutive backticks or tildes.
-fn parse_fence_marker(line: &str) -> Option<(char, usize)> {
-    let mut chars = line.chars();
-    let mut leading_spaces = 0;
-
-    // Skip up to 3 leading spaces
-    loop {
-        match chars.clone().next() {
-            Some(' ') if leading_spaces < 3 => {
-                chars.next();
-                leading_spaces += 1;
-            }
-            Some('\t') => return None, // tab at start → indented code
+/// `(indent, marker_char, marker_len)` if valid.
+///
+/// MDX allows fences at any indentation (content inside JSX components like
+/// `<TabItem>` is commonly indented 4+ spaces). We track the indent level so
+/// the caller can prevent a deeper-indented line from closing a shallower fence.
+fn parse_fence_marker(line: &str) -> Option<(usize, char, usize)> {
+    let bytes = line.as_bytes();
+    let mut indent = 0;
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b' ' => indent += 1,
+            b'\t' => indent = (indent / 4 + 1) * 4, // next tab stop
             _ => break,
         }
+        pos += 1;
     }
-
-    // 4+ leading spaces would have been caught by is_indented_code_block,
-    // but guard here too for safety.
-    let first = chars.next()?;
+    let trimmed = &line[pos..];
+    let first = trimmed.chars().next()?;
     if first != '`' && first != '~' {
         return None;
     }
 
-    let count = 1 + chars.take_while(|&c| c == first).count();
+    let count = trimmed.chars().take_while(|&c| c == first).count();
     if count >= 3 {
-        Some((first, count))
+        Some((indent, first, count))
     } else {
         None
     }
+}
+
+fn fence_closes(open_indent: usize, close_indent: usize) -> bool {
+    close_indent <= 3 || close_indent == open_indent
+}
+
+/// A closing fence must have only whitespace after the markers.
+/// Mirrors `code_fence.rs::is_closing_fence` logic.
+fn fence_marker_is_valid_closer(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let first = match trimmed.chars().next() {
+        Some(c) if c == '`' || c == '~' => c,
+        _ => return false,
+    };
+    let after_markers = trimmed.trim_start_matches(first);
+    after_markers.chars().all(|c| c.is_whitespace())
 }
 
 struct AtxHeading {
@@ -1634,7 +1650,7 @@ fn extract_text_from_single_jsx_call(call: &str) -> Option<String> {
 /// For each heading found, matches it against the `headings` array by content
 /// (depth + text), falling back to sequential index when text extraction fails.
 /// This correctly skips setext headings that aren't in the extracted headings list.
-fn rewrite_heading_autolinks_in_jsx(code: &str, headings: &[MdxHeading]) -> String {
+pub fn rewrite_heading_autolinks_in_jsx(code: &str, headings: &[MdxHeading]) -> String {
     if headings.is_empty() {
         return code.to_string();
     }
@@ -2198,34 +2214,40 @@ key: "unclosed
     }
 
     #[test]
-    fn test_indented_code_blocks() {
-        // Lines with 4+ spaces or tab at start are indented code blocks per CommonMark
-        // They should NOT be treated as headings
+    fn test_indented_headings_extracted_in_mdx() {
+        // MDX disables indented code blocks, so headings with 4+ spaces
+        // of indentation (common inside JSX components) should be extracted.
         let source = r#"
 # Real Heading
 
 Some text here.
 
-    # Not a heading (4 spaces)
+    # Indented heading (4 spaces, valid in MDX)
 
 More text.
 
-	# Not a heading (tab)
+	# Tab-indented heading (valid in MDX)
 
 ## Another Real Heading
 
 - List item
-    # Not a heading (inside list)
+    # Indented heading inside list
 
 ### Final Heading
 "#;
 
         let headings = extract_headings_from_source(source);
 
-        assert_eq!(headings.len(), 3);
+        assert_eq!(headings.len(), 6);
         assert_eq!(headings[0].text, "Real Heading");
-        assert_eq!(headings[1].text, "Another Real Heading");
-        assert_eq!(headings[2].text, "Final Heading");
+        assert_eq!(
+            headings[1].text,
+            "Indented heading (4 spaces, valid in MDX)"
+        );
+        assert_eq!(headings[2].text, "Tab-indented heading (valid in MDX)");
+        assert_eq!(headings[3].text, "Another Real Heading");
+        assert_eq!(headings[4].text, "Indented heading inside list");
+        assert_eq!(headings[5].text, "Final Heading");
     }
 
     #[test]
@@ -2943,12 +2965,14 @@ Warning
     }
 
     #[test]
-    fn test_strip_custom_ids_preserves_indented_code_blocks() {
+    fn test_strip_custom_ids_from_indented_headings() {
+        // In MDX, indented headings (inside JSX components) should have
+        // their custom IDs stripped just like top-level headings.
         let source = "# Title\n\n    # Heading {#foo}\n\nContent\n";
         let stripped = strip_custom_ids_from_headings(source);
         assert!(
-            stripped.contains("    # Heading {#foo}"),
-            "Indented code block line should not be stripped, got: {}",
+            !stripped.contains("{#foo}"),
+            "Custom ID should be stripped from indented heading in MDX, got: {}",
             stripped
         );
     }
@@ -3054,9 +3078,8 @@ Some text.
 
     #[test]
     fn test_indented_fence_markers_are_not_fences() {
-        // Lines indented with 4+ spaces are indented code blocks per CommonMark,
-        // not fenced code blocks — even if the trimmed content starts with ```/~~~.
-        // They must not open fence_state or suppress subsequent headings.
+        // 4+-space-indented fences open and close at the same indent level,
+        // so headings outside them are still extracted correctly.
         let source = r#"
 Some text.
 
@@ -3083,6 +3106,106 @@ More text.
         );
         assert_eq!(headings[0].text, "Real Heading");
         assert_eq!(headings[1].text, "Another Heading");
+    }
+
+    #[test]
+    fn test_indented_line_inside_fence_does_not_close_block() {
+        // A 4-space indented fence-like line inside an already-open fenced block
+        // must NOT close it. Lines after it should remain inside the code block
+        // and not be extracted as headings.
+        let source = r#"
+```
+some code
+    ```
+# not a heading
+```
+
+## Real Heading
+"#;
+        let headings = extract_headings_from_source(source);
+        assert_eq!(
+            headings.len(),
+            1,
+            "Expected 1 heading (only 'Real Heading'), got {:?}",
+            headings
+        );
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_deeply_indented_mdx_fence_suppresses_headings() {
+        // Fences indented 4+ spaces (e.g. inside JSX <TabItem>) must still
+        // open/close fence_state so that content inside is not extracted as headings.
+        let source = r#"
+<TabItem>
+    ```ts
+    # This is code, not a heading
+    const x = 1;
+    ```
+</TabItem>
+
+## Real Heading
+"#;
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_tab_indented_fence_suppresses_headings() {
+        let source = "\t```md\n\t# Not a heading\n\t```\n\n## Real Heading\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_indented_top_level_fence_closer_ends_block() {
+        let source = "```js\nconst x = 1;\n  ```\n## Real Heading\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_strip_custom_ids_respects_indented_top_level_fence_closer() {
+        let source = "```md\n# Code {#keep-me}\n  ```\n## Real {#real-id}\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(stripped.contains("# Code {#keep-me}"));
+        assert!(!stripped.contains("{#real-id}"));
+    }
+
+    #[test]
+    fn test_dedented_closer_ends_indented_fence() {
+        // Regression: a fence opened at 4+ spaces must be closable at 0 spaces
+        // per CommonMark (closing fence can have 0-3 spaces of indentation).
+        let source = "    ```ts\n    const x = 1;\n```\n\n## After Fence\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "After Fence");
+
+        // Also verify strip_custom_ids_from_headings handles this correctly
+        let source2 = "    ```md\n    # Code {#keep}\n```\n## Real {#real-id}\n";
+        let stripped = strip_custom_ids_from_headings(source2);
+        assert!(stripped.contains("# Code {#keep}"));
+        assert!(!stripped.contains("{#real-id}"));
+    }
+
+    #[test]
+    fn test_info_string_does_not_close_indented_fence() {
+        let source =
+            "    ```\n    some code\n    ```js\n    # Not A Heading\n    ```\n\n## Real Heading\n";
+        let headings = extract_headings_from_source(source);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn test_strip_ids_info_string_does_not_close_fence() {
+        let source = "    ```\n    ```js\n    # Keep {#keep}\n    ```\n## Strip {#strip-me}\n";
+        let stripped = strip_custom_ids_from_headings(source);
+        assert!(stripped.contains("# Keep {#keep}"));
+        assert!(!stripped.contains("{#strip-me}"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { collectImportedNames, insertAfterImports, extractImportStatements } from './imports.js';
+import { collectImportedNames, insertAfterImports, extractImportStatements } from 'xmdx/utils/imports';
 
 describe('collectImportedNames', () => {
   it('should collect default imports', () => {

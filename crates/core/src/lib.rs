@@ -20,7 +20,11 @@ pub use error::{
     ErrorSeverity, MarkflowError, ParseDiagnostics, ParseWarning, RecoverableError, SourceLocation,
 };
 pub use frontmatter::{FrontmatterError, FrontmatterExtraction, extract_frontmatter};
-pub use mdx_compiler::{MdxCompileError, MdxCompileOptions, MdxHeading, MdxOutput, compile_mdx};
+pub use mdx_compiler::{
+    MdxCompileError, MdxCompileOptions, MdxHeading, MdxOutput, compile_mdx,
+    extract_headings_from_source, rewrite_heading_autolinks_in_jsx, rewrite_task_list_items,
+    strip_custom_ids_from_headings,
+};
 pub use parse::{
     AstTransform, ParseOptions, ParserPipeline, TextTransform, parse_mdast,
     parse_mdast_with_options,
