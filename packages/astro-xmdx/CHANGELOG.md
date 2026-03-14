@@ -1,5 +1,30 @@
 # astro-xmdx
 
+## 0.0.10
+
+### Patch Changes
+
+- 2c20fd4: chore: bump @xmdx/napi dependency to 0.0.8-next.0 with MDX heading extraction fix
+- 2c20fd4: fix: preserve valid href output for HTML anchors and component props in generated xmdx JSX
+- 2c20fd4: fix: extract all headings from MDX files with indented code fences
+
+  MDX content inside JSX components (e.g. `<Fragment>`, `<PackageManagerTabs>`) is commonly indented 4+ spaces. The heading extractor was applying CommonMark's indented-code-block rules, causing closing code fences with 4+ spaces of indentation to not be recognized. This left the extractor stuck inside "open" code blocks, skipping all subsequent headings.
+
+  Since MDX disables indented code blocks (indentation is used for JSX structure), the fix removes the 3-space indentation limit for fence markers and the indented-code-block check from MDX heading extraction.
+
+- 2c20fd4: Fix "Vite module runner has been closed" build crash
+- 2c20fd4: Fix heading ID injection to prioritize `_components.hN` (markdown headings) over string-tag `"hN"` calls (literal JSX headings), preventing literal JSX headings from stealing IDs. Also adds raw-text-first matching to avoid normalization conflation between distinct headings.
+- 2c20fd4: fix: resolve bare specifiers from virtual modules for pnpm strict mode
+- 2c20fd4: Restore expressive-code as direct dependency, add astro-expressive-code runtime dependency, and re-initialize Shiki after enabling fallback in batch compilation path
+- 2c20fd4: fix: update Shiki integration, restore ExpressiveCode pre-render rewrite path, and reject fence closers with info strings
+- Updated dependencies [2c20fd4]
+- Updated dependencies [2c20fd4]
+- Updated dependencies [2c20fd4]
+- Updated dependencies [2c20fd4]
+  - xmdx@0.0.9
+  - @xmdx/vite@0.0.2
+  - @xmdx/napi@0.0.8
+
 ## 0.0.10-next.9
 
 ### Patch Changes

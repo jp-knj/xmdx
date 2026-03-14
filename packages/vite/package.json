@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/vite",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Vite plugin infrastructure for xmdx",
   "type": "module",
   "scripts": {
@@ -48,8 +48,12 @@
     "expressive-code": "^0.41.0"
   },
   "peerDependenciesMeta": {
-    "shiki": { "optional": true },
-    "expressive-code": { "optional": true }
+    "shiki": {
+      "optional": true
+    },
+    "expressive-code": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
