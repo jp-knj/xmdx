@@ -7,12 +7,15 @@
 
 import { createRequire } from 'node:module';
 import path from 'node:path';
+
 import type { SourceMapInput } from 'rollup';
 import type * as ViteModule from 'vite';
+
 import { ESBUILD_JSX_CONFIG, OXC_JSX_CONFIG } from 'xmdx/constants';
 import { asBinding, asSourceMap } from 'xmdx/ops';
+
+import type { EsbuildModule, EsbuildOutputFile,OxcTransformModule } from '../ops/vite.js';
 import { asViteWithOxc } from '../ops/vite.js';
-import type { OxcTransformModule, EsbuildModule, EsbuildOutputFile } from '../ops/vite.js';
 
 // Use createRequire to bypass Vite's SSR module runner, which may be
 // closed between build phases causing "Vite module runner has been closed".

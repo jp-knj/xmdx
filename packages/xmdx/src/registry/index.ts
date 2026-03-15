@@ -5,10 +5,10 @@
 
 import type {
   ComponentDefinition,
-  DirectiveMapping,
-  SlotNormalization,
   ComponentLibrary,
+  DirectiveMapping,
   Registry,
+  SlotNormalization,
 } from './types.js';
 
 /**
@@ -106,18 +106,18 @@ export function createRegistry(libraries: ComponentLibrary[]): Registry {
 // Re-export types
 export type {
   ComponentDefinition,
-  DirectiveMapping,
-  SlotNormalization,
   ComponentLibrary,
+  DirectiveMapping,
   Registry,
+  SlotNormalization,
   ValidationError,
   ValidationResult,
 } from './types.js';
 
 // Re-export library presets
-export { starlightLibrary } from './presets/starlight.js';
 export { astroLibrary } from './presets/astro.js';
 export { expressiveCodeLibrary } from './presets/expressive-code.js';
+export { starlightLibrary } from './presets/starlight.js';
 
 // Re-export validation utilities
-export { validateRegistry, validateLibrary } from './validation.js';
+export { validateLibrary,validateRegistry } from './validation.js';

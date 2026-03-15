@@ -1,12 +1,12 @@
 // Re-export core types from xmdx — canonical source moved to xmdx/types
 export type {
+  CodeBlockRenderer,
+  ExpressiveCodeConfig,
+  MdxImportHandlingOptions,
+  PluginHooks,
+  ShikiHighlighter,
+  StarlightUserConfig,
   TransformConfig,
   TransformContext,
   XmdxPlugin,
-  PluginHooks,
-  MdxImportHandlingOptions,
-  CodeBlockRenderer,
-  ExpressiveCodeConfig,
-  StarlightUserConfig,
-  ShikiHighlighter,
 } from 'xmdx/types';

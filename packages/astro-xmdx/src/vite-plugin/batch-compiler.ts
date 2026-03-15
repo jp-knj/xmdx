@@ -7,35 +7,38 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+
 import type * as GlobModule from 'glob';
 import type { SourceMapInput } from 'rollup';
-import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
-import {
-  batchTransformJsx,
-  runParallelJsxTransform,
-  DiskCache,
-  normalizeStarlightComponents,
-  debugLog,
-  debugTime,
-  debugTimeEnd,
-} from '@xmdx/vite';
+
 import type {
-  ShikiManager,
-  ExpressiveCodeManager,
   EsbuildCacheEntry,
+  ExpressiveCodeManager,
   PersistentCache,
+  ShikiManager,
   XmdxBinding,
   XmdxCompiler,
   XmdxPluginOptions,
 } from '@xmdx/vite';
+import {
+  batchTransformJsx,
+  debugLog,
+  debugTime,
+  debugTimeEnd,
+  DiskCache,
+  normalizeStarlightComponents,
+  runParallelJsxTransform,
+} from '@xmdx/vite';
 import type { Transform } from 'xmdx/pipeline';
-import { wrapMdxModule } from './mdx-wrapper/index.js';
-import type { PluginHooks, TransformContext, MdxImportHandlingOptions } from '../types.js';
+import type { Registry } from 'xmdx/registry';
 import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
-import { asSourceMap, asBinding, parseJsonRecord } from '../ops/type-narrowing.js';
 import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
-import { VIRTUAL_MODULE_PREFIX, OUTPUT_EXTENSION, DEFAULT_IGNORE_PATTERNS } from '../constants.js';
+
+import { DEFAULT_IGNORE_PATTERNS,OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
+import { asBinding, asSourceMap, parseJsonRecord } from '../ops/type-narrowing.js';
+import type { MdxImportHandlingOptions,PluginHooks, TransformContext } from '../types.js';
+import { wrapMdxModule } from './mdx-wrapper/index.js';
 
 const require = createRequire(import.meta.url);
 

@@ -3,10 +3,10 @@
  * @module pipeline/types
  */
 
-import type { TransformContext, TransformConfig } from '../types.js';
+import type { TransformConfig,TransformContext } from '../types.js';
 
 // Re-export core types so consumers can import from pipeline
-export type { TransformContext, TransformConfig };
+export type { TransformConfig,TransformContext };
 
 /**
  * A transform function that takes a context and returns a modified context.

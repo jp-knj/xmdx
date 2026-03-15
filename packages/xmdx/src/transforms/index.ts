@@ -3,17 +3,17 @@
  * @module transforms
  */
 
+import type { TransformContext } from '../types.js';
 import {
-  rewriteExpressiveCodeBlocks,
-  rewriteSetHtmlCodeBlocks,
-  rewriteJsStringCodeBlocks,
   injectExpressiveCodeComponent,
+  rewriteExpressiveCodeBlocks,
+  rewriteJsStringCodeBlocks,
+  rewriteSetHtmlCodeBlocks,
 } from './expressive-code.js';
 import {
   injectComponentImportsFromRegistry,
 } from './inject-components.js';
-import { rewriteAstroSetHtml, highlightJsStringCodeBlocks, highlightJsxCodeBlocks } from './shiki.js';
-import type { TransformContext } from '../types.js';
+import { highlightJsStringCodeBlocks, highlightJsxCodeBlocks,rewriteAstroSetHtml } from './shiki.js';
 
 /**
  * Quick check for code block markers to short-circuit expensive transforms.
@@ -125,21 +125,21 @@ export function transformInjectComponentsFromRegistry(ctx: TransformContext): Tr
 }
 
 // Re-export from sub-modules
-export {
-  decodeHtmlEntities,
-  rewriteExpressiveCodeBlocks,
-  rewriteSetHtmlCodeBlocks,
-  rewriteJsStringCodeBlocks,
-  injectExpressiveCodeComponent,
-  stripExpressiveCodeImport,
-  renderExpressiveCodeBlocks,
-} from './expressive-code.js';
 export type { RewriteResult } from './expressive-code.js';
 export {
+  decodeHtmlEntities,
+  injectExpressiveCodeComponent,
+  renderExpressiveCodeBlocks,
+  rewriteExpressiveCodeBlocks,
+  rewriteJsStringCodeBlocks,
+  rewriteSetHtmlCodeBlocks,
+  stripExpressiveCodeImport,
+} from './expressive-code.js';
+export {
   injectAstroComponents,
-  injectStarlightComponents,
   injectComponentImports,
   injectComponentImportsFromRegistry,
+  injectStarlightComponents,
 } from './inject-components.js';
-export { rewriteAstroSetHtml, highlightHtmlBlocks, highlightJsStringCodeBlocks, highlightJsxCodeBlocks } from './shiki.js';
 export type { ShikiHighlighter } from './shiki.js';
+export { highlightHtmlBlocks, highlightJsStringCodeBlocks, highlightJsxCodeBlocks,rewriteAstroSetHtml } from './shiki.js';

@@ -5,15 +5,18 @@
 
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+
 import type { AstroIntegration } from 'astro';
+
 import type { ComponentLibrary } from 'xmdx/registry';
-import { starlightLibrary, astroLibrary } from 'xmdx/registry';
-import { xmdxPlugin } from './vite-plugin.js';
-import { mergePresets, STARLIGHT_DEFAULT_ALLOW_IMPORTS, type PresetConfig } from './presets/index.js';
+import { astroLibrary,starlightLibrary } from 'xmdx/registry';
 import { safeParseFrontmatter } from 'xmdx/utils/frontmatter';
-import { findStarlightIntegration, applyStarlightOverrides } from './utils/starlight-detection.js';
-import type { XmdxPlugin, MdxImportHandlingOptions } from './types.js';
-import { asMutableConfig, asIntegrationArray, asVitePlugin, getAddPageExtension, getAddContentEntryType, asOptionalString } from './ops/type-narrowing.js';
+
+import { asIntegrationArray, asMutableConfig, asOptionalString,asVitePlugin, getAddContentEntryType, getAddPageExtension } from './ops/type-narrowing.js';
+import { mergePresets, type PresetConfig,STARLIGHT_DEFAULT_ALLOW_IMPORTS } from './presets/index.js';
+import type { MdxImportHandlingOptions,XmdxPlugin } from './types.js';
+import { applyStarlightOverrides,findStarlightIntegration } from './utils/starlight-detection.js';
+import { xmdxPlugin } from './vite-plugin.js';
 
 /**
  * Options for the Xmdx integration.
@@ -249,6 +252,6 @@ export default function xmdx(options: XmdxOptions = {}): AstroIntegration {
 }
 
 // Re-export presets for convenience
-export { starlightPreset, expressiveCodePreset, astroPreset, mergePresets } from './presets/index.js';
 export type { PresetConfig } from './presets/index.js';
-export type { XmdxPlugin, TransformContext, PluginHooks, MdxImportHandlingOptions } from './types.js';
+export { astroPreset, expressiveCodePreset, mergePresets,starlightPreset } from './presets/index.js';
+export type { MdxImportHandlingOptions,PluginHooks, TransformContext, XmdxPlugin } from './types.js';

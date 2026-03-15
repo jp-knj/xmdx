@@ -5,8 +5,8 @@
 
 import type { Registry } from '../registry/index.js';
 import { astroLibrary } from '../registry/index.js';
-import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import { resolveStarlightConfig, type StarlightUserConfig } from '../utils/config.js';
+import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 import { stripHeadingsMeta } from '../utils/validation.js';
 
 /** Strip set:html={...} string content to avoid false component matches in code blocks */

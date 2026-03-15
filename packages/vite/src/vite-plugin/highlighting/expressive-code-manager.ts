@@ -7,8 +7,9 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
+
 import { asBinding } from 'xmdx/ops';
+import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
 
 // Use createRequire to avoid Vite module runner issues during buildStart
 const require = createRequire(import.meta.url);

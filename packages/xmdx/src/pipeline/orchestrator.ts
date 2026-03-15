@@ -3,13 +3,13 @@
  * @module pipeline/orchestrator
  */
 
-import { pipe } from './pipe.js';
-import type { TransformContext, TransformConfig, Transform, PipelineOptions } from './types.js';
 import {
   transformExpressiveCode,
   transformInjectComponentsFromRegistry,
   transformShikiHighlight,
 } from '../transforms/index.js';
+import { pipe } from './pipe.js';
+import type { PipelineOptions,Transform, TransformConfig, TransformContext } from './types.js';
 
 /**
  * Default context values for transforms.

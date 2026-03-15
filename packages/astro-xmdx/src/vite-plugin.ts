@@ -5,17 +5,10 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ResolvedConfig, Plugin } from 'vite';
+
 import MagicString from 'magic-string';
-import {
-  collectHooks,
-  resolveLibraries,
-  ShikiManager,
-  ExpressiveCodeManager,
-  createLoadProfiler,
-  loadXmdxBinding,
-  ENABLE_SHIKI,
-} from '@xmdx/vite';
+import type { Plugin,ResolvedConfig } from 'vite';
+
 import type {
   DiskCache,
   EsbuildCacheEntry,
@@ -23,25 +16,35 @@ import type {
   XmdxCompiler,
   XmdxPluginOptions,
 } from '@xmdx/vite';
+import {
+  collectHooks,
+  createLoadProfiler,
+  ENABLE_SHIKI,
+  ExpressiveCodeManager,
+  loadXmdxBinding,
+  resolveLibraries,
+  ShikiManager,
+} from '@xmdx/vite';
 import type { TransformContext } from 'xmdx/pipeline';
 import {
   starlightLibrary,
 } from 'xmdx/registry';
-import { createPipeline } from './pipeline/index.js';
 import { resolveExpressiveCodeConfig } from 'xmdx/utils/config';
-import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
 import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
-import { stripQuery, shouldCompile } from 'xmdx/utils/paths';
+import { shouldCompile,stripQuery } from 'xmdx/utils/paths';
+
 import {
-  VIRTUAL_MODULE_PREFIX,
-  OUTPUT_EXTENSION,
-  STARLIGHT_LAYER_ORDER,
   EC_STYLES_MODULE_ID,
   EC_STYLES_VIRTUAL_ID,
+  OUTPUT_EXTENSION,
+  STARLIGHT_LAYER_ORDER,
+  VIRTUAL_MODULE_PREFIX,
 } from './constants.js';
+import { asBinding,asMutableConfig, asMutableViteConfig } from './ops/type-narrowing.js';
+import { createPipeline } from './pipeline/index.js';
+import { renderExpressiveCodeBlocks, stripExpressiveCodeImport } from './transforms/expressive-code.js';
 import { handleBuildStart } from './vite-plugin/batch-compiler.js';
 import { handleLoad } from './vite-plugin/load-handler.js';
-import { asMutableConfig, asMutableViteConfig, asBinding } from './ops/type-narrowing.js';
 
 // Preserve public API — resolveLibraries was exported from this module
 export { resolveLibraries } from '@xmdx/vite';

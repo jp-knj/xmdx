@@ -4,12 +4,13 @@
  */
 
 import {
-  createRegistry,
-  starlightLibrary,
   astroLibrary,
   type ComponentLibrary,
+  createRegistry,
   type Registry,
+  starlightLibrary,
 } from 'xmdx/registry';
+
 import type { XmdxPluginOptions } from './types.js';
 
 /**

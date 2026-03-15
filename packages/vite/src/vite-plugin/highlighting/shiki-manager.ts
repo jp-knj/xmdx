@@ -3,8 +3,9 @@
  * @module vite-plugin/shiki-manager
  */
 
-import { createShikiHighlighter } from './shiki-highlighter.js';
 import type { ShikiHighlighter } from 'xmdx/transforms';
+
+import { createShikiHighlighter } from './shiki-highlighter.js';
 
 export class ShikiManager {
   private instance: Promise<ShikiHighlighter | null> | undefined;

@@ -4,7 +4,7 @@
  */
 
 import type { ComponentLibrary } from 'xmdx/registry';
-import type { XmdxPlugin, MdxImportHandlingOptions } from 'xmdx/types';
+import type { MdxImportHandlingOptions,XmdxPlugin } from 'xmdx/types';
 
 /**
  * Native NAPI binding interface for Xmdx compiler.

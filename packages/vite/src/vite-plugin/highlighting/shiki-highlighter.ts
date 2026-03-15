@@ -4,8 +4,9 @@
  */
 
 import { createHash } from 'node:crypto';
+
 import { SHIKI_THEME } from 'xmdx/constants';
-import { asShikiLanguage, asModule } from 'xmdx/ops';
+import { asModule,asShikiLanguage } from 'xmdx/ops';
 import type { ShikiHighlighter } from 'xmdx/transforms';
 
 interface ShikiModule {

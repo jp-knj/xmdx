@@ -4,7 +4,7 @@
  */
 
 import type { Registry } from '../registry/index.js';
-import { starlightLibrary, expressiveCodeLibrary } from '../registry/index.js';
+import { expressiveCodeLibrary,starlightLibrary } from '../registry/index.js';
 
 /**
  * Resolved ExpressiveCode configuration.

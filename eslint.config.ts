@@ -1,6 +1,7 @@
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import boundaries from 'eslint-plugin-boundaries';
+import simpleImportSort from 'eslint-plugin-simple-import-sort';
 
 export default defineConfig(
   // Global ignores
@@ -31,6 +32,9 @@ export default defineConfig(
   {
     files: ['packages/*/src/**/*.ts'],
     ignores: ['**/*.test.ts', '**/ops/type-narrowing.ts'],
+    plugins: {
+      'simple-import-sort': simpleImportSort,
+    },
     rules: {
       'no-restricted-syntax': ['error', {
         selector: 'TSAsExpression:not([typeAnnotation.type="TSTypeReference"][typeAnnotation.typeName.name="const"])',
@@ -48,6 +52,16 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-exports': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      'simple-import-sort/imports': ['error', {
+        groups: [
+          ['^node:'],
+          ['^\\u0000'],
+          ['^(?!xmdx(?:/|$)|@xmdx(?:/|$)|astro-xmdx(?:/|$))@?\\w'],
+          ['^(xmdx(?:/|$)|@xmdx(?:/|$)|astro-xmdx(?:/|$))'],
+          ['^\\.'],
+        ],
+      }],
+      'simple-import-sort/exports': 'error',
     },
   },
 

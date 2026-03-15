@@ -8,18 +8,20 @@
  * @module vite-plugin/fallback/compile
  */
 
+import { compile as compileMdx } from '@mdx-js/mdx';
+import remarkDirective from 'remark-directive';
+import remarkGfm from 'remark-gfm';
 import type { SourceMapInput } from 'rollup';
+
+import type { ExpressiveCodeManager,XmdxBinding } from '@xmdx/vite';
+import { loadXmdxBinding,transformJsx } from '@xmdx/vite';
 import type { Registry } from 'xmdx/registry';
 import { starlightLibrary } from 'xmdx/registry';
-import { transformJsx, loadXmdxBinding } from '@xmdx/vite';
-import type { XmdxBinding, ExpressiveCodeManager } from '@xmdx/vite';
-import { compile as compileMdx } from '@mdx-js/mdx';
-import remarkGfm from 'remark-gfm';
-import remarkDirective from 'remark-directive';
-import { stripFrontmatter } from 'xmdx/utils/frontmatter';
-import { injectHeadingIds, repairHeadings } from '../mdx-wrapper/heading-id-injector.js';
-import { collectImportedNames, insertAfterImports } from 'xmdx/utils/imports';
 import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
+import { stripFrontmatter } from 'xmdx/utils/frontmatter';
+import { collectImportedNames, insertAfterImports } from 'xmdx/utils/imports';
+
+import { injectHeadingIds, repairHeadings } from '../mdx-wrapper/heading-id-injector.js';
 
 /**
  * Options for ExpressiveCode pre-rendering in fallback compilation.

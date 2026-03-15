@@ -3,10 +3,10 @@
  * @module transforms/expressive-code
  */
 
-import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
-import type { ExpressiveCodeConfig } from '../utils/config.js';
-import type { CodeBlockRenderer } from '../types.js';
 import { parseJsonString } from '../ops/json.js';
+import type { CodeBlockRenderer } from '../types.js';
+import type { ExpressiveCodeConfig } from '../utils/config.js';
+import { collectImportedNames, insertAfterImports } from '../utils/imports.js';
 
 // PERF: Pre-compiled regex patterns at module level to avoid recompilation per-file
 const HTML_ENTITY_REGEX = /&(#x?[0-9a-fA-F]+|[a-z]+);/gi;

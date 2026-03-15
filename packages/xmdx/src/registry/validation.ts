@@ -3,11 +3,11 @@
  * @module registry/validation
  */
 
+import { asFunction,directiveNameOf, isRecord, nameOf } from '../ops/casts.js';
 import type {
   ValidationError,
   ValidationResult,
 } from './types.js';
-import { isRecord, nameOf, directiveNameOf, asFunction } from '../ops/casts.js';
 
 /**
  * Validate a component definition has required fields.

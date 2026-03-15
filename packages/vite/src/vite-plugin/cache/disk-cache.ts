@@ -7,9 +7,11 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile, rm, readdir, rename } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename,rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+
 import type { SourceMapInput } from 'rollup';
+
 import { parseJson } from 'xmdx/ops';
 
 /** Cache entry for a compiled file */

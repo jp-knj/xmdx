@@ -4,6 +4,7 @@
  */
 
 import { createHash } from 'node:crypto';
+
 import type { Registry } from 'xmdx/registry';
 
 // PERF: Pre-compiled regex patterns at module level

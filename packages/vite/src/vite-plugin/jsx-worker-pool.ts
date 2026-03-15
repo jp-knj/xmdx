@@ -5,10 +5,10 @@
  * @module vite-plugin/jsx-worker-pool
  */
 
-import { Worker } from 'node:worker_threads';
-import os from 'node:os';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 
 interface WorkerInput {
   entries: Array<{ entryName: string; id: string; jsx: string }>;

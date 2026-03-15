@@ -4,6 +4,7 @@
  */
 
 import type { Registry } from 'xmdx/registry';
+
 import type { UsedComponent } from './component-detection.js';
 
 /**

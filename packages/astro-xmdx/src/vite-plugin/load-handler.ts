@@ -4,21 +4,24 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import type { ResolvedConfig } from 'vite';
+
 import type { SourceMapInput } from 'rollup';
-import type { Registry } from 'xmdx/registry';
+import type { ResolvedConfig } from 'vite';
+
+import type { EsbuildCacheEntry, ExpressiveCodeManager, LoadProfiler, ShikiManager, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from '@xmdx/vite';
+import { IS_MDAST,LOAD_PROFILE, normalizeStarlightComponents, transformJsx } from '@xmdx/vite';
 import { compileDocument, type CompileTargetAdapter } from 'xmdx/compiler';
-import { blocksToJsx } from '../transforms/blocks-to-jsx.js';
-import { stripQuery } from 'xmdx/utils/paths';
-import { OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
-import { transformJsx, normalizeStarlightComponents, LOAD_PROFILE, IS_MDAST } from '@xmdx/vite';
-import type { ShikiManager, ExpressiveCodeManager, EsbuildCacheEntry, LoadProfiler, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from '@xmdx/vite';
 import type { Transform } from 'xmdx/pipeline';
-import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '../types.js';
+import type { Registry } from 'xmdx/registry';
 import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
+import { stripQuery } from 'xmdx/utils/paths';
+
+import { OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
+import { asSourceMap, toError } from '../ops/type-narrowing.js';
+import { blocksToJsx } from '../transforms/blocks-to-jsx.js';
+import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '../types.js';
 import { compileFallbackModule } from './fallback/compile.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
-import { asSourceMap, toError } from '../ops/type-narrowing.js';
 
 interface LoadState {
   totalProcessingTimeMs: number;

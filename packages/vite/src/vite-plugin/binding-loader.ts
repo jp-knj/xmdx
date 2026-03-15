@@ -4,7 +4,9 @@
  */
 
 import { createRequire } from 'node:module';
+
 import { asBinding } from 'xmdx/ops';
+
 import type { XmdxBinding } from './types.js';
 
 let bindingPromise: Promise<XmdxBinding> | undefined;

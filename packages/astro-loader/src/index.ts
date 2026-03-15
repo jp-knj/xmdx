@@ -1,10 +1,13 @@
-import { glob, type Loader, type LoaderContext } from 'astro/loaders';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { glob, type Loader, type LoaderContext } from 'astro/loaders';
 import { globby } from 'globby';
-import { parseFrontmatter, type FrontmatterResult } from '@xmdx/napi';
-import { toError, asType, parseJson } from './ops/type-narrowing.js';
+
+import { type FrontmatterResult,parseFrontmatter } from '@xmdx/napi';
+
+import { asType, parseJson,toError } from './ops/type-narrowing.js';
 
 export interface XmdxLoaderOptions {
   /** Directory (relative to project root) that contains the target content collection. */

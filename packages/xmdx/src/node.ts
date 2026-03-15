@@ -5,9 +5,10 @@
  */
 
 import { createCompiler, type XmdxCompiler } from '@xmdx/napi';
-import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
-import { parseJsonRecord } from './ops/json.js';
+
 import { asModule } from './ops/casts.js';
+import { parseJsonRecord } from './ops/json.js';
+import type { CompileOptions, CompileResult, HeadingEntry } from './types.js';
 
 let compiler: XmdxCompiler | null = null;
 

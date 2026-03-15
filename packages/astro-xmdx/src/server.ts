@@ -4,11 +4,12 @@
  * @module server
  */
 
+import type { SSRResult } from 'astro';
 import { AstroError } from 'astro/errors';
 import { AstroJSX, jsx } from 'astro/jsx-runtime';
 import { renderJSX } from 'astro/runtime/server/index.js';
-import type { SSRResult } from 'astro';
-import { toError, hasAstroJsxMarker, hasMdxComponentSymbol, addErrorHint, callJsx, callRenderJSX } from './ops/type-narrowing.js';
+
+import { addErrorHint, callJsx, callRenderJSX,hasAstroJsxMarker, hasMdxComponentSymbol, toError } from './ops/type-narrowing.js';
 
 const slotName = (str: string): string =>
   str.trim().replace(/[-_]([a-z])/g, (_: string, w: string) => w.toUpperCase());

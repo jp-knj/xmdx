@@ -4,7 +4,8 @@
  */
 
 import type { ComponentLibrary } from 'xmdx/registry';
-import { starlightLibrary, expressiveCodeLibrary, astroLibrary } from 'xmdx/registry';
+import { astroLibrary,expressiveCodeLibrary, starlightLibrary } from 'xmdx/registry';
+
 import type { MdxImportHandlingOptions } from '../types.js';
 
 /**

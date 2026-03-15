@@ -5,10 +5,11 @@
  */
 
 import type { Registry } from 'xmdx/registry';
+
 import { detectUsedComponents } from './component-detection.js';
 import { generateComponentImports } from './component-imports.js';
-import { injectHeadingIds, repairHeadings } from './heading-id-injector.js';
 import { normalizeMdxExport } from './export-normalizer.js';
+import { injectHeadingIds, repairHeadings } from './heading-id-injector.js';
 
 /**
  * Options for wrapping MDX module output.

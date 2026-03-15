@@ -29,10 +29,10 @@
  */
 
 // Pipe utilities for composing transforms
-export { pipe, when, tap } from './pipe.js';
+export { pipe, tap,when } from './pipe.js';
 
 // Pipeline orchestrator for creating standard and custom pipelines
-export { createPipeline, createCustomPipeline, createContext } from './orchestrator.js';
+export { createContext,createCustomPipeline, createPipeline } from './orchestrator.js';
 
 // Type exports
-export type { TransformContext, TransformConfig, Transform, PipelineOptions } from './types.js';
+export type { PipelineOptions,Transform, TransformConfig, TransformContext } from './types.js';

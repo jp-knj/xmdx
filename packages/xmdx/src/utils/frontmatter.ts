@@ -5,6 +5,7 @@
  */
 
 import matter from 'gray-matter';
+
 import { toError } from '../ops/errors.js';
 
 /**

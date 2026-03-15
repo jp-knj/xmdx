@@ -51,8 +51,8 @@ export interface CodeBlockRenderer {
 // --- Types moved from astro-xmdx (Phase 3b) ---
 
 import type { Registry } from './registry/index.js';
-import type { ExpressiveCodeConfig, StarlightUserConfig } from './utils/config.js';
 import type { ShikiHighlighter } from './transforms/shiki.js';
+import type { ExpressiveCodeConfig, StarlightUserConfig } from './utils/config.js';
 
 /**
  * Configuration available to transforms.
@@ -137,5 +137,5 @@ export interface MdxImportHandlingOptions {
 }
 
 // Re-export types from submodules for convenience
-export type { ExpressiveCodeConfig, StarlightUserConfig } from './utils/config.js';
 export type { ShikiHighlighter } from './transforms/shiki.js';
+export type { ExpressiveCodeConfig, StarlightUserConfig } from './utils/config.js';

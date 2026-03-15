@@ -4,6 +4,7 @@
  */
 
 import type { HeadingEntry } from 'xmdx';
+
 import { asPropValue } from '../ops/type-narrowing.js';
 
 /**
@@ -16,7 +17,7 @@ export interface BlocksRegistry {
   getSlotNormalization(component: string): { strategy: 'wrap_in_ol' | 'wrap_in_ul' } | undefined;
   getComponent(name: string): { modulePath: string; exportType: string } | undefined;
 }
-import { htmlEntitiesToJsx, hasPascalCaseTag } from '@xmdx/napi';
+import { hasPascalCaseTag,htmlEntitiesToJsx } from '@xmdx/napi';
 
 /**
  * Prop value from the Rust compiler.
