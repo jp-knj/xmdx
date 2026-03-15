@@ -107,6 +107,11 @@
       "types": "./src/pipeline/index.ts",
       "import": "./src/pipeline/index.ts",
       "default": "./src/pipeline/index.ts"
+    },
+    "./compiler": {
+      "types": "./src/compiler/index.ts",
+      "import": "./src/compiler/index.ts",
+      "default": "./src/compiler/index.ts"
     }
   },
   "main": "./src/node.ts",

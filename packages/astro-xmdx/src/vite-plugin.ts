@@ -364,7 +364,6 @@ export function xmdxPlugin(userOptions: XmdxPluginOptions = {}): Plugin {
         ecManager,
         shikiManager,
         transformPipeline,
-        compilerOptions,
         getCompiler,
         loadBinding: loadXmdxBinding,
         loadProfiler,

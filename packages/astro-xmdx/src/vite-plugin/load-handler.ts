@@ -7,20 +7,18 @@ import { readFile } from 'node:fs/promises';
 import type { ResolvedConfig } from 'vite';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
+import { compileDocument, type CompileTargetAdapter } from 'xmdx/compiler';
 import { blocksToJsx } from '../transforms/blocks-to-jsx.js';
-import { stripFrontmatter } from 'xmdx/utils/frontmatter';
-import { detectProblematicMdxPatterns } from 'xmdx/utils/mdx-detection';
-import { extractImportStatements } from 'xmdx/utils/imports';
-import { deriveFileOptions, stripQuery } from 'xmdx/utils/paths';
+import { stripQuery } from 'xmdx/utils/paths';
 import { OUTPUT_EXTENSION, VIRTUAL_MODULE_PREFIX } from '../constants.js';
 import { transformJsx, normalizeStarlightComponents, LOAD_PROFILE, IS_MDAST } from '@xmdx/vite';
-import type { ShikiManager, ExpressiveCodeManager, EsbuildCacheEntry, LoadProfiler, CompileResult, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from '@xmdx/vite';
+import type { ShikiManager, ExpressiveCodeManager, EsbuildCacheEntry, LoadProfiler, XmdxBinding, XmdxCompiler, XmdxPluginOptions } from '@xmdx/vite';
 import type { Transform } from 'xmdx/pipeline';
 import type { MdxImportHandlingOptions, PluginHooks, TransformContext } from '../types.js';
 import type { ExpressiveCodeConfig } from 'xmdx/utils/config';
 import { compileFallbackModule } from './fallback/compile.js';
 import { wrapMdxModule } from './mdx-wrapper/index.js';
-import { parseJsonRecord, asSourceMap, toError } from '../ops/type-narrowing.js';
+import { asSourceMap, toError } from '../ops/type-narrowing.js';
 
 interface LoadState {
   totalProcessingTimeMs: number;
@@ -41,7 +39,6 @@ export interface LoadHandlerDeps {
   ecManager: ExpressiveCodeManager;
   shikiManager: ShikiManager;
   transformPipeline: Transform;
-  compilerOptions: Record<string, unknown>;
   getCompiler: () => Promise<XmdxCompiler>;
   loadBinding: () => Promise<XmdxBinding>;
   loadProfiler: LoadProfiler | null;
@@ -153,7 +150,6 @@ export async function loadCacheMiss(
 ): Promise<PipelineResult> {
   if (deps.loadProfiler) deps.loadProfiler.cacheMisses++;
 
-  const currentCompiler = await deps.getCompiler();
   const source = await readFile(filename, 'utf8');
 
   let processedSource = source;
@@ -161,94 +157,46 @@ export async function loadCacheMiss(
     processedSource = preprocessHook(processedSource, filename);
   }
 
-  const detection = detectProblematicMdxPatterns(processedSource, deps.mdxOptions, filename);
-  if (detection.hasProblematicPatterns) {
-    deps.warn(
-      `[xmdx] Skipping ${filename}: ${detection.reason ?? 'contains patterns incompatible with markdown-rs'}`
-    );
-    deps.fallbackFiles.add(filename);
-    deps.fallbackReasons.set(filename, detection.reason ?? 'Detected problematic MDX patterns');
-    return compileFallbackModule(filename, processedSource, id, deps.registry, deps.hasStarlightConfigured);
-  }
-
-  const startTime = performance.now();
-  const compileStart = LOAD_PROFILE ? performance.now() : 0;
-  let result: CompileResult;
-  let frontmatter: Record<string, unknown> = {};
-  let headings: Array<{ depth: number; slug: string; text: string }> = [];
-  const isMdx = filename.endsWith('.mdx');
-
-  if (isMdx) {
-    const mdxCompiler = await deps.getCompiler();
-    const mdxBatchResult = mdxCompiler.compileMdxBatch(
-      [{ id: filename, source: processedSource }],
-      { continueOnError: false }
-    );
-
-    const mdxResult = mdxBatchResult.results[0];
-    if (mdxResult?.error) {
-      throw new Error(`MDX compilation failed: ${mdxResult.error.message}`);
-    }
-    if (!mdxResult?.result) {
-      throw new Error(`MDX compilation returned no result for ${filename}`);
-    }
-
-    if (mdxResult.result.frontmatterJson) {
-      try {
-        frontmatter = parseJsonRecord(mdxResult.result.frontmatterJson);
-      } catch {
-        frontmatter = {};
-      }
-    }
-    headings = mdxResult.result.headings || [];
-
-    result = {
-      code: wrapMdxModule(
-        mdxResult.result.code,
+  const target: CompileTargetAdapter = {
+    wrapMdxModule: ({ code, frontmatter, headings, filename: targetFilename }) =>
+      wrapMdxModule(
+        code,
         {
           frontmatter,
           headings,
           registry: deps.registry,
         },
-        filename
+        targetFilename
       ),
-      map: null,
-      frontmatter_json: mdxResult.result.frontmatterJson ?? '',
-      headings,
-      imports: [],
-    };
-  } else if (IS_MDAST) {
-    const binding = await deps.loadBinding();
-    const userImports = extractImportStatements(processedSource);
-    const contentSource = stripFrontmatter(processedSource);
+    renderBlocksModule: ({ blocks, frontmatter, headings, filename: targetFilename, userImports }) =>
+      blocksToJsx(blocks, frontmatter, headings, deps.registry, targetFilename, userImports),
+  };
 
-    const parseResult = binding.parseBlocks(contentSource, {
-      enable_directives: true,
-    });
-    headings = parseResult.headings;
+  const compiled = await compileDocument({
+    filename,
+    source: processedSource,
+    mdxOptions: deps.mdxOptions,
+    rootDir: deps.resolvedConfig?.root,
+    useMdast: IS_MDAST,
+    getCompiler: deps.getCompiler,
+    loadBinding: deps.loadBinding,
+    target,
+  });
 
-    const frontmatterResult = binding.parseFrontmatter(processedSource);
-    frontmatter = frontmatterResult.frontmatter || {};
-
-    result = {
-      code: blocksToJsx(parseResult.blocks, frontmatter, headings, deps.registry, filename, userImports),
-      map: null,
-      frontmatter_json: JSON.stringify(frontmatter),
-      headings,
-      imports: [],
-    };
-  } else {
-    const fileOptions = deriveFileOptions(filename, deps.resolvedConfig?.root);
-    result = currentCompiler.compile(processedSource, filename, fileOptions);
-    if (result.frontmatter_json) {
-      try {
-        frontmatter = parseJsonRecord(result.frontmatter_json);
-      } catch {
-        frontmatter = {};
-      }
-    }
-    headings = result.headings || [];
+  if (compiled.status === 'fallback') {
+    deps.warn(
+      `[xmdx] Skipping ${filename}: ${compiled.reason}`
+    );
+    deps.fallbackFiles.add(filename);
+    deps.fallbackReasons.set(filename, compiled.reason);
+    return compileFallbackModule(filename, processedSource, id, deps.registry, deps.hasStarlightConfigured);
   }
+
+  const startTime = performance.now();
+  const compileStart = LOAD_PROFILE ? performance.now() : 0;
+  const result = compiled.document;
+  const frontmatter = result.frontmatter;
+  const headings = result.headings;
 
   if (deps.loadProfiler) deps.loadProfiler.record('compile', performance.now() - compileStart);
   deps.state.totalProcessingTimeMs += performance.now() - startTime;

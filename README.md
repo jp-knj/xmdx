@@ -19,6 +19,16 @@ A high-performance streaming Markdown/MDX engine built with Rust, designed for m
 | [`@xmdx/napi`](./crates/napi) | Native Node.js bindings (NAPI-RS) |
 | `xmdx-wasm` | WebAssembly build for browsers |
 
+## Architecture
+
+The current architectural direction and target package layering are documented in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+Short version:
+
+- `xmdx` should be the canonical core plus target layer
+- framework packages like `astro-xmdx` should stay thin integrations
+- React-oriented targets should be the main path for future Remix and Next.js support
+
 ## Quick Start
 
 ### xmdx (Standalone)
