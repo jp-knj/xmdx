@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import type * as GlobModule from 'glob';
 import type { SourceMapInput } from 'rollup';
 import type { Registry } from 'xmdx/registry';
 import type { ResolvedConfig } from 'vite';
@@ -442,9 +443,9 @@ export async function handleBuildStart(deps: BuildStartDeps): Promise<void> {
   debugTime('buildStart:total');
   debugTime('buildStart:glob');
 
-  let globModule: typeof import('glob');
+  let globModule: typeof GlobModule;
   try {
-    globModule = asBinding<typeof import('glob')>(require('glob'));
+    globModule = asBinding<typeof GlobModule>(require('glob'));
   } catch {
     throw new Error(
       '[xmdx] glob is required for file discovery. Please install: npm install glob'

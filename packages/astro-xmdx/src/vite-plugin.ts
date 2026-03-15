@@ -8,7 +8,6 @@ import path from 'node:path';
 import type { ResolvedConfig, Plugin } from 'vite';
 import MagicString from 'magic-string';
 import {
-  DiskCache,
   collectHooks,
   resolveLibraries,
   ShikiManager,
@@ -18,6 +17,7 @@ import {
   ENABLE_SHIKI,
 } from '@xmdx/vite';
 import type {
+  DiskCache,
   EsbuildCacheEntry,
   PersistentCache,
   XmdxCompiler,

@@ -4,7 +4,12 @@ import boundaries from 'eslint-plugin-boundaries';
 
 export default defineConfig(
   // Global ignores
-  { ignores: ['crates/**', 'target/**', 'node_modules/**', '**/dist/**', 'examples/**', 'fixtures/**', '**/wasm/**', '**/*.d.ts', 'eslint.config.ts'] },
+  {
+    ignores: ['crates/**', 'target/**', 'node_modules/**', '**/dist/**', 'examples/**', 'fixtures/**', '**/wasm/**', '**/*.d.ts', 'eslint.config.ts'],
+    linterOptions: {
+      reportUnusedDisableDirectives: 'error',
+    },
+  },
 
   // Base: recommended + type-checked
   ...tseslint.configs.recommendedTypeChecked,
@@ -39,6 +44,10 @@ export default defineConfig(
       '@typescript-eslint/no-unsafe-enum-comparison': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports', fixStyle: 'separate-type-imports' }],
+      '@typescript-eslint/consistent-type-exports': 'error',
+      '@typescript-eslint/no-import-type-side-effects': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
     },
   },
 
@@ -81,6 +90,20 @@ export default defineConfig(
     },
   },
 
+  // astro-loader: keep it independent from higher-level integrations and bundler glue
+  {
+    files: ['packages/astro-loader/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['astro-xmdx', 'astro-xmdx/*'], message: '@xmdx/astro-loader must not import from astro-xmdx (sibling integration package).' },
+          { group: ['@xmdx/vite', '@xmdx/vite/*'], message: '@xmdx/astro-loader must not import from @xmdx/vite (bundler layer should not leak into the loader).' },
+        ],
+      }],
+    },
+  },
+
   // Boundaries (xmdx)
   {
     files: ['packages/xmdx/src/**/*.ts'],
@@ -91,6 +114,7 @@ export default defineConfig(
         { type: 'types',        pattern: ['src/types.ts', 'src/constants.ts'], mode: 'file' },
         { type: 'ops',          pattern: 'src/ops/*' },
         { type: 'utils',        pattern: 'src/utils/*' },
+        { type: 'compiler',     pattern: 'src/compiler/*' },
         { type: 'registry',     pattern: 'src/registry/*' },
         { type: 'transforms',   pattern: 'src/transforms/*' },
         { type: 'pipeline',     pattern: 'src/pipeline/*' },
@@ -104,10 +128,11 @@ export default defineConfig(
         rules: [
           { from: 'ops',          allow: ['types'] },
           { from: 'utils',        allow: ['types', 'ops', 'registry'] },
+          { from: 'compiler',     allow: ['types', 'ops', 'utils'] },
           { from: 'registry',     allow: ['types', 'ops'] },
           { from: 'transforms',   allow: ['types', 'ops', 'utils', 'registry'] },
           { from: 'pipeline',     allow: ['types', 'ops', 'utils', 'transforms'] },
-          { from: 'entry',        allow: ['types', 'ops', 'utils', 'registry', 'transforms', 'pipeline'] },
+          { from: 'entry',        allow: ['types', 'ops', 'utils', 'compiler', 'registry', 'transforms', 'pipeline'] },
         ],
       }],
     },
@@ -143,6 +168,41 @@ export default defineConfig(
         default: 'disallow',
         rules: [
           { from: 'vite-plugin', allow: ['ops'] },
+        ],
+      }],
+    },
+  },
+
+  // Boundaries (astro-xmdx)
+  {
+    files: ['packages/astro-xmdx/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['@xmdx/astro-loader', '@xmdx/astro-loader/*'], message: 'astro-xmdx must not import from @xmdx/astro-loader (sibling integration package).' },
+        ],
+      }],
+    },
+  },
+
+  // Boundaries (astro-loader)
+  {
+    files: ['packages/astro-loader/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    plugins: { boundaries },
+    settings: {
+      'boundaries/elements': [
+        { type: 'ops',   pattern: 'src/ops/*' },
+        { type: 'entry', pattern: 'src/index.ts', mode: 'file' },
+      ],
+      'boundaries/ignore': ['**/*.test.ts'],
+    },
+    rules: {
+      'boundaries/element-types': ['error', {
+        default: 'disallow',
+        rules: [
+          { from: 'entry', allow: ['ops'] },
         ],
       }],
     },

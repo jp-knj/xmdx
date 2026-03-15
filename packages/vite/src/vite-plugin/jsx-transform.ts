@@ -8,6 +8,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { SourceMapInput } from 'rollup';
+import type * as ViteModule from 'vite';
 import { ESBUILD_JSX_CONFIG, OXC_JSX_CONFIG } from 'xmdx/constants';
 import { asBinding, asSourceMap } from 'xmdx/ops';
 import { asViteWithOxc } from '../ops/vite.js';
@@ -30,9 +31,9 @@ let resolvedBatchTransform: BatchTransformFn | null = null;
 async function resolveTransformFn(): Promise<TransformFn> {
   if (resolvedTransform) return resolvedTransform;
 
-  let vite: typeof import('vite');
+  let vite: typeof ViteModule;
   try {
-    vite = asBinding<typeof import('vite')>(_require('vite'));
+    vite = asBinding<typeof ViteModule>(_require('vite'));
   } catch {
     vite = await import('vite');
   }
@@ -209,7 +210,7 @@ export function batchTransformJsx(
  */
 export function isOxcAvailable(): boolean {
   try {
-    const vite = asBinding<typeof import('vite')>(_require('vite'));
+    const vite = asBinding<typeof ViteModule>(_require('vite'));
     return typeof asViteWithOxc(vite).transformWithOxc === 'function';
   } catch {
     return false;

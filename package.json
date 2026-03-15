@@ -8,7 +8,7 @@
     "build:napi": "pnpm --filter @xmdx/napi build",
     "test": "pnpm -r test",
     "knip": "knip",
-    "lint:eslint": "eslint .",
+    "lint:eslint": "eslint . --max-warnings 0",
     "version": "changeset version",
     "release": "changeset publish"
   },
