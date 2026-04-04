@@ -1,6 +1,6 @@
 {
   "name": "@xmdx/vite",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Vite plugin infrastructure for xmdx",
   "type": "module",
   "scripts": {
